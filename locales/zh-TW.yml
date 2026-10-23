@@ -1,0 +1,132 @@
+zh-TW:
+  toolbar:
+    icons: 大圖示
+    icons_hint: 以大圖示顯示作用中面板
+    list: 列表
+    list_hint: 以詳細列表顯示作用中面板
+    smb: SMB 連線
+    ssh: SSH 連線
+    pack: 壓縮
+    pack_hint: 將選取項目壓縮到對側面板
+    unpack: 解壓縮
+    unpack_hint: 將選取的壓縮檔解壓到對側面板
+    shortcuts_hint: 鍵盤快捷鍵 (Cmd+/)
+  panel:
+    home: 家目錄
+    favorites: 常用目錄
+    no_favorites: 尚無常用目錄
+    add_favorite: 加入目前資料夾
+    remove_favorite: 從常用目錄移除
+    drives: 磁碟
+    no_drives: 沒有掛載的磁碟
+    refresh: 重新整理
+    edit_path: 編輯路徑 (Cmd+L)
+    eject: 退出
+    disconnect: 中斷連線
+  list:
+    name: 名稱
+    size: 大小
+    date: 修改日期
+    kind: 種類
+    folder: 資料夾
+    file: 檔案
+  cmd:
+    copy: 複製
+    move: 移動
+    new_folder: 新資料夾
+    delete: 刪除
+  dialog:
+    compress_title: "壓縮 %{count} 個項目"
+    archive_name: "檔名:"
+    copy_title: "複製 %{count} 個項目"
+    move_title: "移動 %{count} 個項目"
+    dest_label: "目的資料夾:"
+    new_folder_title: 新資料夾
+    create: 建立
+    rename_title: 重新命名
+    rename: 重新命名
+    delete_title: "刪除 %{count} 個項目?"
+    and_more: "…以及其他 %{count} 個"
+    to_trash: 移至垃圾筒
+    delete_permanent: 永久刪除
+    cancel: 取消
+    smb_title: SMB 連線
+    saved_connections: 已儲存的連線
+    conn_name: "名稱:"
+    server: "伺服器:"
+    share: "分享名稱:"
+    username: "帳號:"
+    password: "密碼:"
+    remember: 記住(儲存設定,密碼存入鑰匙圈)
+    connect: 連線
+    edit: 編輯
+    delete: 刪除
+    ssh_title: SSH 連線
+    from_ssh_config: "從 ~/.ssh/config 選擇"
+    pick_host: 選擇主機…
+    host: "主機:"
+    auth: "認證:"
+    auth_key: 公鑰
+    auth_password: 密碼
+    identity_file: "金鑰檔:"
+    identity_hint: "留空 = 使用預設 ~/.ssh 金鑰"
+    passphrase: "金鑰密語:"
+    remote_no_trash: 遠端檔案將永久刪除(無垃圾筒)。
+    conflict_title: 檔案已存在
+    conflict_msg: "目的地已有「%{name}」。"
+    overwrite: 覆蓋
+    skip: 跳過
+    keep_both: 保留兩者
+    overwrite_all: 全部覆蓋
+    skip_all: 全部跳過
+    cancel_op: 取消操作
+  status:
+    items: "%{count} 個項目"
+    selected: "已選 %{count} / %{total} 個項目 (%{size})"
+    favorite_added: 已加入常用目錄
+    coming_soon: 功能尚未完成
+    open_failed: 無法開啟檔案
+    remote_open_unsupported: 尚不支援開啟遠端檔案
+    not_a_dir: "不是資料夾:%{path}"
+    cancelled: 已取消
+    copied: "已複製 %{count} 個項目"
+    moved: "已移動 %{count} 個項目"
+    trashed: "已將 %{count} 個項目移至垃圾筒"
+    trashing: 正在移至垃圾筒…
+    deleted: "已刪除 %{count} 個項目"
+    folder_created: 已建立資料夾
+    renamed: 已重新命名
+    name_taken: "「%{name}」已存在"
+    nothing_selected: 未選取任何項目
+    select_one: 請只選取一個項目
+    copy_into_itself: 無法將資料夾複製到自己裡面
+    remote_target_unsupported: 尚不支援遠端目的地
+    compressed: "已建立 %{name}"
+    extracted: "已解壓 %{count} 個壓縮檔"
+    gz_single_file: .gz 只能壓縮單一檔案
+    unknown_archive: "未知的壓縮格式:%{name}"
+    no_archives_selected: 未選取壓縮檔
+    mounting: 連線中…
+    mounted: "已掛載於 %{path}"
+    mount_failed: 無法掛載分享
+    ejected: 已退出磁碟
+    connecting: 連線中…
+    connected: "已連線至 %{host}"
+    auth_failed: 認證失敗
+    uploaded: "已上傳 %{count} 個項目"
+    downloaded: "已下載 %{count} 個項目"
+    upload_label: 上傳
+    download_label: 下載
+    remote_to_remote_unsupported: 不支援遠端對遠端複製
+    archive_local_only: 壓縮/解壓僅支援本機資料夾
+  shortcuts:
+    title: 鍵盤快捷鍵
+    switch_panel: 切換作用中面板
+    open: 開啟/進入資料夾
+    parent: 回上層資料夾
+    quicklook: QuickLook 預覽
+    select_all: 全選
+    toggle_hidden: 顯示/隱藏隱藏檔
+    type_keys: a–z …
+    type_filter: 直接輸入即可過濾列表
+    clear_filter: 清除過濾
