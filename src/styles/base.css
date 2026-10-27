@@ -1004,6 +1004,98 @@ input:focus {
   background: var(--hover-tint);
 }
 
+/* ── Multi-rename dialog ───────────────────────────────────────────── */
+
+.mr-form {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+.mr-form .field {
+  flex: none;
+}
+.mr-form .field.grow {
+  flex: 1;
+  min-width: 120px;
+}
+.mr-form .field label,
+.mr-form .field.inline label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-bottom: 3px;
+}
+.mr-form .field input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.mr-form .field input.num-in,
+.mr-form .num-in {
+  width: 58px;
+}
+.mr-form .check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding-bottom: 5px;
+}
+.mr-form .check input {
+  accent-color: var(--color-accent);
+}
+.mr-hint {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin-bottom: var(--space-2);
+}
+.mr-preview {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: var(--space-1) 0;
+}
+.mr-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.mr-row .old {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.mr-row .arrow {
+  color: var(--text-faint);
+  flex: none;
+}
+.mr-row .new {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-accent-2);
+}
+.mr-row .new.same {
+  color: var(--text-faint);
+}
+.mr-row.bad .new {
+  color: #e08a8a;
+}
+
 .toasts {
   position: fixed;
   right: var(--space-4);

@@ -24,6 +24,7 @@ export type ActionId =
   | "move"
   | "newFolder"
   | "renameOne"
+  | "multiRename"
   | "trash"
   | "deletePermanent"
   | "compress"
@@ -133,6 +134,15 @@ export const actions: Record<ActionId, Action> = {
       const entry = s.visible(side)[s.activeTab(side).cursor];
       if (!entry) return ops().toast(i18n.t("status.nothingSelected"));
       dialogs().open({ type: "rename", side, entry });
+    },
+  },
+
+  multiRename: {
+    id: "multiRename",
+    run: () => {
+      const { side, items } = activeTargets();
+      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+      dialogs().open({ type: "multiRename", side, items });
     },
   },
 

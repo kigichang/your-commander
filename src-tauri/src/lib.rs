@@ -70,6 +70,7 @@ pub fn run() {
             commands::fs::list_dir,
             commands::fs::mkdir,
             commands::fs::rename,
+            commands::fs::batch_rename,
             commands::fs::exists,
             commands::system::volumes,
             commands::system::home_dir,

@@ -8,6 +8,7 @@ import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
 import { ConnectDialog } from "./ConnectDialog";
+import { MultiRenameDialog } from "./MultiRenameDialog";
 
 export function Dialogs() {
   const dialog = useDialogs((s) => s.dialog);
@@ -24,6 +25,8 @@ export function Dialogs() {
       return <NewFolderDialog d={dialog} />;
     case "rename":
       return <RenameDialog d={dialog} />;
+    case "multiRename":
+      return <MultiRenameDialog d={dialog} />;
     case "confirmDelete":
       return <ConfirmDeleteDialog d={dialog} />;
     case "compress":

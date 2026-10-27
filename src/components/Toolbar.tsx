@@ -49,7 +49,7 @@ export function Toolbar() {
       <button className="tbtn" disabled onClick={soon}>
         <span className="glyph">≡</span> {t("toolbar.compare")}
       </button>
-      <button className="tbtn" disabled onClick={soon}>
+      <button className="tbtn" title="⌃M" onClick={() => actions.multiRename.run()}>
         <span className="glyph">✎</span> {t("toolbar.rename")}
       </button>
       <button className="tbtn" disabled onClick={soon}>

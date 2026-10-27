@@ -19,6 +19,11 @@ export const mkdir = (location: Location, dir: string, name: string) =>
 export const rename = (location: Location, path: string, newName: string) =>
   invoke<void>("rename", { location, path, newName });
 
+export const batchRename = (
+  location: Location,
+  items: Array<{ path: string; newName: string }>,
+) => invoke<number>("batch_rename", { location, items });
+
 export const volumes = () => invoke<VolumeInfo[]>("volumes");
 export const homeDir = () => invoke<string>("home_dir");
 export const openPath = (path: string) => invoke<void>("open_path", { path });

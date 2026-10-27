@@ -127,6 +127,28 @@
     "disconnect": "中斷連線",
     "localOnly": "壓縮/解壓僅支援本機資料夾"
   },
+  "rename": {
+    "title": "重新命名 {{count}} 個檔案",
+    "nameMask": "名稱遮罩",
+    "extension": "副檔名",
+    "find": "尋找",
+    "replaceWith": "取代為",
+    "regex": "正規表達式",
+    "caseLabel": "大小寫",
+    "case_unchanged": "不變",
+    "case_lower": "小寫",
+    "case_upper": "大寫",
+    "counterStart": "計數起始",
+    "step": "間隔",
+    "undoLast": "復原上次",
+    "apply": "改名 {{count}} 個",
+    "done": "已重新命名 {{count}} 個項目",
+    "undone": "已復原 {{count}} 個改名",
+    "badName": "名稱無效",
+    "badRegex": "正規表達式無效",
+    "duplicate": "名稱重複",
+    "taken": "名稱已存在"
+  },
   "queue": {
     "title": "佇列",
     "waiting": "等待中",

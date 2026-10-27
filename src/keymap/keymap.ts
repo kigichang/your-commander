@@ -30,6 +30,7 @@ export const defaultKeymap: Record<string, ActionId> = {
   "meta+shift+Backspace": "deletePermanent",
 
   "shift+F6": "renameOne",
+  "ctrl+m": "multiRename",
   "meta+shift+r": "renameOne",
   "meta+shift+c": "copy",
   "meta+shift+m": "move",

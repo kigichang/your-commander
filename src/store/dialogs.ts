@@ -7,6 +7,7 @@ export type Dialog =
   | { type: "copyMove"; move: boolean; side: Side; items: FsEntry[]; destDir: string }
   | { type: "newFolder"; side: Side }
   | { type: "rename"; side: Side; entry: FsEntry }
+  | { type: "multiRename"; side: Side; items: FsEntry[] }
   | { type: "confirmDelete"; side: Side; items: FsEntry[]; remote: boolean }
   | { type: "compress"; side: Side; items: FsEntry[]; destDir: string };
 

@@ -127,6 +127,28 @@
     "disconnect": "Disconnect",
     "localOnly": "Compress/extract works on local folders only"
   },
+  "rename": {
+    "title": "Rename {{count}} files",
+    "nameMask": "Name mask",
+    "extension": "Extension",
+    "find": "Find",
+    "replaceWith": "Replace with",
+    "regex": "Regex",
+    "caseLabel": "Case",
+    "case_unchanged": "as is",
+    "case_lower": "lower",
+    "case_upper": "UPPER",
+    "counterStart": "Counter start",
+    "step": "step",
+    "undoLast": "Undo last",
+    "apply": "Rename {{count}}",
+    "done": "Renamed {{count}} item(s)",
+    "undone": "Reverted {{count}} rename(s)",
+    "badName": "invalid name",
+    "badRegex": "invalid regex",
+    "duplicate": "duplicate name",
+    "taken": "name already exists"
+  },
   "queue": {
     "title": "Queue",
     "waiting": "waiting",
