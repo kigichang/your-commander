@@ -25,6 +25,7 @@ export type ActionId =
   | "newFolder"
   | "renameOne"
   | "multiRename"
+  | "syncFolders"
   | "trash"
   | "deletePermanent"
   | "compress"
@@ -143,6 +144,26 @@ export const actions: Record<ActionId, Action> = {
       const { side, items } = activeTargets();
       if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
       dialogs().open({ type: "multiRename", side, items });
+    },
+  },
+
+  syncFolders: {
+    id: "syncFolders",
+    run: () => {
+      const s = panels();
+      const left = s.activeTab(0);
+      const right = s.activeTab(1);
+      const label = (tab: typeof left) =>
+        (tab.remoteLabel ? `${tab.remoteLabel}:` : "") + tab.path;
+      dialogs().open({
+        type: "sync",
+        left: left.location,
+        leftDir: left.path,
+        leftLabel: label(left),
+        right: right.location,
+        rightDir: right.path,
+        rightLabel: label(right),
+      });
     },
   },
 

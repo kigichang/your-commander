@@ -79,6 +79,7 @@ pub fn run() {
             commands::system::is_archive,
             commands::system::file_tags,
             commands::preview::read_preview,
+            commands::sync::sync_compare,
             commands::ops::start_op,
             commands::ops::pause_op,
             commands::ops::cancel_op,

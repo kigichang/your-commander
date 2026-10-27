@@ -113,7 +113,7 @@ fn copy_dir(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
+pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
     let name = src.file_name().unwrap_or_default().to_string_lossy().to_string();
     if !ctx.mask_matches(&name) {
         return Ok(());

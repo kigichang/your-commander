@@ -79,6 +79,8 @@ function describe(req: OpRequest): string {
       const first = baseName(req.items[0] ?? "");
       return req.items.length > 1 ? `${first} +${req.items.length - 1}` : first;
     }
+    case "sync":
+      return `${baseName(req.leftDir)} ⇄ ${baseName(req.rightDir)}`;
     case "smbMount":
       return `smb://${req.server}/${req.share}`;
   }

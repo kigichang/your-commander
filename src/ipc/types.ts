@@ -106,6 +106,25 @@ export interface SourceItem {
   isDir: boolean;
 }
 
+export interface SyncSideInfo {
+  size: number;
+  modified: number | null;
+}
+
+export interface SyncRow {
+  rel: string;
+  left: SyncSideInfo | null;
+  right: SyncSideInfo | null;
+  equal: boolean;
+}
+
+export type SyncDirection = "ltr" | "rtl";
+
+export interface SyncActionItem {
+  rel: string;
+  direction: SyncDirection;
+}
+
 export type IfExists = "ask" | "skip" | "replaceOlder" | "rename";
 
 export interface CopyOptions {
@@ -128,6 +147,14 @@ export type OpRequest =
     }
   | { op: "trash"; items: string[] }
   | { op: "delete"; location: Location; items: string[] }
+  | {
+      op: "sync";
+      left: Location;
+      leftDir: string;
+      right: Location;
+      rightDir: string;
+      items: SyncActionItem[];
+    }
   | { op: "compress"; sources: string[]; dest: string; format: string }
   | { op: "extract"; archives: string[]; destDir: string }
   | {

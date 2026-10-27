@@ -55,7 +55,7 @@ export function Toolbar() {
       <button className="tbtn" disabled onClick={soon}>
         <span className="glyph">⌕</span> {t("toolbar.find")}
       </button>
-      <button className="tbtn" disabled onClick={soon}>
+      <button className="tbtn" title="⌘=" onClick={() => actions.syncFolders.run()}>
         <span className="glyph">⇅</span> {t("toolbar.sync")}
       </button>
       <button

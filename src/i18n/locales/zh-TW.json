@@ -149,6 +149,20 @@
     "duplicate": "名稱重複",
     "taken": "名稱已存在"
   },
+  "sync": {
+    "title": "同步資料夾",
+    "label": "同步",
+    "compare": "比對",
+    "comparing": "比對中…",
+    "byContent": "依內容",
+    "contentLocalOnly": "內容比對需兩側皆為本機",
+    "diffOnly": "只顯示差異",
+    "hint": "按「比對」檢視兩側資料夾的差異。",
+    "allEqual": "沒有差異",
+    "actions": "{{count}} 個動作",
+    "synchronize": "同步",
+    "done": "已同步 {{count}} 個項目"
+  },
   "queue": {
     "title": "佇列",
     "waiting": "等待中",

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { FsEntry } from "../ipc/types";
+import type { FsEntry, Location } from "../ipc/types";
 import type { Side } from "./panels";
 
 export type Dialog =
@@ -8,6 +8,15 @@ export type Dialog =
   | { type: "newFolder"; side: Side }
   | { type: "rename"; side: Side; entry: FsEntry }
   | { type: "multiRename"; side: Side; items: FsEntry[] }
+  | {
+      type: "sync";
+      left: Location;
+      leftDir: string;
+      leftLabel: string;
+      right: Location;
+      rightDir: string;
+      rightLabel: string;
+    }
   | { type: "confirmDelete"; side: Side; items: FsEntry[]; remote: boolean }
   | { type: "compress"; side: Side; items: FsEntry[]; destDir: string };
 

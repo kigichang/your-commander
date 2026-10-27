@@ -7,6 +7,7 @@ import type {
   OpEvent,
   OpRequest,
   SshConfigHost,
+  SyncRow,
   VolumeInfo,
 } from "./types";
 
@@ -55,6 +56,15 @@ export const pauseOp = (opId: number, paused: boolean) =>
   invoke<void>("pause_op", { opId, paused });
 export const resolveConflict = (opId: number, choice: ConflictChoice) =>
   invoke<void>("resolve_conflict", { opId, choice });
+
+export const syncCompare = (
+  left: Location,
+  leftDir: string,
+  right: Location,
+  rightDir: string,
+  byContent: boolean,
+) =>
+  invoke<SyncRow[]>("sync_compare", { left, leftDir, right, rightDir, byContent });
 
 export const sshHosts = () => invoke<SshConfigHost[]>("ssh_hosts");
 

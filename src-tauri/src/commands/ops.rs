@@ -2,7 +2,8 @@ use crate::fs::smb;
 use crate::ops::queue::{
     ConflictChoice, CopyOptions, OpCtx, OpId, OpSink, CANCELLED,
 };
-use crate::ops::{archive, delete, remote, transfer};
+use crate::ops::sync::SyncItem;
+use crate::ops::{archive, delete, remote, sync, transfer};
 use crate::state::{AppState, Location, OpControl};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -114,6 +115,14 @@ pub enum OpRequest {
         dest_dir: PathBuf,
     },
     #[serde(rename_all = "camelCase")]
+    Sync {
+        left: Location,
+        left_dir: PathBuf,
+        right: Location,
+        right_dir: PathBuf,
+        items: Vec<SyncItem>,
+    },
+    #[serde(rename_all = "camelCase")]
     SmbMount {
         server: String,
         share: String,
@@ -191,6 +200,17 @@ fn run_request(
         }
         OpRequest::Extract { archives, dest_dir } => {
             archive::extract_op(ctx, archives, dest_dir).map(counted)
+        }
+        OpRequest::Sync {
+            left,
+            left_dir,
+            right,
+            right_dir,
+            items,
+        } => {
+            let left_conn = state.resolve(&left)?;
+            let right_conn = state.resolve(&right)?;
+            sync::sync_op(ctx, left_conn, left_dir, right_conn, right_dir, items).map(counted)
         }
         OpRequest::SmbMount {
             server,

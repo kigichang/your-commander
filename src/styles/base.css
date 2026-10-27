@@ -1004,6 +1004,120 @@ input:focus {
   background: var(--hover-tint);
 }
 
+/* ── Sync dialog ───────────────────────────────────────────────────── */
+
+.dialog.sync {
+  max-width: 760px;
+  width: 760px;
+}
+.sync-paths {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+}
+.sync-paths .arrow {
+  color: var(--color-accent);
+}
+.sync-paths span:not(.arrow) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sync-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.sync-bar .check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.sync-bar .check input {
+  accent-color: var(--color-accent);
+}
+.sync-stats {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.sync-rows {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  height: 300px;
+  overflow-y: auto;
+  position: relative;
+  contain: strict;
+}
+.sync-rows .none {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.sync-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 24px;
+  display: grid;
+  grid-template-columns: 1fr 108px 36px 108px 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.sync-row:hover {
+  background: var(--hover-tint);
+}
+.sync-row .rel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sync-row .rel.right {
+  text-align: right;
+}
+.sync-row .rel.missing {
+  color: var(--text-faint);
+}
+.sync-row .date {
+  color: var(--text-faint);
+  white-space: nowrap;
+  text-align: center;
+}
+.sync-row .op {
+  text-align: center;
+  border-radius: var(--radius-sm);
+  padding: 1px 0;
+  font-size: 13px;
+  color: var(--color-accent);
+}
+.sync-row .op.skip {
+  color: var(--text-faint);
+}
+.sync-row .op:hover {
+  background: var(--cursor-tint);
+}
+.sync-actions {
+  margin-right: auto;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  align-self: center;
+}
+
 /* ── Multi-rename dialog ───────────────────────────────────────────── */
 
 .mr-form {

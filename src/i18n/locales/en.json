@@ -149,6 +149,20 @@
     "duplicate": "duplicate name",
     "taken": "name already exists"
   },
+  "sync": {
+    "title": "Sync folders",
+    "label": "Sync",
+    "compare": "Compare",
+    "comparing": "Comparing…",
+    "byContent": "by content",
+    "contentLocalOnly": "Content compare needs both sides local",
+    "diffOnly": "differences only",
+    "hint": "Compare the two folders to see what differs.",
+    "allEqual": "No differences",
+    "actions": "{{count}} actions",
+    "synchronize": "Synchronize",
+    "done": "Synchronized {{count}} item(s)"
+  },
   "queue": {
     "title": "Queue",
     "waiting": "waiting",
