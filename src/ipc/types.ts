@@ -1,0 +1,119 @@
+/** Mirrors `state::Location` on the Rust side. */
+export type Location = { kind: "local" } | { kind: "sftp"; connId: number };
+
+/** Mirrors `fs::provider::FsEntry` (camelCase, modified = epoch ms). */
+export interface FsEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  isSymlink: boolean;
+  size: number;
+  modified: number | null;
+  ext: string;
+  isHidden: boolean;
+}
+
+export interface VolumeInfo {
+  name: string;
+  path: string;
+  free: number;
+  total: number;
+}
+
+export interface SshConfigHost {
+  alias: string;
+  hostName: string;
+  user: string;
+  port: number;
+  identity: string;
+}
+
+/** Persisted config: snake_case to stay compatible with the old TOML file. */
+export interface Favorite {
+  name: string;
+  path: string;
+}
+
+export interface SmbConnection {
+  name: string;
+  server: string;
+  share: string;
+  username: string;
+  remember: boolean;
+}
+
+export interface SshConnection {
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  identity_file: string;
+  use_password: boolean;
+  remember: boolean;
+}
+
+export interface Config {
+  smb_connections: SmbConnection[];
+  ssh_connections: SshConnection[];
+  language: string | null;
+  show_hidden: boolean;
+  favorites: Favorite[];
+  left_path: string | null;
+  right_path: string | null;
+  left_view: string | null;
+  right_view: string | null;
+  window_size: [number, number] | null;
+}
+
+export type ConflictChoice =
+  | "overwrite"
+  | "overwriteAll"
+  | "skip"
+  | "skipAll"
+  | "keepBoth"
+  | "cancelOp";
+
+export type OpEvent =
+  | {
+      type: "progress";
+      detail: string;
+      fraction: number;
+      doneBytes: number;
+      totalBytes: number;
+    }
+  | { type: "conflict"; src: string; dest: string }
+  | {
+      type: "done";
+      ok: boolean;
+      cancelled: boolean;
+      count: number;
+      name: string | null;
+      connId: number | null;
+      error: string | null;
+    };
+
+export interface SourceItem {
+  path: string;
+  isDir: boolean;
+}
+
+export type OpRequest =
+  | {
+      op: "copy";
+      src: Location;
+      sources: SourceItem[];
+      dest: Location;
+      destDir: string;
+      removeSource: boolean;
+    }
+  | { op: "trash"; items: string[] }
+  | { op: "delete"; location: Location; items: string[] }
+  | { op: "compress"; sources: string[]; dest: string; format: string }
+  | { op: "extract"; archives: string[]; destDir: string }
+  | {
+      op: "smbMount";
+      server: string;
+      share: string;
+      username: string;
+      password: string;
+    };
