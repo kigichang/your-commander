@@ -418,6 +418,17 @@ input:focus {
   font-size: 11px;
   color: var(--text-muted);
 }
+.row.parent {
+  position: static;
+  grid-template-columns: 1fr;
+  flex: none;
+  height: 24px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--color-divider);
+}
+.row.parent .icon {
+  color: var(--color-accent-2);
+}
 .row.cursor {
   background: var(--cursor-tint);
   border-left-color: var(--color-accent);

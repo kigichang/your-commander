@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { FsEntry } from "../ipc/types";
 import { formatDate, humanSize } from "../lib/format";
+import { parentPath } from "../lib/path";
 import { visibleEntries } from "../lib/selectors";
 import { actions } from "../keymap/actions";
 import type { Side, SortKey, TabState, ViewMode } from "../store/panels";
@@ -62,6 +63,20 @@ export function FileTable({
               {tab.sortKey === c.key ? (tab.sortDir === 1 ? " ▲" : " ▼") : ""}
             </button>
           ))}
+        </div>
+      )}
+      {parentPath(tab.path) && (
+        <div
+          className="row parent"
+          title=".."
+          onDoubleClick={() => {
+            usePanels.getState().setActiveSide(side);
+            usePanels.getState().up(side);
+          }}
+        >
+          <span className="name">
+            <span className="icon">▴</span>..
+          </span>
         </div>
       )}
       <div className="tbody" ref={scrollRef}>
