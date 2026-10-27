@@ -81,10 +81,14 @@ input:focus {
   gap: var(--space-2);
   flex: 1;
   min-width: 0;
+  /* Fill the titlebar so its background (a drag region) is hittable. */
+  align-self: stretch;
 }
 
 .toolbar .spacer {
   flex: 1;
+  /* Zero-height spacers can't receive the drag mousedown. */
+  align-self: stretch;
 }
 
 .tbtn {
@@ -617,6 +621,7 @@ input:focus {
 }
 .fkeybar .spacer {
   flex: 1;
+  align-self: stretch;
 }
 
 /* ── Ops / dialogs / toasts ────────────────────────────────────────── */

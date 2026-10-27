@@ -16,7 +16,7 @@ export function Toolbar() {
   const soon = () => toast(t("status.comingSoon"));
 
   return (
-    <div className="toolbar">
+    <div className="toolbar" data-tauri-drag-region>
       <button className="tbtn" title="F2" onClick={() => actions.refresh.run()}>
         <span className="glyph">⟳</span>
       </button>
