@@ -1,7 +1,9 @@
 import clsx from "clsx";
+import i18next from "i18next";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
+import { useOps } from "../store/ops";
 import type { VolumeInfo } from "../ipc/types";
 import { humanSize } from "../lib/format";
 import { baseName, displayPath, expandHome, parentPath } from "../lib/path";
@@ -12,6 +14,21 @@ import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
 import { FileTable } from "./FileTable";
 import { QuickView } from "./QuickView";
+
+async function ejectVolume(volPath: string, side: Side, currentPath: string) {
+  const { toast } = useOps.getState();
+  try {
+    // Leave the volume first when this panel is inside it.
+    if (currentPath.startsWith(volPath)) {
+      const home = useSettings.getState().home ?? "/";
+      await usePanels.getState().navigate(side, home, { kind: "local" }, null);
+    }
+    await ipc.smbUnmount(volPath);
+    toast(i18next.t("panel2.ejected"));
+  } catch (e) {
+    toast(String(e), "error");
+  }
+}
 
 export function Panel({ side }: { side: Side }) {
   const panel = usePanels((s) => s.panels[side]);
@@ -130,6 +147,22 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
         </button>
         {menuOpen && (
           <div className="menu">
+            {tab.location.kind === "sftp" && (
+              <>
+                <button
+                  className="item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    if (tab.location.kind === "sftp")
+                      usePanels.getState().disconnectSftp(tab.location.connId);
+                  }}
+                >
+                  <span>⏏ {t("panel2.disconnect")}</span>
+                  <span className="sub">{tab.remoteLabel}</span>
+                </button>
+                <div className="sep" />
+              </>
+            )}
             <button
               className="item"
               onClick={() => {
@@ -161,24 +194,36 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
             <div className="sep" />
             <div className="headline">{t("panel.drives")}</div>
             {vols.map((v) => (
-              <button
-                key={v.path}
-                className="item"
-                onClick={() => {
-                  setMenuOpen(false);
-                  void navigate(side, v.path, { kind: "local" }, null);
-                }}
-              >
-                <span>◉ {v.name}</span>
-                {v.total > 0 && (
-                  <span className="sub">
-                    {t("panel.freeOf", {
-                      free: humanSize(v.free),
-                      total: humanSize(v.total),
-                    })}
-                  </span>
-                )}
-              </button>
+              <div key={v.path} className="item-row">
+                <button
+                  className="item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void navigate(side, v.path, { kind: "local" }, null);
+                  }}
+                >
+                  <span>◉ {v.name}</span>
+                  {v.total > 0 && (
+                    <span className="sub">
+                      {t("panel.freeOf", {
+                        free: humanSize(v.free),
+                        total: humanSize(v.total),
+                      })}
+                    </span>
+                  )}
+                </button>
+                <button
+                  className="eject"
+                  title={t("panel2.eject")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                    void ejectVolume(v.path, side, tab.path);
+                  }}
+                >
+                  ⏏
+                </button>
+              </div>
             ))}
           </div>
         )}

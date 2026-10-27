@@ -85,6 +85,36 @@
     "format": "Format:",
     "compress": "Compress"
   },
+  "connect": {
+    "title": "Connect to Server",
+    "saved": "Saved",
+    "noSaved": "No saved connections",
+    "name": "Name",
+    "server": "Server",
+    "share": "Share",
+    "username": "User",
+    "password": "Password",
+    "remember": "Remember (settings saved, password in Keychain)",
+    "host": "Host",
+    "port": "Port",
+    "auth": "Auth",
+    "authKey": "SSH key",
+    "authPassword": "Password",
+    "identityFile": "Key file",
+    "identityHint": "empty = default ~/.ssh keys",
+    "passphrase": "Passphrase",
+    "fromSshConfig": "From ~/.ssh/config",
+    "pickHost": "Pick a host…",
+    "connect": "Connect",
+    "connecting": "Connecting…",
+    "deleteSaved": "Delete saved connection"
+  },
+  "panel2": {
+    "eject": "Eject",
+    "ejected": "Volume ejected",
+    "disconnect": "Disconnect",
+    "localOnly": "Compress/extract works on local folders only"
+  },
   "quickview": {
     "title": "Quick View",
     "copyTarget": "copy target: {{name}}",

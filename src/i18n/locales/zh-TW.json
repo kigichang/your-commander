@@ -85,6 +85,36 @@
     "format": "格式：",
     "compress": "壓縮"
   },
+  "connect": {
+    "title": "連線到伺服器",
+    "saved": "已儲存",
+    "noSaved": "尚無已儲存的連線",
+    "name": "名稱",
+    "server": "伺服器",
+    "share": "分享名稱",
+    "username": "帳號",
+    "password": "密碼",
+    "remember": "記住（儲存設定，密碼存入鑰匙圈）",
+    "host": "主機",
+    "port": "埠",
+    "auth": "認證",
+    "authKey": "SSH 金鑰",
+    "authPassword": "密碼",
+    "identityFile": "金鑰檔",
+    "identityHint": "留空 = 使用預設 ~/.ssh 金鑰",
+    "passphrase": "金鑰密語",
+    "fromSshConfig": "從 ~/.ssh/config 選擇",
+    "pickHost": "選擇主機…",
+    "connect": "連線",
+    "connecting": "連線中…",
+    "deleteSaved": "刪除已儲存的連線"
+  },
+  "panel2": {
+    "eject": "退出",
+    "ejected": "已退出磁碟",
+    "disconnect": "中斷連線",
+    "localOnly": "壓縮/解壓僅支援本機資料夾"
+  },
   "quickview": {
     "title": "快速預覽",
     "copyTarget": "複製目標：{{name}}",

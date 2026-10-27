@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { actions } from "../keymap/actions";
+import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
 
@@ -46,7 +47,10 @@ export function Toolbar() {
       <button className="tbtn" disabled onClick={soon}>
         <span className="glyph">⇅</span> {t("toolbar.sync")}
       </button>
-      <button className="tbtn accent" onClick={soon}>
+      <button
+        className="tbtn accent"
+        onClick={() => useDialogs.getState().open({ type: "connect", protocol: "smb" })}
+      >
         <span className="glyph">⇄</span> {t("toolbar.connect")}
       </button>
     </div>

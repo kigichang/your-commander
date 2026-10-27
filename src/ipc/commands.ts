@@ -82,6 +82,15 @@ export const smbStorePassword = (
   share: string,
   password: string,
 ) => invoke<void>("smb_store_password", { username, server, share, password });
+export const smbForgetPassword = (username: string, server: string, share: string) =>
+  invoke<void>("smb_forget_password", { username, server, share });
+
+export const sshSavedPassword = (username: string, host: string) =>
+  invoke<string | null>("ssh_saved_password", { username, host });
+export const sshStorePassword = (username: string, host: string, password: string) =>
+  invoke<void>("ssh_store_password", { username, host, password });
+export const sshForgetPassword = (username: string, host: string) =>
+  invoke<void>("ssh_forget_password", { username, host });
 
 export const getConfig = () => invoke<Config>("get_config");
 export const setConfig = (config: Config) =>

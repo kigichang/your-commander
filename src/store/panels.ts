@@ -84,6 +84,8 @@ interface PanelsStore {
   swapPanels: () => void;
   setViewMode: (side: Side, mode: ViewMode) => void;
   toggleQuickView: () => void;
+  /** Close an SFTP connection and send every tab that used it back home. */
+  disconnectSftp: (connId: number) => void;
 }
 
 function updateTab(
@@ -166,6 +168,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
         }),
       }));
       if (loc.kind === "local") void ipc.watchDir(side, path);
+      else void ipc.unwatch(side);
       const settings = useSettings.getState();
       if (loc.kind === "local" && settings.config) {
         settings.save(side === 0 ? { left_path: path } : { right_path: path });
@@ -400,5 +403,32 @@ export const usePanels = create<PanelsStore>((set, get) => ({
     set((s) => ({
       quickViewSide: s.quickViewSide === null ? s.otherSide(s.activeSide) : null,
     }));
+  },
+
+  disconnectSftp: (connId) => {
+    void ipc.sftpDisconnect(connId);
+    const home = useSettings.getState().home ?? "/";
+    set((s) => ({
+      panels: s.panels.map((panel) => ({
+        ...panel,
+        tabs: panel.tabs.map((tab) =>
+          tab.location.kind === "sftp" && tab.location.connId === connId
+            ? {
+                ...tab,
+                location: { kind: "local" as const },
+                remoteLabel: null,
+                path: home,
+                entries: [],
+                marked: new Set<string>(),
+                cursor: 0,
+                anchor: 0,
+                filter: "",
+              }
+            : tab,
+        ),
+      })) as [PanelState, PanelState],
+    }));
+    void get().refresh(0, { silent: true });
+    void get().refresh(1, { silent: true });
   },
 }));

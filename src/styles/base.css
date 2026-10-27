@@ -698,6 +698,137 @@ input:focus {
   background: color-mix(in srgb, #e08a8a 12%, transparent);
 }
 
+/* ── Connect dialog ────────────────────────────────────────────────── */
+
+.dialog.wide {
+  min-width: 620px;
+  max-width: 720px;
+}
+.connect-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: var(--space-6);
+}
+.saved-list {
+  border-right: 1px solid var(--color-divider);
+  padding-right: var(--space-4);
+  max-height: 380px;
+  overflow-y: auto;
+}
+.saved-list .headline {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: var(--space-2);
+}
+.saved-list .none {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.saved-list .saved {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+.saved-list .saved:hover {
+  background: var(--hover-tint);
+}
+.saved-list .saved.on {
+  background: var(--cursor-tint);
+}
+.saved-list .pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 5px 8px;
+  text-align: left;
+}
+.saved-list .pick .label {
+  font-size: 12.5px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.saved-list .pick .sub {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.saved-list .close {
+  color: var(--text-faint);
+  padding: 2px 6px;
+  font-size: 11px;
+}
+.saved-list .close:hover {
+  color: var(--color-text);
+}
+.connect-grid .form label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin: var(--space-3) 0 3px;
+}
+.connect-grid .form label:first-child {
+  margin-top: 0;
+}
+.connect-grid .form input:not([type="checkbox"]),
+.connect-grid .form select {
+  width: 100%;
+  font-size: 12px;
+  padding: 5px 9px;
+}
+.connect-grid .form select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+}
+.connect-grid .two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.connect-grid .check {
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px !important;
+  color: var(--text-muted) !important;
+  margin-top: var(--space-4) !important;
+}
+.connect-grid .check input {
+  accent-color: var(--color-accent);
+}
+
+.menu .item-row {
+  display: flex;
+  align-items: center;
+}
+.menu .item-row .item {
+  flex: 1;
+  min-width: 0;
+}
+.menu .eject {
+  color: var(--text-faint);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  flex: none;
+}
+.menu .eject:hover {
+  color: var(--color-text);
+  background: var(--hover-tint);
+}
+
 .toasts {
   position: fixed;
   right: var(--space-4);

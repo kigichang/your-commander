@@ -7,6 +7,7 @@ import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
+import { ConnectDialog } from "./ConnectDialog";
 
 export function Dialogs() {
   const dialog = useDialogs((s) => s.dialog);
@@ -15,6 +16,8 @@ export function Dialogs() {
   if (conflict) return <ConflictDialog />;
   if (!dialog) return null;
   switch (dialog.type) {
+    case "connect":
+      return <ConnectDialog protocol={dialog.protocol} />;
     case "copyMove":
       return <CopyMoveDialog d={dialog} />;
     case "newFolder":

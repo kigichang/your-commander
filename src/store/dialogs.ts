@@ -3,6 +3,7 @@ import type { FsEntry } from "../ipc/types";
 import type { Side } from "./panels";
 
 export type Dialog =
+  | { type: "connect"; protocol: "smb" | "sftp" }
   | { type: "copyMove"; move: boolean; side: Side; items: FsEntry[]; destDir: string }
   | { type: "newFolder"; side: Side }
   | { type: "rename"; side: Side; entry: FsEntry }

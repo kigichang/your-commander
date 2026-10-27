@@ -171,7 +171,8 @@ export const actions: Record<ActionId, Action> = {
   compress: {
     id: "compress",
     run: () => {
-      const { side, items } = activeTargets();
+      const { side, tab, items } = activeTargets();
+      if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
       if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
       const other = panels().otherSide(side);
       dialogs().open({
