@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { ActionId } from "../keymap/actions";
 import { actions } from "../keymap/actions";
 import type { PresetName } from "../keymap/keymap";
-import { chordOf } from "../keymap/keymap";
+import { chordOf, prettyChord } from "../keymap/keymap";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useKeymap } from "../store/keymapStore";
@@ -13,20 +13,6 @@ import { useSettings } from "../store/settings";
 
 const SECTIONS = ["general", "hotkeys", "panes", "appearance", "transfers", "plugins"] as const;
 const READY = new Set(["general", "hotkeys"]);
-
-const MOD_GLYPHS: Array<[string, string]> = [
-  ["meta+", "⌘"],
-  ["alt+", "⌥"],
-  ["ctrl+", "⌃"],
-  ["shift+", "⇧"],
-];
-
-function prettyChord(chord: string): string {
-  let out = chord;
-  for (const [mod, glyph] of MOD_GLYPHS) out = out.replace(mod, glyph);
-  if (out === " " || out.endsWith("+ ")) out = out.slice(0, -1) + "Space";
-  return out.length === 1 ? out.toUpperCase() : out;
-}
 
 export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }> }) {
   const { t } = useTranslation();

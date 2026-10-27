@@ -80,6 +80,8 @@ pub struct Config {
     /// chord → action id, "" meaning the chord is unbound.
     pub hotkey_preset: Option<String>,
     pub hotkeys: std::collections::HashMap<String, String>,
+    /// Recently visited local folders, newest first (command palette).
+    pub recent_dirs: Vec<PathBuf>,
     /// Column widths [ext, size, date] in px; Name takes the rest.
     pub left_cols: Vec<u32>,
     pub right_cols: Vec<u32>,
@@ -107,6 +109,7 @@ impl Default for Config {
             right_sort: None,
             hotkey_preset: None,
             hotkeys: std::collections::HashMap::new(),
+            recent_dirs: Vec::new(),
             left_cols: Vec::new(),
             right_cols: Vec::new(),
             window_size: None,

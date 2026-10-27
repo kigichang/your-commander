@@ -267,7 +267,7 @@ export const actions: Record<ActionId, Action> = {
 
   commandPalette: {
     id: "commandPalette",
-    run: () => ops().toast(i18n.t("status.comingSoon")),
+    run: () => dialogs().open({ type: "palette" }),
   },
 
   openSettings: {

@@ -268,8 +268,18 @@ export const usePanels = create<PanelsStore>((set, get) => ({
           marked: new Set<string>(),
         }),
       }));
-      if (loc.kind === "local") void ipc.watchDir(side, path);
-      else void ipc.unwatch(side);
+      if (loc.kind === "local") {
+        void ipc.watchDir(side, path);
+        // Remember for the command palette's FOLDERS section.
+        const settings = useSettings.getState();
+        const home = settings.home;
+        if (settings.config && path !== home) {
+          const recents = [path, ...settings.config.recent_dirs.filter((p) => p !== path)];
+          settings.save({ recent_dirs: recents.slice(0, 15) });
+        }
+      } else {
+        void ipc.unwatch(side);
+      }
       persistPanels();
     } catch (e) {
       set((s) => ({

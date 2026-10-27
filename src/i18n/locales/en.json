@@ -215,6 +215,16 @@
     "openSettings": "Settings",
     "quit": "Quit"
   },
+  "palette": {
+    "hint": "action or folder…",
+    "empty": "No matches",
+    "actions": "Actions",
+    "folders": "Folders",
+    "tag_recent": "recent",
+    "tag_favorite": "★",
+    "tag_home": "home",
+    "foot": "↵ run · ⌥↵ in other pane · esc close"
+  },
   "find": {
     "title": "Find files",
     "name": "Name",

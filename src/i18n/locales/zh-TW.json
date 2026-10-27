@@ -215,6 +215,16 @@
     "openSettings": "設定",
     "quit": "結束"
   },
+  "palette": {
+    "hint": "動作或資料夾…",
+    "empty": "沒有符合項目",
+    "actions": "動作",
+    "folders": "資料夾",
+    "tag_recent": "最近",
+    "tag_favorite": "★",
+    "tag_home": "家目錄",
+    "foot": "↵ 執行 · ⌥↵ 開在對側 · esc 關閉"
+  },
   "find": {
     "title": "搜尋檔案",
     "name": "名稱",

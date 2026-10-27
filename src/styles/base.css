@@ -1035,6 +1035,100 @@ input:focus {
   background: var(--hover-tint);
 }
 
+/* ── Command palette ───────────────────────────────────────────────── */
+
+.palette-overlay {
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.palette {
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.palette-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+}
+.palette-input .prompt {
+  color: var(--color-accent);
+  font-size: 16px;
+  font-weight: 600;
+}
+.palette-input input {
+  flex: 1;
+  background: none;
+  border: none;
+  font-size: 15px;
+  padding: 0;
+}
+.palette-list {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: var(--space-1) 0 var(--space-2);
+}
+.palette-list .none {
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 12.5px;
+}
+.palette-head {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: var(--space-3) var(--space-4) 3px;
+}
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  text-align: left;
+  padding: 5px var(--space-4);
+  font-size: 13px;
+}
+.palette-row.on {
+  background: var(--cursor-tint);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.palette-row .plabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-row kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-accent-2);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.palette-row .ptag {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.palette-foot {
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--color-divider);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
 /* ── Settings dialog ───────────────────────────────────────────────── */
 
 .dialog.settings {

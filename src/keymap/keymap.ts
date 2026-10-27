@@ -82,6 +82,21 @@ export function buildKeymap(
   return out;
 }
 
+const MOD_GLYPHS: Array<[string, string]> = [
+  ["meta+", "⌘"],
+  ["alt+", "⌥"],
+  ["ctrl+", "⌃"],
+  ["shift+", "⇧"],
+];
+
+/** "meta+shift+c" → "⌘⇧C" for display. */
+export function prettyChord(chord: string): string {
+  let out = chord;
+  for (const [mod, glyph] of MOD_GLYPHS) out = out.replaceAll(mod, glyph);
+  if (out === " " || out.endsWith("+ ")) out = out.slice(0, -1) + "Space";
+  return out.length === 1 ? out.toUpperCase() : out;
+}
+
 export function chordOf(e: KeyboardEvent): string {
   const mods: string[] = [];
   if (e.altKey) mods.push("alt");

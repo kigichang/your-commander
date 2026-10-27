@@ -77,6 +77,7 @@ export interface Config {
   right_sort: string | null;
   hotkey_preset: string | null;
   hotkeys: Record<string, string>;
+  recent_dirs: string[];
   left_cols: number[];
   right_cols: number[];
   window_size: [number, number] | null;
