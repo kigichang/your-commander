@@ -7,19 +7,60 @@ import { formatDate, humanSize } from "../lib/format";
 import { parentPath } from "../lib/path";
 import { visibleEntries } from "../lib/selectors";
 import { actions } from "../keymap/actions";
-import type { Side, SortKey, TabState, ViewMode } from "../store/panels";
+import type { ColKey, ColWidths, Side, SortKey, TabState, ViewMode } from "../store/panels";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
 import { FileIcon } from "./FileIcon";
 
 const ROW_HEIGHT = 26;
 
-const COLUMNS: Array<{ key: SortKey; label: string; className?: string }> = [
+const COLUMNS: Array<{
+  key: SortKey;
+  label: string;
+  className?: string;
+  /** Which width this column's LEFT divider adjusts (undefined = none). */
+  col?: ColKey;
+}> = [
   { key: "name", label: "list.name" },
-  { key: "ext", label: "list.ext" },
-  { key: "size", label: "list.size", className: "num" },
-  { key: "modified", label: "list.date", className: "num" },
+  { key: "ext", label: "list.ext", col: "ext" },
+  { key: "size", label: "list.size", className: "num", col: "size" },
+  { key: "modified", label: "list.date", className: "num", col: "date" },
 ];
+
+function gridColumns(w: ColWidths): string {
+  return `minmax(0, 1fr) ${w.ext}px ${w.size}px ${w.date}px`;
+}
+
+/** Header divider: dragging moves the boundary with the mouse by resizing
+ *  the column to its right (Name soaks up the slack). Double-click resets. */
+function ColResize({ side, col }: { side: Side; col: ColKey }) {
+  const onMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = usePanels.getState().panels[side].colWidths[col];
+    const move = (ev: MouseEvent) =>
+      usePanels.getState().setColWidth(side, col, startW - (ev.clientX - startX));
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      document.body.style.cursor = "";
+      usePanels.getState().persist();
+    };
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up, { once: true });
+  };
+  return (
+    <div
+      className="col-resize"
+      onMouseDown={onMouseDown}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        usePanels.getState().resetColWidth(side, col);
+      }}
+    />
+  );
+}
 
 export function FileTable({
   side,
@@ -49,20 +90,24 @@ export function FileTable({
   }, [tab.cursor]);
 
   const brief = viewMode === "brief";
+  const colWidths = usePanels((s) => s.panels[side].colWidths);
+  const cols = gridColumns(colWidths);
 
   return (
     <div className="ftable">
       {!brief && (
-        <div className="thead">
+        <div className="thead" style={{ gridTemplateColumns: cols }}>
           {COLUMNS.map((c) => (
-            <button
-              key={c.key}
-              className={clsx(c.className, tab.sortKey === c.key && "on")}
-              onClick={() => usePanels.getState().setSort(side, c.key)}
-            >
-              {t(c.label)}
-              {tab.sortKey === c.key ? (tab.sortDir === 1 ? " ▲" : " ▼") : ""}
-            </button>
+            <div key={c.key} className="th">
+              {c.col && <ColResize side={side} col={c.col} />}
+              <button
+                className={clsx(c.className, tab.sortKey === c.key && "on")}
+                onClick={() => usePanels.getState().setSort(side, c.key)}
+              >
+                {t(c.label)}
+                {tab.sortKey === c.key ? (tab.sortDir === 1 ? " ▲" : " ▼") : ""}
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -96,6 +141,7 @@ export function FileTable({
                 tab={tab}
                 brief={brief}
                 top={item.start}
+                cols={cols}
               />
             ))}
           </div>
@@ -112,6 +158,7 @@ function Row({
   tab,
   brief,
   top,
+  cols,
 }: {
   entry: FsEntry;
   index: number;
@@ -119,6 +166,7 @@ function Row({
   tab: TabState;
   brief: boolean;
   top: number;
+  cols: string;
 }) {
   const isCursor = index === tab.cursor;
   const isMarked = tab.marked.has(entry.name);
@@ -144,7 +192,7 @@ function Row({
         isCursor && "cursor",
         isMarked && "marked",
       )}
-      style={brief ? { top, gridTemplateColumns: "1fr" } : { top }}
+      style={{ top, gridTemplateColumns: brief ? "1fr" : cols }}
       onMouseDown={onMouseDown}
       onDoubleClick={() => {
         usePanels.getState().setActiveSide(side);

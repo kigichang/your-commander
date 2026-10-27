@@ -345,6 +345,40 @@ input:focus {
   border-bottom: 1px solid var(--color-divider);
   flex: none;
 }
+.ftable .th {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+.ftable .th button {
+  flex: 1;
+  min-width: 0;
+}
+.ftable .th .num {
+  justify-content: flex-end;
+}
+.col-resize {
+  position: absolute;
+  left: -5px;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: col-resize;
+  z-index: 2;
+}
+.col-resize::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  bottom: 3px;
+  width: 1px;
+  background: var(--color-divider);
+}
+.col-resize:hover::after {
+  background: var(--color-accent);
+  width: 2px;
+}
 .ftable .thead button {
   display: flex;
   align-items: center;
@@ -361,7 +395,6 @@ input:focus {
 .ftable .thead button.on {
   color: var(--color-accent);
 }
-.ftable .thead .num,
 .ftable .row .num {
   justify-content: flex-end;
   text-align: right;

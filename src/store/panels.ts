@@ -29,10 +29,18 @@ export interface TabState {
   filter: string;
 }
 
+export type ColKey = "ext" | "size" | "date";
+export type ColWidths = Record<ColKey, number>;
+
+export const DEFAULT_COLS: ColWidths = { ext: 64, size: 84, date: 118 };
+export const COL_MIN = 36;
+export const COL_MAX = 280;
+
 export interface PanelState {
   tabs: TabState[];
   active: number;
   viewMode: ViewMode;
+  colWidths: ColWidths;
 }
 
 let nextTabId = 1;
@@ -83,6 +91,10 @@ interface PanelsStore {
   setActiveTab: (side: Side, index: number) => void;
   swapPanels: () => void;
   setViewMode: (side: Side, mode: ViewMode) => void;
+  /** Live while dragging a header divider; call persist() on release. */
+  setColWidth: (side: Side, col: ColKey, width: number) => void;
+  resetColWidth: (side: Side, col: ColKey) => void;
+  persist: () => void;
   toggleQuickView: () => void;
   /** Close an SFTP connection and send every tab that used it back home. */
   disconnectSftp: (connId: number) => void;
@@ -130,6 +142,7 @@ function persistPanels() {
       active: activeLocal,
       view: panel.viewMode,
       sort: `${activeTab.sortKey}:${activeTab.sortDir === 1 ? "asc" : "desc"}`,
+      cols: [panel.colWidths.ext, panel.colWidths.size, panel.colWidths.date],
       path: activeTab.location.kind === "local" ? activeTab.path : null,
     };
   };
@@ -144,6 +157,8 @@ function persistPanels() {
     right_view: right.view,
     left_sort: left.sort,
     right_sort: right.sort,
+    left_cols: left.cols,
+    right_cols: right.cols,
     ...(left.path ? { left_path: left.path } : {}),
     ...(right.path ? { right_path: right.path } : {}),
   });
@@ -151,8 +166,8 @@ function persistPanels() {
 
 export const usePanels = create<PanelsStore>((set, get) => ({
   panels: [
-    { tabs: [], active: 0, viewMode: "full" },
-    { tabs: [], active: 0, viewMode: "full" },
+    { tabs: [], active: 0, viewMode: "full", colWidths: { ...DEFAULT_COLS } },
+    { tabs: [], active: 0, viewMode: "full", colWidths: { ...DEFAULT_COLS } },
   ],
   activeSide: 0,
   quickViewSide: null,
@@ -166,6 +181,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       active: number | undefined,
       view: string | null | undefined,
       sort: string | null | undefined,
+      cols: number[] | undefined,
     ): PanelState => {
       const tabPaths = paths?.length ? paths : [fallback ?? home];
       const [sortKey, dir] = (sort ?? "name:asc").split(":");
@@ -178,10 +194,17 @@ export const usePanels = create<PanelsStore>((set, get) => ({
           : "name",
         sortDir: (dir === "desc" ? -1 : 1) as 1 | -1,
       }));
+      const colWidths = { ...DEFAULT_COLS };
+      if (cols?.length === 3) {
+        [colWidths.ext, colWidths.size, colWidths.date] = cols.map((w) =>
+          Math.min(Math.max(w, COL_MIN), COL_MAX),
+        ) as [number, number, number];
+      }
       return {
         tabs,
         active: Math.min(active ?? 0, tabs.length - 1),
         viewMode: view === "brief" ? "brief" : "full",
+        colWidths,
       };
     };
     set({
@@ -192,6 +215,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
           config?.left_active,
           config?.left_view,
           config?.left_sort,
+          config?.left_cols,
         ),
         restore(
           config?.right_tabs,
@@ -199,6 +223,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
           config?.right_active,
           config?.right_view,
           config?.right_sort,
+          config?.right_cols,
         ),
       ],
     });
@@ -475,6 +500,25 @@ export const usePanels = create<PanelsStore>((set, get) => ({
     });
     persistPanels();
   },
+
+  setColWidth: (side, col, width) => {
+    const clamped = Math.round(Math.min(Math.max(width, COL_MIN), COL_MAX));
+    set((s) => {
+      const next = [...s.panels] as [PanelState, PanelState];
+      next[side] = {
+        ...next[side],
+        colWidths: { ...next[side].colWidths, [col]: clamped },
+      };
+      return { panels: next };
+    });
+  },
+
+  resetColWidth: (side, col) => {
+    get().setColWidth(side, col, DEFAULT_COLS[col]);
+    persistPanels();
+  },
+
+  persist: () => persistPanels(),
 
   toggleQuickView: () => {
     set((s) => ({
