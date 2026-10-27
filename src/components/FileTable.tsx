@@ -10,6 +10,7 @@ import { actions } from "../keymap/actions";
 import type { Side, SortKey, TabState, ViewMode } from "../store/panels";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
+import { FileIcon } from "./FileIcon";
 
 const ROW_HEIGHT = 26;
 
@@ -151,7 +152,7 @@ function Row({
       }}
     >
       <span className="name">
-        <span className="icon">{entry.isDir ? "▸" : "·"}</span>
+        <FileIcon isDir={entry.isDir} ext={entry.ext} />
         {entry.name}
       </span>
       {!brief && <span className="ext">{entry.ext}</span>}

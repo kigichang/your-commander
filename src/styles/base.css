@@ -403,10 +403,15 @@ input:focus {
 }
 .row .icon {
   flex: none;
-  width: 14px;
+  width: 16px;
   text-align: center;
   color: var(--text-muted);
   font-size: 12px;
+}
+.row .icon-img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
 }
 .row.dir .icon {
   color: var(--color-accent-2);

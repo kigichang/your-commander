@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod fnkeys;
 mod fs;
+mod icons;
 mod keychain;
 mod ops;
 mod state;
@@ -95,6 +96,7 @@ pub fn run() {
             commands::config::ssh_forget_password,
             fnkeys::fkeys_set,
             fnkeys::fkeys_available,
+            icons::file_icon,
             watch::watch_dir,
             watch::unwatch,
         ])

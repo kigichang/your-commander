@@ -33,6 +33,8 @@ pub struct AppState {
     pub ops: Mutex<HashMap<OpId, Arc<OpControl>>>,
     next_op_id: AtomicU64,
     pub watchers: Mutex<HashMap<u32, notify::RecommendedWatcher>>,
+    /// PNG system icons keyed by "folder"/"generic"/extension.
+    pub icons: Mutex<HashMap<String, Arc<Vec<u8>>>>,
 }
 
 impl AppState {

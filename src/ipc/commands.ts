@@ -96,6 +96,9 @@ export const getConfig = () => invoke<Config>("get_config");
 export const setConfig = (config: Config) =>
   invoke<void>("set_config", { config });
 
+export const fileIcon = async (key: string): Promise<ArrayBuffer> =>
+  invoke("file_icon", { key });
+
 export const fkeysSet = (enabled: boolean) => invoke<void>("fkeys_set", { enabled });
 export const fkeysAvailable = () => invoke<boolean>("fkeys_available");
 
