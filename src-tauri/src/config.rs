@@ -76,6 +76,10 @@ pub struct Config {
     /// Sort of the active tab, as "key:asc" / "key:desc".
     pub left_sort: Option<String>,
     pub right_sort: Option<String>,
+    /// Hotkey preset name ("commander" / "finder") plus the user's overlay:
+    /// chord → action id, "" meaning the chord is unbound.
+    pub hotkey_preset: Option<String>,
+    pub hotkeys: std::collections::HashMap<String, String>,
     /// Column widths [ext, size, date] in px; Name takes the rest.
     pub left_cols: Vec<u32>,
     pub right_cols: Vec<u32>,
@@ -101,6 +105,8 @@ impl Default for Config {
             right_active: 0,
             left_sort: None,
             right_sort: None,
+            hotkey_preset: None,
+            hotkeys: std::collections::HashMap::new(),
             left_cols: Vec::new(),
             right_cols: Vec::new(),
             window_size: None,

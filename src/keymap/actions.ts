@@ -36,6 +36,7 @@ export type ActionId =
   | "swap"
   | "toggleHidden"
   | "commandPalette"
+  | "openSettings"
   | "quit";
 
 type Modded = { mark?: boolean };
@@ -267,6 +268,11 @@ export const actions: Record<ActionId, Action> = {
   commandPalette: {
     id: "commandPalette",
     run: () => ops().toast(i18n.t("status.comingSoon")),
+  },
+
+  openSettings: {
+    id: "openSettings",
+    run: () => dialogs().open({ type: "settings", section: "hotkeys" }),
   },
 
   quit: { id: "quit", run: () => void getCurrentWindow().close() },

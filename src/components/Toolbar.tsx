@@ -39,6 +39,13 @@ export function Toolbar() {
       </button>
       <div className="spacer" data-tauri-drag-region />
       <button
+        className="tbtn"
+        title="⌘,"
+        onClick={() => actions.openSettings.run()}
+      >
+        <span className="glyph">⚙</span>
+      </button>
+      <button
         className={`tbtn${fkeysOn && fkeysAvailable ? " accent" : ""}`}
         disabled={!fkeysAvailable}
         title={t(fkeysAvailable ? "toolbar.fnHint" : "toolbar.fnUnavailable")}

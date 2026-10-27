@@ -6,6 +6,7 @@ import { OpsUI } from "./components/OpsUI";
 import { Panel } from "./components/Panel";
 import { Toolbar } from "./components/Toolbar";
 import { useKeyboard } from "./keymap/useKeyboard";
+import { useKeymap } from "./store/keymapStore";
 import type { Side } from "./store/panels";
 import { usePanels } from "./store/panels";
 import { useSettings } from "./store/settings";
@@ -17,6 +18,7 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     void (async () => {
       await useSettings.getState().load();
+      useKeymap.getState().load();
       await usePanels.getState().init();
       // Directory watcher pings: watchId is the panel side.
       unlisten = await listen<number>("fs:changed", (e) => {

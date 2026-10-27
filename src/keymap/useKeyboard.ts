@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { useDialogs } from "../store/dialogs";
+import { useKeymap } from "../store/keymapStore";
 import { actions } from "./actions";
-import { chordOf, defaultKeymap } from "./keymap";
+import { chordOf } from "./keymap";
 
 /** One global keydown listener dispatching through the keymap. Dialogs and
  *  text inputs take precedence over panel shortcuts. */
@@ -15,7 +16,7 @@ export function useKeyboard() {
       if (target?.closest("input, textarea, [contenteditable]")) return;
 
       const chord = chordOf(e);
-      let actionId = defaultKeymap[chord];
+      const actionId = useKeymap.getState().map[chord];
       // Shift+<chord> falls back to the bare chord with mark semantics
       // only where the keymap registered it explicitly, so no extra logic.
       if (!actionId) return;

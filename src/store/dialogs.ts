@@ -9,6 +9,7 @@ export type Dialog =
   | { type: "rename"; side: Side; entry: FsEntry }
   | { type: "multiRename"; side: Side; items: FsEntry[] }
   | { type: "find"; side: Side; location: Location; dir: string }
+  | { type: "settings"; section?: "general" | "hotkeys" }
   | {
       type: "sync";
       left: Location;

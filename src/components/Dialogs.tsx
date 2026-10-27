@@ -10,6 +10,7 @@ import { usePanels } from "../store/panels";
 import { ConnectDialog } from "./ConnectDialog";
 import { MultiRenameDialog } from "./MultiRenameDialog";
 import { FindDialog } from "./FindDialog";
+import { SettingsDialog } from "./SettingsDialog";
 import { SyncDialog } from "./SyncDialog";
 
 export function Dialogs() {
@@ -33,6 +34,8 @@ export function Dialogs() {
       return <SyncDialog d={dialog} />;
     case "find":
       return <FindDialog d={dialog} />;
+    case "settings":
+      return <SettingsDialog d={dialog} />;
     case "confirmDelete":
       return <ConfirmDeleteDialog d={dialog} />;
     case "compress":

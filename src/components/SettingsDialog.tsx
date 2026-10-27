@@ -1,0 +1,239 @@
+import clsx from "clsx";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { ActionId } from "../keymap/actions";
+import { actions } from "../keymap/actions";
+import type { PresetName } from "../keymap/keymap";
+import { chordOf } from "../keymap/keymap";
+import type { Dialog } from "../store/dialogs";
+import { useDialogs } from "../store/dialogs";
+import { useKeymap } from "../store/keymapStore";
+import { useOps } from "../store/ops";
+import { useSettings } from "../store/settings";
+
+const SECTIONS = ["general", "hotkeys", "panes", "appearance", "transfers", "plugins"] as const;
+const READY = new Set(["general", "hotkeys"]);
+
+const MOD_GLYPHS: Array<[string, string]> = [
+  ["meta+", "⌘"],
+  ["alt+", "⌥"],
+  ["ctrl+", "⌃"],
+  ["shift+", "⇧"],
+];
+
+function prettyChord(chord: string): string {
+  let out = chord;
+  for (const [mod, glyph] of MOD_GLYPHS) out = out.replace(mod, glyph);
+  if (out === " " || out.endsWith("+ ")) out = out.slice(0, -1) + "Space";
+  return out.length === 1 ? out.toUpperCase() : out;
+}
+
+export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }> }) {
+  const { t } = useTranslation();
+  const close = useDialogs((s) => s.close);
+  const [section, setSection] = useState<string>(d.section ?? "hotkeys");
+  // Which action is recording a new chord, and which chord it replaces.
+  const [capture, setCapture] = useState<{ action: ActionId; replace?: string } | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (capture) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === "Escape") return setCapture(null);
+        if (["Shift", "Meta", "Alt", "Control"].includes(e.key)) return;
+        const km = useKeymap.getState();
+        if (e.key === "Backspace" && capture.replace) {
+          km.unbindChord(capture.replace);
+          setCapture(null);
+          return;
+        }
+        const chord = chordOf(e);
+        const owner = km.map[chord];
+        if (capture.replace && capture.replace !== chord) km.unbindChord(capture.replace);
+        km.bind(chord, capture.action);
+        if (owner && owner !== capture.action) {
+          useOps.getState().toast(
+            t("settings.rebound", {
+              chord: prettyChord(chord),
+              action: t(`action.${owner}`),
+            }),
+          );
+        }
+        setCapture(null);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [capture, close, t]);
+
+  return (
+    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+      <div className="dialog wide settings">
+        <h2>{t("settings.title")}</h2>
+        <div className="settings-grid">
+          <nav className="settings-nav">
+            {SECTIONS.map((s) => (
+              <button
+                key={s}
+                className={clsx(section === s && "on")}
+                disabled={!READY.has(s)}
+                title={READY.has(s) ? "" : t("status.comingSoon")}
+                onClick={() => READY.has(s) && setSection(s)}
+              >
+                {t(`settings.sec_${s}`)}
+              </button>
+            ))}
+          </nav>
+          {section === "general" ? <GeneralPane /> : <HotkeysPane capture={capture} setCapture={setCapture} />}
+        </div>
+        <div className="buttons">
+          <button className="btn primary" onClick={close}>
+            {t("settings.done")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GeneralPane() {
+  const { t, i18n } = useTranslation();
+  const showHidden = useSettings((s) => s.showHidden);
+  const fkeysOn = useSettings((s) => s.fkeysWithoutFn);
+  const fkeysAvailable = useSettings((s) => s.fkeysAvailable);
+
+  return (
+    <div className="settings-pane">
+      <label>{t("settings.language")}</label>
+      <select
+        value={i18n.language.startsWith("zh") ? "zh-TW" : "en"}
+        onChange={(e) => useSettings.getState().setLanguage(e.target.value)}
+      >
+        <option value="en">English</option>
+        <option value="zh-TW">繁體中文</option>
+      </select>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={showHidden}
+          onChange={() => useSettings.getState().toggleShowHidden()}
+        />
+        {t("settings.showHidden")}
+      </label>
+      <label className="check">
+        <input
+          type="checkbox"
+          disabled={!fkeysAvailable}
+          checked={fkeysOn && fkeysAvailable}
+          onChange={() => useSettings.getState().toggleFkeys()}
+        />
+        {t("settings.fkeys")}
+      </label>
+    </div>
+  );
+}
+
+function HotkeysPane({
+  capture,
+  setCapture,
+}: {
+  capture: { action: ActionId; replace?: string } | null;
+  setCapture: (c: { action: ActionId; replace?: string } | null) => void;
+}) {
+  const { t } = useTranslation();
+  const preset = useKeymap((s) => s.preset);
+  const map = useKeymap((s) => s.map);
+  const [filter, setFilter] = useState("");
+
+  const rows = useMemo(() => {
+    const byAction = new Map<ActionId, string[]>();
+    for (const [chord, action] of Object.entries(map)) {
+      byAction.set(action, [...(byAction.get(action) ?? []), chord]);
+    }
+    const needle = filter.trim().toLowerCase();
+    return (Object.keys(actions) as ActionId[])
+      .map((id) => ({ id, label: t(`action.${id}`), chords: byAction.get(id) ?? [] }))
+      .filter(
+        (r) =>
+          !needle ||
+          r.label.toLowerCase().includes(needle) ||
+          r.chords.some((c) => prettyChord(c).toLowerCase().includes(needle)),
+      );
+  }, [map, filter, t]);
+
+  return (
+    <div className="settings-pane">
+      <div className="hk-bar">
+        <select
+          value={preset}
+          onChange={(e) => useKeymap.getState().setPreset(e.target.value as PresetName)}
+        >
+          <option value="commander">{t("settings.presetCommander")}</option>
+          <option value="finder">{t("settings.presetFinder")}</option>
+        </select>
+        <input
+          className="hk-filter"
+          placeholder={t("settings.filterHint")}
+          value={filter}
+          spellCheck={false}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <button
+          className="btn"
+          onClick={() => {
+            useKeymap.getState().reset();
+            useOps.getState().toast(t("settings.resetDone"));
+          }}
+        >
+          {t("settings.reset")}
+        </button>
+      </div>
+      <div className="hk-table">
+        {rows.map((row) => (
+          <div key={row.id} className="hk-row">
+            <span className="hk-action">{row.label}</span>
+            <span className="hk-keys">
+              {row.chords.map((chord) => (
+                <span
+                  key={chord}
+                  className={clsx(
+                    "hk-chip",
+                    capture?.action === row.id && capture.replace === chord && "recording",
+                  )}
+                >
+                  <button
+                    className="hk-key"
+                    title={t("settings.recordHint")}
+                    onClick={() => setCapture({ action: row.id, replace: chord })}
+                  >
+                    {capture?.action === row.id && capture.replace === chord
+                      ? t("settings.pressKeys")
+                      : prettyChord(chord)}
+                  </button>
+                  <button
+                    className="hk-x"
+                    onClick={() => useKeymap.getState().unbindChord(chord)}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+              <button
+                className={clsx("hk-add", capture?.action === row.id && !capture.replace && "recording")}
+                onClick={() => setCapture({ action: row.id })}
+              >
+                {capture?.action === row.id && !capture.replace ? t("settings.pressKeys") : "+"}
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

@@ -46,7 +46,41 @@ export const defaultKeymap: Record<string, ActionId> = {
   "meta+u": "swap",
   "meta+shift+.": "toggleHidden",
   "meta+k": "commandPalette",
+  "meta+,": "openSettings",
 };
+
+/// "Finder-like" preset: Space previews, Enter renames, ⌘O / ⌘↓ open.
+export const finderDelta: Record<string, ActionId | ""> = {
+  " ": "quickView",
+  Enter: "renameOne",
+  "meta+o": "enter",
+  "meta+ArrowDown": "enter",
+  F3: "markToggle",
+};
+
+export type PresetName = "commander" | "finder";
+
+export const PRESETS: Record<PresetName, Record<string, ActionId | "">> = {
+  commander: {},
+  finder: finderDelta,
+};
+
+/** Effective chord→action map: base defaults, preset delta, user overlay.
+ *  An empty-string action unbinds the chord. */
+export function buildKeymap(
+  preset: PresetName,
+  overrides: Record<string, string>,
+): Record<string, ActionId> {
+  const map: Record<string, ActionId | ""> = { ...defaultKeymap, ...PRESETS[preset] };
+  for (const [chord, action] of Object.entries(overrides)) {
+    map[chord] = action as ActionId | "";
+  }
+  const out: Record<string, ActionId> = {};
+  for (const [chord, action] of Object.entries(map)) {
+    if (action !== "") out[chord] = action;
+  }
+  return out;
+}
 
 export function chordOf(e: KeyboardEvent): string {
   const mods: string[] = [];
