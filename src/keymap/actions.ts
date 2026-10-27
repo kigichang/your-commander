@@ -26,6 +26,7 @@ export type ActionId =
   | "renameOne"
   | "multiRename"
   | "syncFolders"
+  | "findFiles"
   | "trash"
   | "deletePermanent"
   | "compress"
@@ -163,6 +164,20 @@ export const actions: Record<ActionId, Action> = {
         right: right.location,
         rightDir: right.path,
         rightLabel: label(right),
+      });
+    },
+  },
+
+  findFiles: {
+    id: "findFiles",
+    run: () => {
+      const s = panels();
+      const tab = s.activeTab(s.activeSide);
+      dialogs().open({
+        type: "find",
+        side: s.activeSide,
+        location: tab.location,
+        dir: tab.path,
       });
     },
   },

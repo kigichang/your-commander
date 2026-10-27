@@ -80,6 +80,8 @@ pub fn run() {
             commands::system::file_tags,
             commands::preview::read_preview,
             commands::sync::sync_compare,
+            commands::find::start_find,
+            commands::find::cancel_find,
             commands::ops::start_op,
             commands::ops::pause_op,
             commands::ops::cancel_op,

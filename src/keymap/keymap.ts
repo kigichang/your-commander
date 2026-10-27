@@ -32,6 +32,7 @@ export const defaultKeymap: Record<string, ActionId> = {
   "shift+F6": "renameOne",
   "ctrl+m": "multiRename",
   "meta+=": "syncFolders",
+  "meta+f": "findFiles",
   "meta+shift+r": "renameOne",
   "meta+shift+c": "copy",
   "meta+shift+m": "move",

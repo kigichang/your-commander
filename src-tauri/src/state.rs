@@ -36,6 +36,9 @@ pub struct AppState {
     pub watchers: Mutex<HashMap<u32, notify::RecommendedWatcher>>,
     /// PNG system icons keyed by "folder"/"generic"/extension.
     pub icons: Mutex<HashMap<String, Arc<Vec<u8>>>>,
+    /// Cancel flags of running file searches.
+    pub finds: Mutex<HashMap<u64, Arc<AtomicBool>>>,
+    next_find_id: AtomicU64,
 }
 
 impl AppState {
@@ -71,5 +74,16 @@ impl AppState {
 
     pub fn finish_op(&self, id: OpId) {
         self.ops.lock().unwrap().remove(&id);
+    }
+
+    pub fn new_find(&self) -> (u64, Arc<AtomicBool>) {
+        let id = self.next_find_id.fetch_add(1, Ordering::Relaxed) + 1;
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.finds.lock().unwrap().insert(id, cancel.clone());
+        (id, cancel)
+    }
+
+    pub fn finish_find(&self, id: u64) {
+        self.finds.lock().unwrap().remove(&id);
     }
 }

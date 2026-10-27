@@ -74,6 +74,19 @@ export interface Config {
   window_size: [number, number] | null;
 }
 
+export interface FindParams {
+  mask: string;
+  content: string | null;
+  modifiedAfter: number | null;
+  minSize: number | null;
+  maxSize: number | null;
+}
+
+export type FindEvent =
+  | { type: "found"; entry: FsEntry }
+  | { type: "scanning"; dir: string }
+  | { type: "done"; count: number; error: string | null };
+
 export type ConflictChoice =
   | "overwrite"
   | "overwriteAll"

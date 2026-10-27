@@ -65,8 +65,17 @@ impl Default for CopyOptions {
     }
 }
 
+/// Compile a `*.a;*.b` mask into lower-cased patterns ready for
+/// [`glob_match`]; empty result means "match everything".
+pub fn compile_mask(mask: &str) -> Vec<Vec<u8>> {
+    mask.split(';')
+        .map(|p| p.trim().to_ascii_lowercase().into_bytes())
+        .filter(|p| !p.is_empty() && p != b"*" && p != b"*.*")
+        .collect()
+}
+
 /// Case-insensitive `*`/`?` glob, used by the file mask.
-fn glob_match(pattern: &[u8], name: &[u8]) -> bool {
+pub fn glob_match(pattern: &[u8], name: &[u8]) -> bool {
     let (mut p, mut n) = (0usize, 0usize);
     let (mut star_p, mut star_n) = (usize::MAX, 0usize);
     while n < name.len() {
@@ -129,14 +138,7 @@ impl OpCtx {
     }
 
     pub fn set_options(&mut self, options: CopyOptions) {
-        self.mask = options
-            .mask
-            .as_deref()
-            .unwrap_or("")
-            .split(';')
-            .map(|p| p.trim().to_ascii_lowercase().into_bytes())
-            .filter(|p| !p.is_empty() && p != b"*" && p != b"*.*")
-            .collect();
+        self.mask = compile_mask(options.mask.as_deref().unwrap_or(""));
         self.options = options;
     }
 

@@ -52,7 +52,7 @@ export function Toolbar() {
       <button className="tbtn" title="⌃M" onClick={() => actions.multiRename.run()}>
         <span className="glyph">✎</span> {t("toolbar.rename")}
       </button>
-      <button className="tbtn" disabled onClick={soon}>
+      <button className="tbtn" title="⌘F" onClick={() => actions.findFiles.run()}>
         <span className="glyph">⌕</span> {t("toolbar.find")}
       </button>
       <button className="tbtn" title="⌘=" onClick={() => actions.syncFolders.run()}>

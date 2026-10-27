@@ -8,6 +8,7 @@ export type Dialog =
   | { type: "newFolder"; side: Side }
   | { type: "rename"; side: Side; entry: FsEntry }
   | { type: "multiRename"; side: Side; items: FsEntry[] }
+  | { type: "find"; side: Side; location: Location; dir: string }
   | {
       type: "sync";
       left: Location;

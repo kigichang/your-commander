@@ -2,6 +2,8 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   Config,
   ConflictChoice,
+  FindEvent,
+  FindParams,
   FsEntry,
   Location,
   OpEvent,
@@ -56,6 +58,19 @@ export const pauseOp = (opId: number, paused: boolean) =>
   invoke<void>("pause_op", { opId, paused });
 export const resolveConflict = (opId: number, choice: ConflictChoice) =>
   invoke<void>("resolve_conflict", { opId, choice });
+
+export const startFind = (
+  location: Location,
+  dir: string,
+  params: FindParams,
+  onEvent: (event: FindEvent) => void,
+): Promise<number> => {
+  const channel = new Channel<FindEvent>();
+  channel.onmessage = onEvent;
+  return invoke<number>("start_find", { location, dir, params, onEvent: channel });
+};
+
+export const cancelFind = (findId: number) => invoke<void>("cancel_find", { findId });
 
 export const syncCompare = (
   left: Location,

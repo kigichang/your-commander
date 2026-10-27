@@ -1004,6 +1004,71 @@ input:focus {
   background: var(--hover-tint);
 }
 
+/* ── Find dialog ───────────────────────────────────────────────────── */
+
+.dialog select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+}
+.find-go {
+  align-self: flex-end;
+}
+.find-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.find-status .scanning {
+  color: var(--text-faint);
+}
+.find-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 80px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  font-size: 12px;
+}
+.find-row:hover {
+  background: var(--hover-tint);
+}
+.find-row.on {
+  background: var(--cursor-tint);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.find-row .fname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.find-row .fdir {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.find-row .fsize {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
 /* ── Sync dialog ───────────────────────────────────────────────────── */
 
 .dialog.sync {

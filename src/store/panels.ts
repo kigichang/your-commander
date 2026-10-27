@@ -95,6 +95,8 @@ interface PanelsStore {
   setColWidth: (side: Side, col: ColKey, width: number) => void;
   resetColWidth: (side: Side, col: ColKey) => void;
   persist: () => void;
+  /** Navigate to a folder and put the cursor on one of its entries. */
+  revealEntry: (side: Side, path: string, name: string, location?: Location) => Promise<void>;
   toggleQuickView: () => void;
   /** Close an SFTP connection and send every tab that used it back home. */
   disconnectSftp: (connId: number) => void;
@@ -519,6 +521,14 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   },
 
   persist: () => persistPanels(),
+
+  revealEntry: async (side, path, name, location) => {
+    await get().navigate(side, path, location);
+    const idx = get()
+      .visible(side)
+      .findIndex((e) => e.name === name);
+    if (idx >= 0) get().setCursor(side, idx);
+  },
 
   toggleQuickView: () => {
     set((s) => ({
