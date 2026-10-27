@@ -57,11 +57,18 @@ export interface Config {
   ssh_connections: SshConnection[];
   language: string | null;
   show_hidden: boolean;
+  fkeys_without_fn: boolean;
   favorites: Favorite[];
   left_path: string | null;
   right_path: string | null;
   left_view: string | null;
   right_view: string | null;
+  left_tabs: string[];
+  right_tabs: string[];
+  left_active: number;
+  right_active: number;
+  left_sort: string | null;
+  right_sort: string | null;
   window_size: [number, number] | null;
 }
 

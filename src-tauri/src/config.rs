@@ -44,19 +44,54 @@ impl Default for SshConnection {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Config {
     pub smb_connections: Vec<SmbConnection>,
     pub ssh_connections: Vec<SshConnection>,
     pub language: Option<String>,
     pub show_hidden: bool,
+    /// Flip the IOKit HIDFKeyMode while the app is focused so F1–F12 work
+    /// without holding fn.
+    pub fkeys_without_fn: bool,
     pub favorites: Vec<Favorite>,
     pub left_path: Option<PathBuf>,
     pub right_path: Option<PathBuf>,
     pub left_view: Option<String>,
     pub right_view: Option<String>,
+    /// Restored local tab paths and the active tab per side.
+    pub left_tabs: Vec<PathBuf>,
+    pub right_tabs: Vec<PathBuf>,
+    pub left_active: usize,
+    pub right_active: usize,
+    /// Sort of the active tab, as "key:asc" / "key:desc".
+    pub left_sort: Option<String>,
+    pub right_sort: Option<String>,
     pub window_size: Option<(f32, f32)>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            smb_connections: Vec::new(),
+            ssh_connections: Vec::new(),
+            language: None,
+            show_hidden: false,
+            fkeys_without_fn: true,
+            favorites: Vec::new(),
+            left_path: None,
+            right_path: None,
+            left_view: None,
+            right_view: None,
+            left_tabs: Vec::new(),
+            right_tabs: Vec::new(),
+            left_active: 0,
+            right_active: 0,
+            left_sort: None,
+            right_sort: None,
+            window_size: None,
+        }
+    }
 }
 
 impl Config {

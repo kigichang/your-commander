@@ -109,6 +109,46 @@ async function loadEntries(location: Location, path: string): Promise<FsEntry[]>
   return ipc.listDir(location, path);
 }
 
+/** Write both sides' local tabs, active tab, view mode, and active sort into
+ *  the config. Called after any change worth restoring next launch. */
+function persistPanels() {
+  const s = usePanels.getState();
+  const settings = useSettings.getState();
+  if (!settings.config) return;
+  const sideOf = (side: Side) => {
+    const panel = s.panels[side];
+    const localPaths = panel.tabs
+      .filter((t) => t.location.kind === "local")
+      .map((t) => t.path);
+    const activeTab = panel.tabs[panel.active];
+    const activeLocal =
+      activeTab.location.kind === "local"
+        ? Math.max(0, localPaths.indexOf(activeTab.path))
+        : 0;
+    return {
+      tabs: localPaths,
+      active: activeLocal,
+      view: panel.viewMode,
+      sort: `${activeTab.sortKey}:${activeTab.sortDir === 1 ? "asc" : "desc"}`,
+      path: activeTab.location.kind === "local" ? activeTab.path : null,
+    };
+  };
+  const left = sideOf(0);
+  const right = sideOf(1);
+  settings.save({
+    left_tabs: left.tabs,
+    right_tabs: right.tabs,
+    left_active: left.active,
+    right_active: right.active,
+    left_view: left.view,
+    right_view: right.view,
+    left_sort: left.sort,
+    right_sort: right.sort,
+    ...(left.path ? { left_path: left.path } : {}),
+    ...(right.path ? { right_path: right.path } : {}),
+  });
+}
+
 export const usePanels = create<PanelsStore>((set, get) => ({
   panels: [
     { tabs: [], active: 0, viewMode: "full" },
@@ -120,12 +160,46 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   init: async () => {
     const home = await ipc.homeDir();
     const config = useSettings.getState().config;
-    const left = config?.left_path ?? home;
-    const right = config?.right_path ?? home;
+    const restore = (
+      paths: string[] | undefined,
+      fallback: string | null | undefined,
+      active: number | undefined,
+      view: string | null | undefined,
+      sort: string | null | undefined,
+    ): PanelState => {
+      const tabPaths = paths?.length ? paths : [fallback ?? home];
+      const [sortKey, dir] = (sort ?? "name:asc").split(":");
+      const tabs = tabPaths.map((p) => ({
+        ...newTab({ kind: "local" }, p),
+        sortKey: (["name", "ext", "size", "modified"] as SortKey[]).includes(
+          sortKey as SortKey,
+        )
+          ? (sortKey as SortKey)
+          : "name",
+        sortDir: (dir === "desc" ? -1 : 1) as 1 | -1,
+      }));
+      return {
+        tabs,
+        active: Math.min(active ?? 0, tabs.length - 1),
+        viewMode: view === "brief" ? "brief" : "full",
+      };
+    };
     set({
       panels: [
-        { tabs: [newTab({ kind: "local" }, left)], active: 0, viewMode: "full" },
-        { tabs: [newTab({ kind: "local" }, right)], active: 0, viewMode: "full" },
+        restore(
+          config?.left_tabs,
+          config?.left_path,
+          config?.left_active,
+          config?.left_view,
+          config?.left_sort,
+        ),
+        restore(
+          config?.right_tabs,
+          config?.right_path,
+          config?.right_active,
+          config?.right_view,
+          config?.right_sort,
+        ),
       ],
     });
     await Promise.all([get().refresh(0), get().refresh(1)]);
@@ -169,10 +243,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       }));
       if (loc.kind === "local") void ipc.watchDir(side, path);
       else void ipc.unwatch(side);
-      const settings = useSettings.getState();
-      if (loc.kind === "local" && settings.config) {
-        settings.save(side === 0 ? { left_path: path } : { right_path: path });
-      }
+      persistPanels();
     } catch (e) {
       set((s) => ({
         panels: updateTab(s.panels, side, tab.id, {
@@ -330,6 +401,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
         sortDir: t.sortKey === key ? ((t.sortDir * -1) as 1 | -1) : 1,
       })),
     }));
+    persistPanels();
   },
 
   setFilter: (side, filter) => {
@@ -356,6 +428,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       return { panels: next };
     });
     void get().refresh(side);
+    persistPanels();
   },
 
   closeTab: (side, index) => {
@@ -372,6 +445,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       return { panels: next };
     });
     void get().refresh(side, { silent: true });
+    persistPanels();
   },
 
   setActiveTab: (side, index) => {
@@ -381,6 +455,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       return { panels: next };
     });
     void get().refresh(side, { silent: true });
+    persistPanels();
   },
 
   swapPanels: () => {
@@ -389,6 +464,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
     }));
     void get().refresh(0, { silent: true });
     void get().refresh(1, { silent: true });
+    persistPanels();
   },
 
   setViewMode: (side, mode) => {
@@ -397,6 +473,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       next[side] = { ...next[side], viewMode: mode };
       return { panels: next };
     });
+    persistPanels();
   },
 
   toggleQuickView: () => {

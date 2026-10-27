@@ -8,7 +8,9 @@
     "rename": "Rename",
     "find": "Find",
     "sync": "Sync",
-    "connect": "Connect"
+    "connect": "Connect",
+    "fnHint": "F-keys work without fn while the app is focused (click to toggle)",
+    "fnUnavailable": "F-key switching unavailable on this system — use the ⌘ shortcuts"
   },
   "panel": {
     "home": "Home",

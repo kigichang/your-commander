@@ -3,6 +3,7 @@ import { actions } from "../keymap/actions";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
+import { useSettings } from "../store/settings";
 
 export function Toolbar() {
   const { t } = useTranslation();
@@ -10,6 +11,8 @@ export function Toolbar() {
   const viewMode = usePanels((s) => s.panels[s.activeSide].viewMode);
   const setViewMode = usePanels((s) => s.setViewMode);
   const toast = useOps((s) => s.toast);
+  const fkeysOn = useSettings((s) => s.fkeysWithoutFn);
+  const fkeysAvailable = useSettings((s) => s.fkeysAvailable);
   const soon = () => toast(t("status.comingSoon"));
 
   return (
@@ -35,6 +38,14 @@ export function Toolbar() {
         <span className="glyph">⇄</span> {t("toolbar.swap")}
       </button>
       <div className="spacer" data-tauri-drag-region />
+      <button
+        className={`tbtn${fkeysOn && fkeysAvailable ? " accent" : ""}`}
+        disabled={!fkeysAvailable}
+        title={t(fkeysAvailable ? "toolbar.fnHint" : "toolbar.fnUnavailable")}
+        onClick={() => useSettings.getState().toggleFkeys()}
+      >
+        Fn
+      </button>
       <button className="tbtn" disabled onClick={soon}>
         <span className="glyph">≡</span> {t("toolbar.compare")}
       </button>

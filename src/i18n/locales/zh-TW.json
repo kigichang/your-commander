@@ -8,7 +8,9 @@
     "rename": "批次改名",
     "find": "搜尋",
     "sync": "同步",
-    "connect": "連線"
+    "connect": "連線",
+    "fnHint": "App 聚焦時 F 鍵免按 fn（點擊切換）",
+    "fnUnavailable": "此系統無法切換 F 鍵模式——請使用 ⌘ 快捷鍵"
   },
   "panel": {
     "home": "家目錄",

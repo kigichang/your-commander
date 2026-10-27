@@ -96,6 +96,9 @@ export const getConfig = () => invoke<Config>("get_config");
 export const setConfig = (config: Config) =>
   invoke<void>("set_config", { config });
 
+export const fkeysSet = (enabled: boolean) => invoke<void>("fkeys_set", { enabled });
+export const fkeysAvailable = () => invoke<boolean>("fkeys_available");
+
 export const watchDir = (watchId: number, path: string) =>
   invoke<void>("watch_dir", { watchId, path });
 export const unwatch = (watchId: number) => invoke<void>("unwatch", { watchId });

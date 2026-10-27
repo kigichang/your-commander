@@ -5857,6 +5857,7 @@ dependencies = [
 name = "your-commander"
 version = "0.2.0"
 dependencies = [
+ "core-foundation",
  "dirs",
  "flate2",
  "libc",
