@@ -126,6 +126,7 @@
     "reveal": "顯示於 Finder",
     "folder": "資料夾",
     "file": "檔案",
+    "pdfPages": "PDF · {{count}} 頁",
     "noPreview": "無可用預覽"
   }
 }

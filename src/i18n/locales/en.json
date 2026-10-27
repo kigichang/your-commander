@@ -126,6 +126,7 @@
     "reveal": "Reveal",
     "folder": "Folder",
     "file": "File",
+    "pdfPages": "PDF · {{count}} pages",
     "noPreview": "No preview available"
   }
 }

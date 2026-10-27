@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import { formatDate, humanSize } from "../lib/format";
@@ -6,6 +6,11 @@ import { baseName } from "../lib/path";
 import { visibleEntries } from "../lib/selectors";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
+
+// pdf.js is ~450 KB; load it only when the first PDF is previewed.
+const PdfPreview = lazy(() =>
+  import("./PdfPreview").then((m) => ({ default: m.PdfPreview })),
+);
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico"]);
 const TEXT_EXTS = new Set([
@@ -15,10 +20,14 @@ const TEXT_EXTS = new Set([
 ]);
 const IMAGE_MAX = 32 * 1024 * 1024;
 const TEXT_MAX = 256 * 1024;
+// pdf.js needs the whole file; past this size show no preview instead of
+// freezing the pane on a huge download.
+const PDF_MAX = 64 * 1024 * 1024;
 
 type Preview =
   | { kind: "image"; url: string }
   | { kind: "text"; text: string }
+  | { kind: "pdf"; data: ArrayBuffer }
   | { kind: "none" };
 
 /** The pane this replaces shows the entry under the OTHER panel's cursor. */
@@ -39,12 +48,14 @@ export function QuickView() {
 
   const [preview, setPreview] = useState<Preview>({ kind: "none" });
   const [tags, setTags] = useState<string[]>([]);
+  const [pdfPages, setPdfPages] = useState(0);
 
   useEffect(() => {
     let revoked: string | null = null;
     let stale = false;
     setPreview({ kind: "none" });
     setTags([]);
+    setPdfPages(0);
     if (!entry || entry.isDir || !tab) return;
 
     const timer = setTimeout(async () => {
@@ -54,7 +65,11 @@ export function QuickView() {
         });
       }
       try {
-        if (IMAGE_EXTS.has(entry.ext) && entry.size <= IMAGE_MAX) {
+        if (entry.ext === "pdf" && entry.size <= PDF_MAX) {
+          const buf = await ipc.readPreview(tab.location, entry.path, PDF_MAX);
+          if (stale) return;
+          setPreview({ kind: "pdf", data: buf });
+        } else if (IMAGE_EXTS.has(entry.ext) && entry.size <= IMAGE_MAX) {
           const buf = await ipc.readPreview(tab.location, entry.path, IMAGE_MAX);
           if (stale) return;
           const mime = entry.ext === "svg" ? "image/svg+xml" : `image/${entry.ext}`;
@@ -86,9 +101,11 @@ export function QuickView() {
     ? ""
     : entry.isDir
       ? t("quickview.folder")
-      : entry.ext
-        ? entry.ext.toUpperCase()
-        : t("quickview.file");
+      : entry.ext === "pdf" && pdfPages > 0
+        ? t("quickview.pdfPages", { count: pdfPages })
+        : entry.ext
+          ? entry.ext.toUpperCase()
+          : t("quickview.file");
 
   return (
     <div className="quickview">
@@ -107,6 +124,10 @@ export function QuickView() {
       <div className="qv-body">
         {!entry ? (
           <span className="none">{t("quickview.noPreview")}</span>
+        ) : preview.kind === "pdf" ? (
+          <Suspense fallback={<span className="none">…</span>}>
+            <PdfPreview data={preview.data} onPages={setPdfPages} />
+          </Suspense>
         ) : preview.kind === "image" ? (
           <img src={preview.url} alt={entry.name} />
         ) : preview.kind === "text" ? (
