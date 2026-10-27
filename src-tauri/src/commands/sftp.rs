@@ -61,10 +61,32 @@ pub struct SftpConnectParams {
     pub username: String,
     /// true: password auth, false: public key auth.
     pub use_password: bool,
+    #[serde(default)]
+    pub use_agent: bool,
     pub password: Option<String>,
     /// Private key path; empty means try the default ~/.ssh keys.
     pub identity_file: Option<String>,
     pub passphrase: Option<String>,
+    /// Remote folder to land in; falls back to home when missing.
+    #[serde(default)]
+    pub start_in: Option<String>,
+}
+
+fn auth_of(params: &SftpConnectParams) -> SshAuth {
+    if params.use_agent {
+        SshAuth::Agent
+    } else if params.use_password {
+        SshAuth::Password(params.password.clone().unwrap_or_default())
+    } else {
+        SshAuth::Key {
+            path: params
+                .identity_file
+                .clone()
+                .filter(|p| !p.is_empty())
+                .map(PathBuf::from),
+            passphrase: params.passphrase.clone().filter(|p| !p.is_empty()),
+        }
+    }
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -81,30 +103,36 @@ pub async fn sftp_connect(
     state: State<'_, AppState>,
     params: SftpConnectParams,
 ) -> Result<SftpConnected, String> {
-    let conn = tauri::async_runtime::spawn_blocking(move || {
-        let auth = if params.use_password {
-            SshAuth::Password(params.password.unwrap_or_default())
-        } else {
-            SshAuth::Key {
-                path: params
-                    .identity_file
-                    .filter(|p| !p.is_empty())
-                    .map(PathBuf::from),
-                passphrase: params.passphrase.filter(|p| !p.is_empty()),
-            }
+    let (conn, home) = tauri::async_runtime::spawn_blocking(move || {
+        let auth = auth_of(&params);
+        let conn = sftp::connect(&params.host, params.port, &params.username, &auth)?;
+        // Land in start_in when it exists as a folder, else in home.
+        let home = match params.start_in.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+            Some(p) if conn.exists(std::path::Path::new(p)) == Some(true) => PathBuf::from(p),
+            _ => conn.home.clone(),
         };
-        sftp::connect(&params.host, params.port, &params.username, &auth)
+        Ok::<_, String>((conn, home))
     })
     .await
     .map_err(|e| e.to_string())??;
     let label = conn.label.clone();
-    let home = conn.home.clone();
     let conn_id = state.add_connection(conn);
     Ok(SftpConnected {
         conn_id,
         label,
         home,
     })
+}
+
+/// Dial, authenticate, and hang up — the dialog's Test button.
+#[tauri::command]
+pub async fn sftp_test(params: SftpConnectParams) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let auth = auth_of(&params);
+        sftp::connect(&params.host, params.port, &params.username, &auth).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

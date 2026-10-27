@@ -8,11 +8,14 @@ pub struct Favorite {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
 pub struct SmbConnection {
     pub name: String,
     pub server: String,
     pub share: String,
     pub username: String,
+    /// Folder (relative to the mount) to land in after connecting.
+    pub start_in: String,
     pub remember: bool,
 }
 
@@ -27,6 +30,10 @@ pub struct SshConnection {
     pub identity_file: String,
     /// true: password auth, false: public key auth.
     pub use_password: bool,
+    /// Authenticate through the running ssh-agent instead of key files.
+    pub use_agent: bool,
+    /// Remote folder to land in after connecting; empty = home.
+    pub start_in: String,
     pub remember: bool,
 }
 
@@ -39,6 +46,8 @@ impl Default for SshConnection {
             username: String::new(),
             identity_file: String::new(),
             use_password: false,
+            use_agent: false,
+            start_in: String::new(),
             remember: true,
         }
     }

@@ -120,7 +120,19 @@
     "pickHost": "選擇主機…",
     "connect": "連線",
     "connecting": "連線中…",
-    "deleteSaved": "刪除已儲存的連線"
+    "deleteSaved": "刪除已儲存的連線",
+    "new": "新增",
+    "startIn": "起始目錄",
+    "auth_key": "SSH 金鑰",
+    "auth_password": "密碼",
+    "auth_agent": "Agent",
+    "test": "測試",
+    "testing": "測試中…",
+    "testOk": "連線正常",
+    "save": "儲存",
+    "saved2": "已儲存連線",
+    "paneLeft": "左",
+    "paneRight": "右"
   },
   "panel2": {
     "eject": "退出",

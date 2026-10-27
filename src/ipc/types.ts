@@ -42,6 +42,7 @@ export interface SmbConnection {
   server: string;
   share: string;
   username: string;
+  start_in: string;
   remember: boolean;
 }
 
@@ -52,6 +53,8 @@ export interface SshConnection {
   username: string;
   identity_file: string;
   use_password: boolean;
+  use_agent: boolean;
+  start_in: string;
   remember: boolean;
 }
 

@@ -83,18 +83,25 @@ export const syncCompare = (
 
 export const sshHosts = () => invoke<SshConfigHost[]>("ssh_hosts");
 
-export const sftpConnect = (params: {
+export interface SftpParams {
   host: string;
   port: number;
   username: string;
   usePassword: boolean;
+  useAgent?: boolean;
   password?: string;
   identityFile?: string;
   passphrase?: string;
-}) =>
+  startIn?: string;
+}
+
+export const sftpConnect = (params: SftpParams) =>
   invoke<{ connId: number; label: string; home: string }>("sftp_connect", {
     params,
   });
+
+export const sftpTest = (params: SftpParams) => invoke<void>("sftp_test", { params });
+export const smbTest = (server: string) => invoke<void>("smb_test", { server });
 
 export const sftpDisconnect = (connId: number) =>
   invoke<void>("sftp_disconnect", { connId });

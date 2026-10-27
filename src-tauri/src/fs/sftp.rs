@@ -22,6 +22,8 @@ pub enum SshAuth {
         path: Option<PathBuf>,
         passphrase: Option<String>,
     },
+    /// Every identity the running ssh-agent offers, in order.
+    Agent,
 }
 
 struct Handler;
@@ -110,6 +112,36 @@ pub fn connect(
                 }
                 if !ok && let Some(err) = last_err {
                     return Err(err);
+                }
+                ok
+            }
+            SshAuth::Agent => {
+                let mut agent = russh::keys::agent::client::AgentClient::connect_env()
+                    .await
+                    .map_err(|e| format!("ssh-agent: {e}"))?;
+                let identities = agent
+                    .request_identities()
+                    .await
+                    .map_err(|e| format!("ssh-agent: {e}"))?;
+                if identities.is_empty() {
+                    return Err("ssh-agent has no identities".to_string());
+                }
+                let mut ok = false;
+                for identity in identities {
+                    let alg = handle
+                        .best_supported_rsa_hash()
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .flatten();
+                    let key = identity.public_key().into_owned();
+                    let result = handle
+                        .authenticate_publickey_with(user, key, alg, &mut agent)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    if result.success() {
+                        ok = true;
+                        break;
+                    }
                 }
                 ok
             }

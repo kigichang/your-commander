@@ -120,7 +120,19 @@
     "pickHost": "Pick a host…",
     "connect": "Connect",
     "connecting": "Connecting…",
-    "deleteSaved": "Delete saved connection"
+    "deleteSaved": "Delete saved connection",
+    "new": "New",
+    "startIn": "Start in",
+    "auth_key": "SSH key",
+    "auth_password": "Password",
+    "auth_agent": "Agent",
+    "test": "Test",
+    "testing": "Testing…",
+    "testOk": "Connection OK",
+    "save": "Save",
+    "saved2": "Connection saved",
+    "paneLeft": "left",
+    "paneRight": "right"
   },
   "panel2": {
     "eject": "Eject",
