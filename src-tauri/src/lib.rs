@@ -77,6 +77,7 @@ pub fn run() {
             commands::system::open_path,
             commands::system::reveal_in_finder,
             commands::system::is_archive,
+            commands::system::can_browse_archive,
             commands::system::file_tags,
             commands::preview::read_preview,
             commands::sync::sync_compare,

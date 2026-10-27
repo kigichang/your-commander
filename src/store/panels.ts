@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import * as ipc from "../ipc/commands";
 import type { FsEntry, Location } from "../ipc/types";
-import { parentPath } from "../lib/path";
+import { baseName, parentPath } from "../lib/path";
 import { visibleEntries } from "../lib/selectors";
 import { useSettings } from "./settings";
 
@@ -317,6 +317,20 @@ export const usePanels = create<PanelsStore>((set, get) => ({
 
   up: (side) => {
     const tab = get().activeTab(side);
+    if (tab.location.kind === "archive") {
+      const inner = tab.path;
+      if (inner) {
+        // One level up inside the archive.
+        const parent = inner.includes("/") ? inner.slice(0, inner.lastIndexOf("/")) : "";
+        void get().navigate(side, parent);
+      } else {
+        // Leave the archive: back to its folder, cursor on the archive.
+        const archive = tab.location.archive;
+        const dir = parentPath(archive);
+        if (dir) void get().revealEntry(side, dir, baseName(archive), { kind: "local" });
+      }
+      return;
+    }
     const parent = parentPath(tab.path);
     if (parent) void get().navigate(side, parent);
   },

@@ -111,7 +111,7 @@ export function FileTable({
           ))}
         </div>
       )}
-      {parentPath(tab.path) && (
+      {(parentPath(tab.path) || tab.location.kind === "archive") && (
         <div
           className="row parent"
           title=".."

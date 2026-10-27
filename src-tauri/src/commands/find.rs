@@ -179,7 +179,7 @@ pub fn start_find(
     params: FindParams,
     on_event: Channel<FindEvent>,
 ) -> Result<u64, String> {
-    let conn = state.resolve(&location)?;
+    let conn = state.resolve(&location)?.conn_or_err("Search")?;
     let (id, cancel) = state.new_find();
     std::thread::spawn(move || {
         let mut search = Search {

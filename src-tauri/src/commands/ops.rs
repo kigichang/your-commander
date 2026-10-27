@@ -4,7 +4,8 @@ use crate::ops::queue::{
 };
 use crate::ops::sync::SyncItem;
 use crate::ops::{archive, delete, remote, sync, transfer};
-use crate::state::{AppState, Location, OpControl};
+use crate::fs::archive_fs;
+use crate::state::{AppState, Location, OpControl, Resolved};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel;
@@ -159,28 +160,46 @@ fn run_request(
             options,
         } => {
             ctx.set_options(options);
-            let src_conn = state.resolve(&src)?;
-            let dest_conn = state.resolve(&dest)?;
+            let src_res = state.resolve(&src)?;
+            let dest_res = state.resolve(&dest)?;
             let paths: Vec<PathBuf> = sources.iter().map(|s| s.path.clone()).collect();
-            match (src_conn, dest_conn) {
-                (None, None) => {
+            match (src_res, dest_res) {
+                (Resolved::Local, Resolved::Local) => {
                     transfer::copy_op(ctx, paths, dest_dir, remove_source).map(counted)
                 }
-                (None, Some(conn)) => {
+                (Resolved::Local, Resolved::Sftp(conn)) => {
                     remote::upload_op(ctx, conn, paths, dest_dir, remove_source).map(counted)
                 }
-                (Some(conn), None) => {
+                (Resolved::Sftp(conn), Resolved::Local) => {
                     let pairs = sources.into_iter().map(|s| (s.path, s.is_dir)).collect();
                     remote::download_op(ctx, conn, pairs, dest_dir, remove_source).map(counted)
                 }
-                (Some(_), Some(_)) => Err("Remote-to-remote copy is not supported".to_string()),
+                // Copying OUT of an archive extracts the selection (2d).
+                (Resolved::Archive(archive), Resolved::Local) => {
+                    if remove_source {
+                        return Err("Archives are read-only".to_string());
+                    }
+                    let inners = sources
+                        .into_iter()
+                        .map(|s| s.path.to_string_lossy().to_string())
+                        .collect();
+                    archive_fs::extract_entries(ctx, &archive, inners, &dest_dir).map(counted)
+                }
+                (Resolved::Archive(_), _) | (_, Resolved::Archive(_)) => {
+                    Err("Archives are read-only; copy out of them to a local folder".to_string())
+                }
+                (Resolved::Sftp(_), Resolved::Sftp(_)) => {
+                    Err("Remote-to-remote copy is not supported".to_string())
+                }
             }
         }
         OpRequest::Trash { items } => delete::trash_op(ctx, items).map(counted),
-        OpRequest::Delete { location, items } => match state.resolve(&location)? {
-            None => delete::delete_op(ctx, items).map(counted),
-            Some(conn) => remote::delete_remote_op(ctx, conn, items).map(counted),
-        },
+        OpRequest::Delete { location, items } => {
+            match state.resolve(&location)?.conn_or_err("Delete")? {
+                None => delete::delete_op(ctx, items).map(counted),
+                Some(conn) => remote::delete_remote_op(ctx, conn, items).map(counted),
+            }
+        }
         OpRequest::Compress {
             sources,
             dest,
@@ -208,8 +227,8 @@ fn run_request(
             right_dir,
             items,
         } => {
-            let left_conn = state.resolve(&left)?;
-            let right_conn = state.resolve(&right)?;
+            let left_conn = state.resolve(&left)?.conn_or_err("Sync")?;
+            let right_conn = state.resolve(&right)?.conn_or_err("Sync")?;
             sync::sync_op(ctx, left_conn, left_dir, right_conn, right_dir, items).map(counted)
         }
         OpRequest::SmbMount {

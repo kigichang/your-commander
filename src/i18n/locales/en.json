@@ -56,6 +56,7 @@
     "folderCreated": "Folder created",
     "renamed": "Renamed",
     "nothingSelected": "Nothing selected",
+    "archiveReadOnly": "Archives are read-only — press F5 to extract",
     "comingSoon": "Not implemented yet"
   },
   "dialog": {

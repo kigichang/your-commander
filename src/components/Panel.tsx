@@ -266,14 +266,16 @@ function PathBar({ side, tab }: { side: Side; tab: TabState }) {
     const last = baseName(input);
     const { navigate, setFilter } = usePanels.getState();
     if (isMask(last)) {
-      const dir = parentPath(input) ?? tab.path;
+      // A bare mask filters the current folder; a path+mask navigates first.
+      const dir = input.includes("/") ? (parentPath(input) ?? tab.path) : tab.path;
       if (dir !== tab.path) {
         void navigate(side, dir).then(() => setFilter(side, last));
       } else {
         setFilter(side, last === "*.*" ? "" : last);
       }
     } else {
-      void navigate(side, input.replace(/\/+$/, "") || "/");
+      const fallback = tab.location.kind === "archive" ? "" : "/";
+      void navigate(side, input.replace(/\/+$/, "") || fallback);
     }
   };
 

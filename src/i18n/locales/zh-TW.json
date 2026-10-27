@@ -56,6 +56,7 @@
     "folderCreated": "已建立資料夾",
     "renamed": "已重新命名",
     "nothingSelected": "未選取任何項目",
+    "archiveReadOnly": "壓縮檔為唯讀——按 F5 解壓選取項目",
     "comingSoon": "功能尚未完成"
   },
   "dialog": {

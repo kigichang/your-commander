@@ -14,6 +14,30 @@ pub enum Location {
     Sftp {
         conn_id: u32,
     },
+    /// Browsing inside a local archive; paths are inner paths ("" = root).
+    #[serde(rename_all = "camelCase")]
+    Archive {
+        archive: std::path::PathBuf,
+    },
+}
+
+/// A resolved [`Location`], ready to act on.
+pub enum Resolved {
+    Local,
+    Sftp(Arc<SftpConnection>),
+    Archive(std::path::PathBuf),
+}
+
+impl Resolved {
+    /// The SFTP connection when there is one; `Err` for archives, which the
+    /// caller does not support.
+    pub fn conn_or_err(self, what: &str) -> Result<Option<Arc<SftpConnection>>, String> {
+        match self {
+            Resolved::Local => Ok(None),
+            Resolved::Sftp(conn) => Ok(Some(conn)),
+            Resolved::Archive(_) => Err(format!("{what} is not supported inside archives")),
+        }
+    }
 }
 
 /// Shared handle for one running operation: lets the UI cancel it and answer
@@ -51,11 +75,11 @@ impl AppState {
             .ok_or_else(|| format!("SFTP connection {conn_id} is gone"))
     }
 
-    /// None for local, Some(conn) for SFTP.
-    pub fn resolve(&self, location: &Location) -> Result<Option<Arc<SftpConnection>>, String> {
+    pub fn resolve(&self, location: &Location) -> Result<Resolved, String> {
         match location {
-            Location::Local => Ok(None),
-            Location::Sftp { conn_id } => self.sftp(*conn_id).map(Some),
+            Location::Local => Ok(Resolved::Local),
+            Location::Sftp { conn_id } => self.sftp(*conn_id).map(Resolved::Sftp),
+            Location::Archive { archive } => Ok(Resolved::Archive(archive.clone())),
         }
     }
 

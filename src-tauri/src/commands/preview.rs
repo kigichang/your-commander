@@ -1,4 +1,5 @@
-use crate::state::{AppState, Location};
+use crate::fs::archive_fs;
+use crate::state::{AppState, Location, Resolved};
 use std::io::Read;
 use std::path::PathBuf;
 use tauri::ipc::Response;
@@ -13,10 +14,10 @@ pub async fn read_preview(
     path: PathBuf,
     max_bytes: u64,
 ) -> Result<Response, String> {
-    let conn = state.resolve(&location)?;
+    let resolved = state.resolve(&location)?;
     let bytes = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
-        match conn {
-            None => {
+        match resolved {
+            Resolved::Local => {
                 let mut file = std::fs::File::open(&path)
                     .map_err(|e| format!("{}: {e}", path.display()))?;
                 let mut buf = Vec::new();
@@ -26,7 +27,10 @@ pub async fn read_preview(
                     .map_err(|e| format!("{}: {e}", path.display()))?;
                 Ok(buf)
             }
-            Some(c) => c.read_limited(&path, max_bytes),
+            Resolved::Sftp(c) => c.read_limited(&path, max_bytes),
+            Resolved::Archive(archive) => {
+                archive_fs::read_entry(&archive, &path.to_string_lossy(), max_bytes)
+            }
         }
     })
     .await

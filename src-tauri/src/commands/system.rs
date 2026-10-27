@@ -46,6 +46,12 @@ pub fn is_archive(name: String) -> bool {
     archive::is_archive(&name)
 }
 
+/// Can the panel step into this archive like a folder (2d)?
+#[tauri::command]
+pub fn can_browse_archive(name: String) -> bool {
+    crate::fs::archive_fs::can_browse(&name)
+}
+
 /// macOS Finder tags of a file, via `mdls` (best effort; empty on failure).
 #[tauri::command]
 pub async fn file_tags(path: PathBuf) -> Vec<String> {

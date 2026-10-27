@@ -1,5 +1,8 @@
 /** Mirrors `state::Location` on the Rust side. */
-export type Location = { kind: "local" } | { kind: "sftp"; connId: number };
+export type Location =
+  | { kind: "local" }
+  | { kind: "sftp"; connId: number }
+  | { kind: "archive"; archive: string };
 
 /** Mirrors `fs::provider::FsEntry` (camelCase, modified = epoch ms). */
 export interface FsEntry {

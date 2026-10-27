@@ -1,7 +1,7 @@
-use crate::fs::local;
 use crate::fs::provider::FsEntry;
+use crate::fs::{archive_fs, local};
 use crate::ops::transfer;
-use crate::state::{AppState, Location};
+use crate::state::{AppState, Location, Resolved};
 use std::path::PathBuf;
 use tauri::State;
 
@@ -22,10 +22,13 @@ pub async fn list_dir(
     location: Location,
     path: PathBuf,
 ) -> Result<Vec<FsEntry>, String> {
-    let conn = state.resolve(&location)?;
-    blocking(move || match conn {
-        None => local::list_dir(&path).map_err(|e| format!("{}: {e}", path.display())),
-        Some(c) => c.list(&path).map_err(|e| format!("{}: {e}", path.display())),
+    let resolved = state.resolve(&location)?;
+    blocking(move || match resolved {
+        Resolved::Local => {
+            local::list_dir(&path).map_err(|e| format!("{}: {e}", path.display()))
+        }
+        Resolved::Sftp(c) => c.list(&path).map_err(|e| format!("{}: {e}", path.display())),
+        Resolved::Archive(archive) => archive_fs::list(&archive, &path.to_string_lossy()),
     })
     .await
 }
@@ -37,7 +40,7 @@ pub async fn mkdir(
     dir: PathBuf,
     name: String,
 ) -> Result<(), String> {
-    let conn = state.resolve(&location)?;
+    let conn = state.resolve(&location)?.conn_or_err("New folder")?;
     blocking(move || match conn {
         None => transfer::new_folder(&dir, &name),
         Some(c) => {
@@ -58,7 +61,7 @@ pub async fn rename(
     path: PathBuf,
     new_name: String,
 ) -> Result<(), String> {
-    let conn = state.resolve(&location)?;
+    let conn = state.resolve(&location)?.conn_or_err("Rename")?;
     blocking(move || match conn {
         None => transfer::rename(&path, &new_name),
         Some(c) => {
@@ -91,7 +94,7 @@ pub async fn batch_rename(
     location: Location,
     items: Vec<RenameItem>,
 ) -> Result<usize, String> {
-    let conn = state.resolve(&location)?;
+    let conn = state.resolve(&location)?.conn_or_err("Rename")?;
     blocking(move || {
         let items: Vec<RenameItem> = items
             .into_iter()
@@ -162,11 +165,14 @@ pub async fn exists(
     location: Location,
     path: PathBuf,
 ) -> Result<bool, String> {
-    let conn = state.resolve(&location)?;
+    let resolved = state.resolve(&location)?;
     blocking(move || {
-        Ok(match conn {
-            None => path.exists(),
-            Some(c) => c.exists(&path).is_some(),
+        Ok(match resolved {
+            Resolved::Local => path.exists(),
+            Resolved::Sftp(c) => c.exists(&path).is_some(),
+            Resolved::Archive(archive) => {
+                archive_fs::read_entry(&archive, &path.to_string_lossy(), 1).is_ok()
+            }
         })
     })
     .await

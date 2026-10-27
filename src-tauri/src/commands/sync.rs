@@ -14,8 +14,8 @@ pub async fn sync_compare(
     right_dir: PathBuf,
     by_content: bool,
 ) -> Result<Vec<SyncRow>, String> {
-    let left_conn = state.resolve(&left)?;
-    let right_conn = state.resolve(&right)?;
+    let left_conn = state.resolve(&left)?.conn_or_err("Compare")?;
+    let right_conn = state.resolve(&right)?.conn_or_err("Compare")?;
     tauri::async_runtime::spawn_blocking(move || {
         sync::compare(
             left_conn.as_deref(),

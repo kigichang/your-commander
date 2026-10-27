@@ -83,7 +83,12 @@ export const actions: Record<ActionId, Action> = {
       if (entry.isDir) {
         void s.navigate(side, entry.path);
       } else if (s.activeTab(side).location.kind === "local") {
-        void ipc.openPath(entry.path).catch((e) => ops().toast(String(e), "error"));
+        // Browsable archives open like folders (screen 2d).
+        if (/\.(zip|tar|tgz)$/i.test(entry.name) || /\.tar\.gz$/i.test(entry.name)) {
+          void s.navigate(side, "", { kind: "archive", archive: entry.path }, entry.name);
+        } else {
+          void ipc.openPath(entry.path).catch((e) => ops().toast(String(e), "error"));
+        }
       }
     },
   },
@@ -186,6 +191,8 @@ export const actions: Record<ActionId, Action> = {
     id: "trash",
     run: () => {
       const { side, tab, items } = activeTargets();
+      if (tab.location.kind === "archive")
+        return ops().toast(i18n.t("status.archiveReadOnly"));
       if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
       const remote = tab.location.kind === "sftp";
       // Local trash is restorable: do it without a dialog, like Finder.
@@ -204,6 +211,8 @@ export const actions: Record<ActionId, Action> = {
     id: "deletePermanent",
     run: () => {
       const { side, tab, items } = activeTargets();
+      if (tab.location.kind === "archive")
+        return ops().toast(i18n.t("status.archiveReadOnly"));
       if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
       dialogs().open({
         type: "confirmDelete",
