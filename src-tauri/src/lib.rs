@@ -79,6 +79,7 @@ pub fn run() {
             commands::system::file_tags,
             commands::preview::read_preview,
             commands::ops::start_op,
+            commands::ops::pause_op,
             commands::ops::cancel_op,
             commands::ops::resolve_conflict,
             commands::sftp::ssh_hosts,

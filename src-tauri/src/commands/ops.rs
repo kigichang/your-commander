@@ -1,6 +1,6 @@
 use crate::fs::smb;
 use crate::ops::queue::{
-    ConflictChoice, OpCtx, OpId, OpSink, CANCELLED,
+    ConflictChoice, CopyOptions, OpCtx, OpId, OpSink, CANCELLED,
 };
 use crate::ops::{archive, delete, remote, transfer};
 use crate::state::{AppState, Location, OpControl};
@@ -91,6 +91,9 @@ pub enum OpRequest {
         dest: Location,
         dest_dir: PathBuf,
         remove_source: bool,
+        /// Dialog options (verify, mask, if-exists preset, …).
+        #[serde(default)]
+        options: CopyOptions,
     },
     #[serde(rename_all = "camelCase")]
     Trash { items: Vec<PathBuf> },
@@ -144,7 +147,9 @@ fn run_request(
             dest,
             dest_dir,
             remove_source,
+            options,
         } => {
+            ctx.set_options(options);
             let src_conn = state.resolve(&src)?;
             let dest_conn = state.resolve(&dest)?;
             let paths: Vec<PathBuf> = sources.iter().map(|s| s.path.clone()).collect();
@@ -218,9 +223,10 @@ pub fn start_op(
         last_progress: Mutex::new(Instant::now() - PROGRESS_INTERVAL),
     };
     let cancel = control.cancel.clone();
+    let pause = control.pause.clone();
     let app = app.clone();
     std::thread::spawn(move || {
-        let mut ctx = OpCtx::new(cancel, Box::new(sink));
+        let mut ctx = OpCtx::new(cancel, pause, Box::new(sink));
         let result = {
             let state = app.state::<AppState>();
             run_request(&mut ctx, &state, request)
@@ -249,11 +255,20 @@ pub fn start_op(
     Ok(id)
 }
 
+/// Pause/resume: the worker parks in `OpCtx::cancelled()` while paused.
+#[tauri::command]
+pub fn pause_op(state: State<'_, AppState>, op_id: OpId, paused: bool) {
+    if let Some(control) = state.ops.lock().unwrap().get(&op_id) {
+        control.pause.store(paused, Ordering::Relaxed);
+    }
+}
+
 #[tauri::command]
 pub fn cancel_op(state: State<'_, AppState>, op_id: OpId) {
     if let Some(control) = state.ops.lock().unwrap().get(&op_id) {
         control.cancel.store(true, Ordering::Relaxed);
-        // A worker blocked on a conflict prompt must be released too.
+        // Paused or conflict-blocked workers must be released too.
+        control.pause.store(false, Ordering::Relaxed);
         if let Some(tx) = control.conflict_tx.lock().unwrap().take() {
             let _ = tx.send(ConflictChoice::CancelOp);
         }

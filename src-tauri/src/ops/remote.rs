@@ -126,6 +126,9 @@ fn upload_item(
         }
         Ok(())
     } else {
+        if !ctx.mask_matches(&src.file_name().unwrap_or_default().to_string_lossy()) {
+            return Ok(());
+        }
         let mut dest = dest.to_path_buf();
         if conn.exists(&dest).is_some() {
             match ctx.ask_conflict(src, &dest) {
@@ -188,6 +191,9 @@ fn download_item(
         }
         Ok(())
     } else {
+        if !ctx.mask_matches(&src.file_name().unwrap_or_default().to_string_lossy()) {
+            return Ok(());
+        }
         let mut dest = dest.to_path_buf();
         if dest.exists() {
             match ctx.ask_conflict(src, &dest) {

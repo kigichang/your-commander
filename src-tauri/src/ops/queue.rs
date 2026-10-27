@@ -25,6 +25,72 @@ pub enum ConflictChoice {
     CancelOp,
 }
 
+/// Preset answer for name collisions, chosen in the copy dialog.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum IfExists {
+    #[default]
+    Ask,
+    Skip,
+    /// Overwrite only when the source is newer; needs both mtimes, so it
+    /// falls back to asking when either side cannot be stat'ed (remote).
+    ReplaceOlder,
+    /// Keep both under a " 2"-style name.
+    Rename,
+}
+
+/// Options from the copy/move dialog (design screen 1e).
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CopyOptions {
+    pub verify: bool,
+    /// Preserve permissions, mtime, and xattrs (Finder tags).
+    pub keep_meta: bool,
+    /// `*.jpg;*.png`-style mask; files only, folders always traverse.
+    pub mask: Option<String>,
+    /// Copy symlinked files' contents instead of recreating the link.
+    pub follow_symlinks: bool,
+    pub if_exists: IfExists,
+}
+
+impl Default for CopyOptions {
+    fn default() -> Self {
+        Self {
+            verify: false,
+            keep_meta: true,
+            mask: None,
+            follow_symlinks: false,
+            if_exists: IfExists::Ask,
+        }
+    }
+}
+
+/// Case-insensitive `*`/`?` glob, used by the file mask.
+fn glob_match(pattern: &[u8], name: &[u8]) -> bool {
+    let (mut p, mut n) = (0usize, 0usize);
+    let (mut star_p, mut star_n) = (usize::MAX, 0usize);
+    while n < name.len() {
+        if p < pattern.len() && (pattern[p] == b'?' || pattern[p].eq_ignore_ascii_case(&name[n])) {
+            p += 1;
+            n += 1;
+        } else if p < pattern.len() && pattern[p] == b'*' {
+            star_p = p;
+            star_n = n;
+            p += 1;
+        } else if star_p != usize::MAX {
+            p = star_p + 1;
+            star_n += 1;
+            n = star_n;
+        } else {
+            return false;
+        }
+    }
+    while p < pattern.len() && pattern[p] == b'*' {
+        p += 1;
+    }
+    p == pattern.len()
+}
+
 /// Where a running operation reports to. The Tauri layer forwards progress
 /// and conflicts to the frontend; tests plug in a canned implementation.
 pub trait OpSink: Send {
@@ -33,28 +99,58 @@ pub trait OpSink: Send {
     fn conflict(&self, src: &Path, dest: &Path) -> ConflictChoice;
 }
 
-/// Worker-side context: progress reporting, cancellation, conflict prompts.
+/// Worker-side context: progress reporting, cancellation, pause, conflict
+/// prompts, and the copy options.
 pub struct OpCtx {
     pub cancel: Arc<AtomicBool>,
+    pub pause: Arc<AtomicBool>,
     /// Sticky "apply to all" conflict policy once the user picked one.
     pub policy: Option<ConflictChoice>,
+    pub options: CopyOptions,
+    /// Lower-cased mask patterns compiled from `options.mask`.
+    mask: Vec<Vec<u8>>,
     pub done_bytes: u64,
     pub total_bytes: u64,
     sink: Box<dyn OpSink>,
 }
 
 impl OpCtx {
-    pub fn new(cancel: Arc<AtomicBool>, sink: Box<dyn OpSink>) -> Self {
+    pub fn new(cancel: Arc<AtomicBool>, pause: Arc<AtomicBool>, sink: Box<dyn OpSink>) -> Self {
         Self {
             cancel,
+            pause,
             policy: None,
+            options: CopyOptions::default(),
+            mask: Vec::new(),
             done_bytes: 0,
             total_bytes: 0,
             sink,
         }
     }
 
+    pub fn set_options(&mut self, options: CopyOptions) {
+        self.mask = options
+            .mask
+            .as_deref()
+            .unwrap_or("")
+            .split(';')
+            .map(|p| p.trim().to_ascii_lowercase().into_bytes())
+            .filter(|p| !p.is_empty() && p != b"*" && p != b"*.*")
+            .collect();
+        self.options = options;
+    }
+
+    /// Does this file name pass the dialog's mask? Folders are not masked.
+    pub fn mask_matches(&self, name: &str) -> bool {
+        self.mask.is_empty() || self.mask.iter().any(|p| glob_match(p, name.as_bytes()))
+    }
+
+    /// Also the pause point: every op loop polls this, so a paused op simply
+    /// parks here until resumed or cancelled.
     pub fn cancelled(&self) -> bool {
+        while self.pause.load(Ordering::Relaxed) && !self.cancel.load(Ordering::Relaxed) {
+            std::thread::sleep(std::time::Duration::from_millis(120));
+        }
         self.cancel.load(Ordering::Relaxed)
     }
 
@@ -74,6 +170,23 @@ impl OpCtx {
             Some(ConflictChoice::OverwriteAll) => return ConflictChoice::Overwrite,
             Some(ConflictChoice::SkipAll) => return ConflictChoice::Skip,
             _ => {}
+        }
+        match self.options.if_exists {
+            IfExists::Skip => return ConflictChoice::Skip,
+            IfExists::Rename => return ConflictChoice::KeepBoth,
+            IfExists::ReplaceOlder => {
+                if let (Ok(s), Ok(d)) = (std::fs::metadata(src), std::fs::metadata(dest))
+                    && let (Ok(sm), Ok(dm)) = (s.modified(), d.modified())
+                {
+                    return if sm > dm {
+                        ConflictChoice::Overwrite
+                    } else {
+                        ConflictChoice::Skip
+                    };
+                }
+                // Can't compare (remote side): fall through to asking.
+            }
+            IfExists::Ask => {}
         }
         let choice = self.sink.conflict(src, dest);
         match choice {
@@ -107,7 +220,11 @@ impl OpSink for TestSink {
 impl OpCtx {
     /// Context for unit tests: no cancellation, conflicts answered by `choice`.
     pub fn for_test(choice: ConflictChoice) -> Self {
-        Self::new(Arc::new(AtomicBool::new(false)), Box::new(TestSink(choice)))
+        Self::new(
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Box::new(TestSink(choice)),
+        )
     }
 }
 
@@ -135,6 +252,22 @@ pub fn keep_both_path(dest: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mask_globs() {
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        ctx.set_options(CopyOptions {
+            mask: Some("*.jpg;IMG_??.png".into()),
+            ..Default::default()
+        });
+        assert!(ctx.mask_matches("photo.JPG"));
+        assert!(ctx.mask_matches("IMG_42.png"));
+        assert!(!ctx.mask_matches("IMG_123.png"));
+        assert!(!ctx.mask_matches("doc.pdf"));
+        // Empty / *.* masks match everything.
+        ctx.set_options(CopyOptions::default());
+        assert!(ctx.mask_matches("anything"));
+    }
 
     #[test]
     fn keep_both_picks_free_name() {

@@ -1,23 +1,58 @@
+import { useTranslation } from "react-i18next";
 import { useOps } from "../store/ops";
 
+function formatEta(sec: number | null): string {
+  if (sec === null) return "";
+  if (sec >= 3600) return `${Math.round(sec / 3600)}h`;
+  if (sec >= 60) return `${Math.round(sec / 60)}m`;
+  return `${Math.max(1, Math.round(sec))}s`;
+}
+
 export function OpsUI() {
-  const running = useOps((s) => s.running);
+  const { t } = useTranslation();
+  const jobs = useOps((s) => s.jobs);
+  const pausedAll = useOps((s) => s.pausedAll);
   const toasts = useOps((s) => s.toasts);
-  const cancel = useOps((s) => s.cancel);
-  const dismiss = useOps((s) => s.dismissToast);
+  const ops = useOps.getState;
 
   return (
     <>
-      {running.length > 0 && (
-        <div className="progress-strip">
-          {running.map((op) => (
-            <div key={op.id} className="op-row">
-              <span>{op.label}</span>
-              <div className="bar">
-                <i style={{ width: `${Math.round(op.fraction * 100)}%` }} />
-              </div>
-              <span className="detail">{op.detail}</span>
-              <button className="cancel" onClick={() => cancel(op.id)}>
+      {jobs.length > 0 && (
+        <div className="queue">
+          <div className="q-head">
+            <span className="q-title">{t("queue.title")}</span>
+            <button className="q-btn" onClick={() => ops().togglePauseAll()}>
+              {pausedAll ? `▶ ${t("queue.resumeAll")}` : `⏸ ${t("queue.pauseAll")}`}
+            </button>
+          </div>
+          {jobs.map((job) => (
+            <div key={job.key} className="op-row">
+              <span className="q-label">{job.label}</span>
+              <span className="q-desc">{job.desc}</span>
+              {job.state === "running" ? (
+                <>
+                  <div className="bar">
+                    <i style={{ width: `${Math.round(job.fraction * 100)}%` }} />
+                  </div>
+                  <span className="q-eta">
+                    {Math.round(job.fraction * 100)}%
+                    {job.etaSec !== null && !job.paused
+                      ? ` · ${t("queue.left", { eta: formatEta(job.etaSec) })}`
+                      : ""}
+                  </span>
+                  <span className="detail">{job.detail}</span>
+                  <button
+                    className="q-btn"
+                    title={job.paused ? "▶" : "⏸"}
+                    onClick={() => ops().togglePauseJob(job.key)}
+                  >
+                    {job.paused ? "▶" : "⏸"}
+                  </button>
+                </>
+              ) : (
+                <span className="q-waiting">{t("queue.waiting")}</span>
+              )}
+              <button className="cancel" onClick={() => ops().cancel(job.key)}>
                 ✕
               </button>
             </div>
@@ -30,7 +65,7 @@ export function OpsUI() {
             <div
               key={toast.id}
               className={`toast ${toast.kind}`}
-              onClick={() => dismiss(toast.id)}
+              onClick={() => ops().dismissToast(toast.id)}
             >
               {toast.text}
             </div>

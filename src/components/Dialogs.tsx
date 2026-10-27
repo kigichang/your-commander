@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
-import type { ConflictChoice } from "../ipc/types";
+import type { ConflictChoice, IfExists } from "../ipc/types";
 import { baseName, joinPath } from "../lib/path";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
@@ -70,36 +70,55 @@ function ItemList({ names }: { names: string[] }) {
   );
 }
 
+const IF_EXISTS: Array<{ value: IfExists; label: string }> = [
+  { value: "ask", label: "dialog.ifAsk" },
+  { value: "skip", label: "dialog.ifSkip" },
+  { value: "replaceOlder", label: "dialog.ifReplaceOlder" },
+  { value: "rename", label: "dialog.ifRename" },
+];
+
 function CopyMoveDialog({ d }: { d: Extract<Dialog, { type: "copyMove" }> }) {
   const { t } = useTranslation();
   const close = useDialogs((s) => s.close);
   const [dest, setDest] = useState(d.destDir);
+  const [verify, setVerify] = useState(false);
+  const [keepMeta, setKeepMeta] = useState(true);
+  const [mask, setMask] = useState("*.*");
+  const [followSymlinks, setFollowSymlinks] = useState(false);
+  const [ifExists, setIfExists] = useState<IfExists>("ask");
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => inputRef.current?.select(), []);
 
-  const go = () => {
+  const go = (queued: boolean) => {
     close();
     const s = usePanels.getState();
     const srcTab = s.activeTab(d.side);
     const destTab = s.activeTab(s.otherSide(d.side));
     const sameDest = dest === destTab.path;
-    void useOps.getState().run(
-      t(d.move ? "dialog.move" : "dialog.copy"),
-      {
-        op: "copy",
-        src: srcTab.location,
-        sources: d.items.map((e) => ({ path: e.path, isDir: e.isDir })),
-        // Typing a different path only makes sense toward the other panel's
-        // location; the default is exactly that panel's folder.
-        dest: sameDest ? destTab.location : { kind: "local" },
-        destDir: dest,
-        removeSource: d.move,
+    const label = t(d.move ? "dialog.move" : "dialog.copy");
+    const request = {
+      op: "copy" as const,
+      src: srcTab.location,
+      sources: d.items.map((e) => ({ path: e.path, isDir: e.isDir })),
+      // Typing a different path only makes sense toward the other panel's
+      // location; the default is exactly that panel's folder.
+      dest: sameDest ? destTab.location : ({ kind: "local" } as const),
+      destDir: dest,
+      removeSource: d.move,
+      options: {
+        verify,
+        keepMeta,
+        mask: mask.trim() && mask.trim() !== "*.*" ? mask.trim() : null,
+        followSymlinks,
+        ifExists,
       },
-      (done) =>
-        useOps
-          .getState()
-          .toast(t(d.move ? "status.moved" : "status.copied", { count: done.count })),
-    );
+    };
+    const onDone = (done: { count: number }) =>
+      useOps
+        .getState()
+        .toast(t(d.move ? "status.moved" : "status.copied", { count: done.count }));
+    if (queued) useOps.getState().enqueue(label, request, onDone);
+    else useOps.getState().run(label, request, onDone);
   };
 
   return (
@@ -113,14 +132,59 @@ function CopyMoveDialog({ d }: { d: Extract<Dialog, { type: "copyMove" }> }) {
           value={dest}
           spellCheck={false}
           onChange={(e) => setDest(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && go()}
+          onKeyDown={(e) => e.key === "Enter" && go(false)}
         />
+        <div className="copy-opts">
+          <label className="check">
+            <input type="checkbox" checked={verify} onChange={(e) => setVerify(e.target.checked)} />
+            {t("dialog.verifyAfter")}
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={keepMeta}
+              onChange={(e) => setKeepMeta(e.target.checked)}
+            />
+            {t("dialog.keepMeta")}
+          </label>
+          <label className="check mask">
+            <span>{t("dialog.onlyMatching")}</span>
+            <input
+              value={mask}
+              spellCheck={false}
+              onChange={(e) => setMask(e.target.value)}
+            />
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={followSymlinks}
+              onChange={(e) => setFollowSymlinks(e.target.checked)}
+            />
+            {t("dialog.followSymlinks")}
+          </label>
+        </div>
+        <label>{t("dialog.ifExists")}</label>
+        <div className="seg">
+          {IF_EXISTS.map((o) => (
+            <button
+              key={o.value}
+              className={ifExists === o.value ? "on" : ""}
+              onClick={() => setIfExists(o.value)}
+            >
+              {t(o.label)}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="buttons">
+        <button className="btn" onClick={() => go(true)}>
+          {t("dialog.addToQueue")}
+        </button>
         <button className="btn" onClick={close}>
           {t("dialog.cancel")}
         </button>
-        <button className="btn primary" onClick={go}>
+        <button className="btn primary" onClick={() => go(false)}>
           {t(d.move ? "dialog.move" : "dialog.copy")} ↵
         </button>
       </div>

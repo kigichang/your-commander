@@ -46,6 +46,8 @@ export const startOp = (
 };
 
 export const cancelOp = (opId: number) => invoke<void>("cancel_op", { opId });
+export const pauseOp = (opId: number, paused: boolean) =>
+  invoke<void>("pause_op", { opId, paused });
 export const resolveConflict = (opId: number, choice: ConflictChoice) =>
   invoke<void>("resolve_conflict", { opId, choice });
 

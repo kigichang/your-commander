@@ -82,6 +82,16 @@
     "skipAll": "Skip All",
     "keepBoth": "Keep Both",
     "cancelOp": "Cancel Operation",
+    "verifyAfter": "Verify after copy",
+    "keepMeta": "Keep dates & tags",
+    "onlyMatching": "Only files matching",
+    "followSymlinks": "Follow symlinks",
+    "ifExists": "If exists",
+    "ifAsk": "Ask",
+    "ifSkip": "Skip",
+    "ifReplaceOlder": "Replace older",
+    "ifRename": "Rename",
+    "addToQueue": "Add to queue",
     "compressTitle": "Compress {{count}} item(s)",
     "archiveName": "Name:",
     "format": "Format:",
@@ -116,6 +126,13 @@
     "ejected": "Volume ejected",
     "disconnect": "Disconnect",
     "localOnly": "Compress/extract works on local folders only"
+  },
+  "queue": {
+    "title": "Queue",
+    "waiting": "waiting",
+    "pauseAll": "all",
+    "resumeAll": "all",
+    "left": "{{eta}} left"
   },
   "quickview": {
     "title": "Quick View",

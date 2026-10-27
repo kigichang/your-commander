@@ -22,6 +22,7 @@ pub enum Location {
 #[derive(Default)]
 pub struct OpControl {
     pub cancel: Arc<AtomicBool>,
+    pub pause: Arc<AtomicBool>,
     pub conflict_tx: Mutex<Option<Sender<ConflictChoice>>>,
 }
 

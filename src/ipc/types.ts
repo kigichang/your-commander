@@ -106,6 +106,16 @@ export interface SourceItem {
   isDir: boolean;
 }
 
+export type IfExists = "ask" | "skip" | "replaceOlder" | "rename";
+
+export interface CopyOptions {
+  verify: boolean;
+  keepMeta: boolean;
+  mask: string | null;
+  followSymlinks: boolean;
+  ifExists: IfExists;
+}
+
 export type OpRequest =
   | {
       op: "copy";
@@ -114,6 +124,7 @@ export type OpRequest =
       dest: Location;
       destDir: string;
       removeSource: boolean;
+      options?: CopyOptions;
     }
   | { op: "trash"; items: string[] }
   | { op: "delete"; location: Location; items: string[] }

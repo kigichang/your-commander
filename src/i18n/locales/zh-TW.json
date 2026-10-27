@@ -82,6 +82,16 @@
     "skipAll": "全部跳過",
     "keepBoth": "保留兩者",
     "cancelOp": "取消操作",
+    "verifyAfter": "複製後驗證",
+    "keepMeta": "保留日期與標籤",
+    "onlyMatching": "只複製符合",
+    "followSymlinks": "跟隨符號連結",
+    "ifExists": "同名檔案時",
+    "ifAsk": "詢問",
+    "ifSkip": "跳過",
+    "ifReplaceOlder": "覆蓋較舊",
+    "ifRename": "重新命名",
+    "addToQueue": "加入佇列",
     "compressTitle": "壓縮 {{count}} 個項目",
     "archiveName": "檔名：",
     "format": "格式：",
@@ -116,6 +126,13 @@
     "ejected": "已退出磁碟",
     "disconnect": "中斷連線",
     "localOnly": "壓縮/解壓僅支援本機資料夾"
+  },
+  "queue": {
+    "title": "佇列",
+    "waiting": "等待中",
+    "pauseAll": "全部",
+    "resumeAll": "全部",
+    "left": "剩 {{eta}}"
   },
   "quickview": {
     "title": "快速預覽",
