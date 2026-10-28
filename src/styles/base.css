@@ -890,6 +890,12 @@ svg.li {
   font-size: 12px;
   padding: 6px 9px;
 }
+/* Checkboxes must hug their label text, not stretch like text fields. */
+.dialog input[type="checkbox"] {
+  width: auto;
+  flex: none;
+  padding: 0;
+}
 .dialog .buttons {
   display: flex;
   justify-content: flex-end;
