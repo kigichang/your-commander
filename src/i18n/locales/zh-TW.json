@@ -189,6 +189,8 @@
     "plantumlServerUrl": "伺服器網址",
     "plantumlPrivacy": "預覽時圖表文字會傳送到此伺服器。",
     "plantumlJarPath": "plantuml.jar 路徑",
+    "plantumlJavaPath": "java 執行檔",
+    "plantumlJavaAuto": "自動偵測（java_home／Homebrew／PATH）",
     "plantumlJarNote": "由本機 java 渲染——內容不會離開這台電腦。"
   },
   "action": {

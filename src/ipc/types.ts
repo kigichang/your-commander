@@ -81,6 +81,7 @@ export interface Config {
   plantuml_mode: string;
   plantuml_server: string;
   plantuml_jar: string;
+  plantuml_java: string;
   left_cols: number[];
   right_cols: number[];
   window_size: [number, number] | null;

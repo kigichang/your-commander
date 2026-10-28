@@ -155,6 +155,14 @@ function GeneralPane() {
             placeholder="/usr/local/lib/plantuml.jar"
             onChange={(e) => useSettings.getState().save({ plantuml_jar: e.target.value })}
           />
+          <label>{t("settings.plantumlJavaPath")}</label>
+          <input
+            className="wide-in"
+            value={config?.plantuml_java ?? ""}
+            spellCheck={false}
+            placeholder={t("settings.plantumlJavaAuto")}
+            onChange={(e) => useSettings.getState().save({ plantuml_java: e.target.value })}
+          />
           <div className="settings-note">{t("settings.plantumlJarNote")}</div>
         </>
       )}

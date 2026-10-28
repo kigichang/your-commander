@@ -189,6 +189,8 @@
     "plantumlServerUrl": "Server URL",
     "plantumlPrivacy": "Diagram text is sent to this server when previewing.",
     "plantumlJarPath": "plantuml.jar path",
+    "plantumlJavaPath": "java binary",
+    "plantumlJavaAuto": "auto-detect (java_home / Homebrew / PATH)",
     "plantumlJarNote": "Rendered locally via java — nothing leaves the machine."
   },
   "action": {

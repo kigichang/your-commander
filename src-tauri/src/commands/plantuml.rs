@@ -78,20 +78,70 @@ fn render_via_server(server: &str, uml: &str) -> Result<String, String> {
     }
 }
 
-fn render_via_jar(jar: &str, uml: &str) -> Result<String, String> {
-    // A silent probe: invoking bare `java` without a JDK pops macOS's
-    // "install Java" dialog, java_home just fails quietly.
-    let has_java = std::process::Command::new("/usr/libexec/java_home")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !has_java {
-        return Err("Java runtime not found (install a JDK to use plantuml.jar)".into());
+/// Locate a usable java binary. `java_home` only knows JDKs registered in
+/// /Library/Java/JavaVirtualMachines — Homebrew's keg-only openjdk is not,
+/// and a Finder-launched app's PATH misses /opt/homebrew — so probe several
+/// places and always run java by absolute path.
+fn find_java(override_path: &str) -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    if !override_path.trim().is_empty() {
+        let p = PathBuf::from(override_path.trim());
+        return p.is_file().then_some(p);
     }
+    // Registered JDKs (never pops the "install Java" dialog; just fails).
+    if let Ok(out) = std::process::Command::new("/usr/libexec/java_home").output()
+        && out.status.success()
+    {
+        let home = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let p = PathBuf::from(home).join("bin/java");
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    // Homebrew keg-only openjdk (Apple Silicon and Intel prefixes), the
+    // plain keg first, then versioned ones like openjdk@21.
+    for prefix in ["/opt/homebrew/opt", "/usr/local/opt"] {
+        let direct = PathBuf::from(prefix).join("openjdk/bin/java");
+        if direct.is_file() {
+            return Some(direct);
+        }
+        if let Ok(read) = std::fs::read_dir(prefix) {
+            let mut kegs: Vec<PathBuf> = read
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().starts_with("openjdk"))
+                .map(|e| e.path().join("bin/java"))
+                .filter(|p| p.is_file())
+                .collect();
+            kegs.sort();
+            if let Some(p) = kegs.pop() {
+                return Some(p);
+            }
+        }
+    }
+    // Whatever PATH has (works when launched from a terminal).
+    if let Ok(out) = std::process::Command::new("/usr/bin/which").arg("java").output()
+        && out.status.success()
+    {
+        let p = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn render_via_jar(java_override: &str, jar: &str, uml: &str) -> Result<String, String> {
+    let Some(java) = find_java(java_override) else {
+        return Err(
+            "Java not found — install a JDK, or set the java path in Settings \
+             (Homebrew: /opt/homebrew/opt/openjdk/bin/java)"
+                .into(),
+        );
+    };
     if !std::path::Path::new(jar).exists() {
         return Err(format!("plantuml.jar not found: {jar}"));
     }
-    let mut child = std::process::Command::new("java")
+    let mut child = std::process::Command::new(&java)
         .args([
             "-Djava.awt.headless=true",
             "-jar",
@@ -128,12 +178,13 @@ pub async fn render_plantuml(
     state: State<'_, AppState>,
     code: String,
 ) -> Result<String, String> {
-    let (mode, server, jar) = {
+    let (mode, server, jar, java) = {
         let config = state.config.lock().unwrap();
         (
             config.plantuml_mode.clone(),
             config.plantuml_server.clone(),
             config.plantuml_jar.clone(),
+            config.plantuml_java.clone(),
         )
     };
     if mode != "server" && mode != "jar" {
@@ -142,7 +193,7 @@ pub async fn render_plantuml(
 
     let key = {
         let mut hasher = std::hash::DefaultHasher::new();
-        (&mode, &server, &jar, &code).hash(&mut hasher);
+        (&mode, &server, &jar, &java, &code).hash(&mut hasher);
         hasher.finish()
     };
     if let Some(svg) = state.plantuml_cache.lock().unwrap().get(&key) {
@@ -152,7 +203,7 @@ pub async fn render_plantuml(
     let svg = tauri::async_runtime::spawn_blocking(move || {
         let uml = with_start_end(&code);
         if mode == "jar" {
-            render_via_jar(&jar, &uml)
+            render_via_jar(&java, &jar, &uml)
         } else {
             render_via_server(&server, &uml)
         }

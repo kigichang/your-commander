@@ -87,6 +87,8 @@ pub struct Config {
     pub plantuml_mode: String,
     pub plantuml_server: String,
     pub plantuml_jar: String,
+    /// Explicit java binary; empty = auto-detect (java_home, Homebrew, PATH).
+    pub plantuml_java: String,
     /// Column widths [ext, size, date] in px; Name takes the rest.
     pub left_cols: Vec<u32>,
     pub right_cols: Vec<u32>,
@@ -118,6 +120,7 @@ impl Default for Config {
             plantuml_mode: "off".to_string(),
             plantuml_server: "https://www.plantuml.com/plantuml".to_string(),
             plantuml_jar: String::new(),
+            plantuml_java: String::new(),
             left_cols: Vec::new(),
             right_cols: Vec::new(),
             window_size: None,
