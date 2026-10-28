@@ -93,6 +93,7 @@ pub fn run() {
             commands::sftp::sftp_test,
             commands::sftp::sftp_disconnect,
             commands::smb::smb_test,
+            commands::smb::smb_shares,
             commands::smb::smb_find_mount,
             commands::smb::smb_unmount,
             commands::smb::smb_saved_password,

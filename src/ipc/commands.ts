@@ -102,6 +102,8 @@ export const sftpConnect = (params: SftpParams) =>
 
 export const sftpTest = (params: SftpParams) => invoke<void>("sftp_test", { params });
 export const smbTest = (server: string) => invoke<void>("smb_test", { server });
+export const smbShares = (server: string, username: string, password: string) =>
+  invoke<string[]>("smb_shares", { server, username, password });
 
 export const sftpDisconnect = (connId: number) =>
   invoke<void>("sftp_disconnect", { connId });

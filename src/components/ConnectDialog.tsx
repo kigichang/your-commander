@@ -55,6 +55,8 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
   // Password prompt shown when connecting with a username but no password.
   const [askPw, setAskPw] = useState(false);
   const [pwInput, setPwInput] = useState("");
+  // Share picker shown when connecting with the share left empty.
+  const [shareList, setShareList] = useState<string[] | null>(null);
 
   useEffect(() => {
     void ipc.sshHosts().then(setHosts);
@@ -65,12 +67,13 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
       if (e.key === "Escape") {
         e.stopPropagation();
         if (askPw) setAskPw(false);
+        else if (shareList) setShareList(null);
         else close();
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [close, askPw]);
+  }, [close, askPw, shareList]);
 
   const authMode: SshAuthMode = ssh.use_agent ? "agent" : ssh.use_password ? "password" : "key";
   const setAuthMode = (m: SshAuthMode) =>
@@ -132,8 +135,9 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
 
   const toast = (text: string, kind?: "info" | "error") => useOps.getState().toast(text, kind);
 
-  const save = (pwOverride?: string) => {
+  const save = (pwOverride?: string, shareOverride?: string) => {
     const pw = pwOverride ?? secret;
+    const share = shareOverride ?? smb.share;
     if (protocol === "sftp") {
       if (!ssh.host || !ssh.username) return;
       const name = ssh.name.trim() || `${ssh.username}@${ssh.host}`;
@@ -143,14 +147,14 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
       useSettings.getState().save({ ssh_connections: [...rest, { ...ssh, name }] });
       if (ssh.use_password && secret) void ipc.sshStorePassword(ssh.username, ssh.host, secret);
     } else if (protocol === "smb") {
-      if (!smb.server || !smb.share) return;
-      const name = smb.name.trim() || `${smb.server}/${smb.share}`;
+      if (!smb.server || !share) return;
+      const name = smb.name.trim() || `${smb.server}/${share}`;
       const rest = (config?.smb_connections ?? []).filter(
-        (c) => !(c.server === smb.server && c.share === smb.share && c.username === smb.username),
+        (c) => !(c.server === smb.server && c.share === share && c.username === smb.username),
       );
-      useSettings.getState().save({ smb_connections: [...rest, { ...smb, name }] });
+      useSettings.getState().save({ smb_connections: [...rest, { ...smb, share, name }] });
       if (smb.username && pw)
-        void ipc.smbStorePassword(smb.username, smb.server, smb.share, pw);
+        void ipc.smbStorePassword(smb.username, smb.server, share, pw);
     }
     toast(t("connect.saved2"));
   };
@@ -181,15 +185,37 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     }
   };
 
-  const mountSmb = (password: string) => {
-    if (smb.remember) save(password);
+  // Share left empty: ask the server for its share list and let the user pick.
+  const mountSmb = async (password: string) => {
+    const share = smb.share.trim();
+    if (share) {
+      doMount(password, share);
+      return;
+    }
+    setBusy("connect");
+    try {
+      const shares = await ipc.smbShares(smb.server, smb.username, password);
+      if (shares.length === 0) {
+        toast(t("connect.noShares"), "error");
+      } else {
+        setShareList(shares);
+      }
+    } catch (e) {
+      toast(String(e), "error");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const doMount = (password: string, share: string) => {
+    if (smb.remember) save(password, share);
     close();
     void useOps.getState().run(
       "SMB",
       {
         op: "smbMount",
         server: smb.server,
-        share: smb.share,
+        share,
         username: smb.username,
         password,
       },
@@ -230,7 +256,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
           setBusy("");
           return;
         }
-        mountSmb(pw);
+        await mountSmb(pw);
       }
     } catch (e) {
       toast(String(e), "error");
@@ -241,11 +267,11 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
   const submitPw = () => {
     setAskPw(false);
     setSecret(pwInput);
-    mountSmb(pwInput);
+    void mountSmb(pwInput);
   };
 
   const canSubmit =
-    protocol === "sftp" ? !!(ssh.host && ssh.username) : !!(smb.server && smb.share);
+    protocol === "sftp" ? !!(ssh.host && ssh.username) : !!smb.server;
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
@@ -433,6 +459,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
                     <input
                       value={smb.share}
                       spellCheck={false}
+                      placeholder={t("connect.shareHint")}
                       onChange={(e) => setSmb((s) => ({ ...s, share: e.target.value }))}
                     />
                   </div>
@@ -478,7 +505,11 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
               <button className="btn" disabled={!canSubmit || busy !== ""} onClick={() => void test()}>
                 {busy === "test" ? t("connect.testing") : t("connect.test")}
               </button>
-              <button className="btn" disabled={!canSubmit} onClick={() => save()}>
+              <button
+                className="btn"
+                disabled={protocol === "smb" ? !(smb.server && smb.share) : !canSubmit}
+                onClick={() => save()}
+              >
                 {t("connect.save")}
               </button>
               <span className="pane-pick">
@@ -501,6 +532,37 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
             </div>
           </div>
         </div>
+        {shareList && (
+          <div
+            className="overlay"
+            onMouseDown={(e) => e.target === e.currentTarget && setShareList(null)}
+          >
+            <div className="dialog">
+              <h2>{t("connect.pickShare")}</h2>
+              <div className="settings-note">{`//${smb.server}`}</div>
+              <div className="share-list">
+                {shareList.map((share) => (
+                  <button
+                    key={share}
+                    className="pick"
+                    onClick={() => {
+                      setSmb((s) => ({ ...s, share }));
+                      setShareList(null);
+                      doMount(secret, share);
+                    }}
+                  >
+                    {share}
+                  </button>
+                ))}
+              </div>
+              <div className="buttons">
+                <button className="btn" onClick={() => setShareList(null)}>
+                  {t("dialog.cancel")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {askPw && (
           <div
             className="overlay"

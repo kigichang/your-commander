@@ -99,6 +99,74 @@ pub fn mount(
     Err("Could not mount the share".to_string())
 }
 
+/// List the disk shares a server offers, via `smbutil view`.
+/// smbutil only takes credentials inside the URL argument, so they are
+/// briefly visible to local `ps` while it runs; macOS offers no stdin path.
+pub fn list_shares(server: &str, username: &str, password: &str) -> Result<Vec<String>, String> {
+    let mut url = String::from("//");
+    if !username.is_empty() {
+        url.push_str(&urlencoding::encode(username));
+        if !password.is_empty() {
+            url.push(':');
+            url.push_str(&urlencoding::encode(password));
+        }
+        url.push('@');
+    }
+    url.push_str(server);
+
+    let mut cmd = Command::new("/usr/bin/smbutil");
+    cmd.arg("view");
+    if password.is_empty() {
+        // Never try to prompt on a tty we don't have (guest/empty password).
+        cmd.arg("-N");
+    }
+    let output = cmd.arg(&url).output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let mut err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if err.is_empty() {
+            err = "Could not list shares".to_string();
+        }
+        // Defense in depth: never echo the password, encoded or not.
+        if !password.is_empty() {
+            err = err
+                .replace(&urlencoding::encode(password).to_string(), "•••")
+                .replace(password, "•••");
+        }
+        return Err(err);
+    }
+    Ok(parse_view(&String::from_utf8_lossy(&output.stdout)))
+}
+
+/// Parse `smbutil view` output: a `Share … Type … Comments` header, a dashed
+/// rule, fixed-width rows, then a `N shares listed` footer.
+fn parse_view(text: &str) -> Vec<String> {
+    let mut lines = text.lines();
+    let Some(type_col) = lines.find_map(|l| {
+        (l.contains("Share") && l.contains("Type")).then(|| l.find("Type"))?
+    }) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for line in lines {
+        if line.len() <= type_col || line.starts_with('-') {
+            continue;
+        }
+        // Column offsets are bytes; back off to a char boundary just in case.
+        let mut col = type_col;
+        while col > 0 && !line.is_char_boundary(col) {
+            col -= 1;
+        }
+        let (name, rest) = line.split_at(col);
+        if rest.split_whitespace().next() == Some("Disk") {
+            let name = name.trim_end();
+            if !name.is_empty() {
+                out.push(name.to_string());
+            }
+        }
+    }
+    out
+}
+
 pub fn unmount(path: &std::path::Path) -> Result<(), String> {
     let output = Command::new("/usr/sbin/diskutil")
         .arg("unmount")
@@ -109,5 +177,31 @@ pub fn unmount(path: &std::path::Path) -> Result<(), String> {
         Ok(())
     } else {
         Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_view;
+
+    #[test]
+    fn parses_smbutil_view_output() {
+        let text = "\
+Share                                           Type    Comments
+-------------------------------
+homes                                           Disk    user home directories
+My Photos                                       Disk
+IPC$                                            Pipe    IPC Service
+LaserJet                                        Printer office
+
+3 shares listed
+";
+        assert_eq!(parse_view(text), vec!["homes", "My Photos"]);
+    }
+
+    #[test]
+    fn parse_view_tolerates_garbage() {
+        assert!(parse_view("").is_empty());
+        assert!(parse_view("no header at all\nDisk\n").is_empty());
     }
 }

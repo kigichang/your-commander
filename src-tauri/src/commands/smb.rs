@@ -21,6 +21,18 @@ pub async fn smb_test(server: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Disk shares the server offers (share picker when none was given).
+#[tauri::command]
+pub async fn smb_shares(
+    server: String,
+    username: String,
+    password: String,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || smb::list_shares(&server, &username, &password))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Where `//server/share` is currently mounted, if anywhere.
 #[tauri::command]
 pub async fn smb_find_mount(server: String, share: String) -> Option<PathBuf> {
