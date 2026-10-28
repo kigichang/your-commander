@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
@@ -6,6 +7,7 @@ import type { Location } from "../ipc/types";
 import type { CaseMode, RenameRules } from "../lib/renameMask";
 import { DEFAULT_RULES, previewRenames } from "../lib/renameMask";
 import type { Dialog } from "../store/dialogs";
+import { Icon } from "./icons";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
@@ -170,7 +172,12 @@ export function MultiRenameDialog({ d }: { d: Extract<Dialog, { type: "multiRena
               <span className="arrow">→</span>
               <span className={clsx("new", !r.changed && "same")}>
                 {r.newName}
-                {r.problem ? `  ⚠ ${t(r.problem)}` : ""}
+                {r.problem && (
+                  <>
+                    {"  "}
+                    <Icon of={TriangleAlert} size={13} /> {t(r.problem)}
+                  </>
+                )}
               </span>
             </div>
           ))}

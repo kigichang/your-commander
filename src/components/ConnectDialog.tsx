@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
@@ -8,6 +9,7 @@ import { useOps } from "../store/ops";
 import type { Side } from "../store/panels";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
+import { Icon } from "./icons";
 
 type Protocol = "sftp" | "ftp" | "s3" | "webdav" | "smb";
 const PROTOCOLS: Protocol[] = ["sftp", "ftp", "s3", "webdav", "smb"];
@@ -290,7 +292,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
                   <span className="sub">{descOf(s)}</span>
                 </button>
                 <button className="close" title={t("connect.deleteSaved")} onClick={() => remove(s)}>
-                  ✕
+                  <Icon of={X} size={12} />
                 </button>
               </div>
             ))}

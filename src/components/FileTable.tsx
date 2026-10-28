@@ -1,5 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
+import { ChevronDown, ChevronUp, CornerLeftUp } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { FsEntry } from "../ipc/types";
@@ -11,6 +12,7 @@ import type { ColKey, ColWidths, Side, SortKey, TabState, ViewMode } from "../st
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
 import { FileIcon } from "./FileIcon";
+import { Icon } from "./icons";
 
 const ROW_HEIGHT = 26;
 
@@ -105,7 +107,9 @@ export function FileTable({
                 onClick={() => usePanels.getState().setSort(side, c.key)}
               >
                 {t(c.label)}
-                {tab.sortKey === c.key ? (tab.sortDir === 1 ? " ▲" : " ▼") : ""}
+                {tab.sortKey === c.key && (
+                  <Icon of={tab.sortDir === 1 ? ChevronUp : ChevronDown} size={12} />
+                )}
               </button>
             </div>
           ))}
@@ -121,7 +125,10 @@ export function FileTable({
           }}
         >
           <span className="name">
-            <span className="icon">▴</span>..
+            <span className="icon">
+              <Icon of={CornerLeftUp} size={14} />
+            </span>
+            ..
           </span>
         </div>
       )}

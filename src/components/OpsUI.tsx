@@ -1,5 +1,7 @@
+import { Pause, Play, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useOps } from "../store/ops";
+import { Icon } from "./icons";
 
 function formatEta(sec: number | null): string {
   if (sec === null) return "";
@@ -22,7 +24,8 @@ export function OpsUI() {
           <div className="q-head">
             <span className="q-title">{t("queue.title")}</span>
             <button className="q-btn" onClick={() => ops().togglePauseAll()}>
-              {pausedAll ? `▶ ${t("queue.resumeAll")}` : `⏸ ${t("queue.pauseAll")}`}
+              <Icon of={pausedAll ? Play : Pause} size={12} />{" "}
+              {pausedAll ? t("queue.resumeAll") : t("queue.pauseAll")}
             </button>
           </div>
           {jobs.map((job) => (
@@ -43,17 +46,16 @@ export function OpsUI() {
                   <span className="detail">{job.detail}</span>
                   <button
                     className="q-btn"
-                    title={job.paused ? "▶" : "⏸"}
                     onClick={() => ops().togglePauseJob(job.key)}
                   >
-                    {job.paused ? "▶" : "⏸"}
+                    <Icon of={job.paused ? Play : Pause} size={12} />
                   </button>
                 </>
               ) : (
                 <span className="q-waiting">{t("queue.waiting")}</span>
               )}
               <button className="cancel" onClick={() => ops().cancel(job.key)}>
-                ✕
+                <Icon of={X} size={12} />
               </button>
             </div>
           ))}

@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActionId } from "../keymap/actions";
@@ -10,6 +11,7 @@ import { useDialogs } from "../store/dialogs";
 import { useKeymap } from "../store/keymapStore";
 import { useOps } from "../store/ops";
 import { useSettings } from "../store/settings";
+import { Icon } from "./icons";
 
 const SECTIONS = ["general", "hotkeys", "panes", "appearance", "transfers", "plugins"] as const;
 const READY = new Set(["general", "hotkeys"]);
@@ -251,7 +253,7 @@ function HotkeysPane({
                     className="hk-x"
                     onClick={() => useKeymap.getState().unbindChord(chord)}
                   >
-                    ✕
+                    <Icon of={X} size={10} />
                   </button>
                 </span>
               ))}

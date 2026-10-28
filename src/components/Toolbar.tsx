@@ -1,8 +1,21 @@
+import {
+  ArrowLeftRight,
+  FolderSync,
+  GitCompare,
+  LayoutGrid,
+  List,
+  Network,
+  PencilLine,
+  RefreshCw,
+  Search,
+  Settings,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { actions } from "../keymap/actions";
 import { useDialogs } from "../store/dialogs";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
+import { Icon } from "./icons";
 
 export function Toolbar() {
   const { t } = useTranslation();
@@ -15,24 +28,24 @@ export function Toolbar() {
   return (
     <div className="toolbar" data-tauri-drag-region>
       <button className="tbtn" title="F2" onClick={() => actions.refresh.run()}>
-        <span className="glyph">⟳</span>
+        <Icon of={RefreshCw} />
       </button>
       <div className="seg">
         <button
           className={viewMode === "brief" ? "on" : ""}
           onClick={() => setViewMode(activeSide, "brief")}
         >
-          ⊞ {t("toolbar.brief")}
+          <Icon of={LayoutGrid} size={14} /> {t("toolbar.brief")}
         </button>
         <button
           className={viewMode === "full" ? "on" : ""}
           onClick={() => setViewMode(activeSide, "full")}
         >
-          ☰ {t("toolbar.full")}
+          <Icon of={List} size={14} /> {t("toolbar.full")}
         </button>
       </div>
       <button className="tbtn" onClick={() => actions.swap.run()}>
-        <span className="glyph">⇄</span> {t("toolbar.swap")}
+        <Icon of={ArrowLeftRight} /> {t("toolbar.swap")}
       </button>
       <div className="spacer" data-tauri-drag-region />
       <button
@@ -40,7 +53,7 @@ export function Toolbar() {
         title="⌘,"
         onClick={() => actions.openSettings.run()}
       >
-        <span className="glyph">⚙</span>
+        <Icon of={Settings} />
       </button>
       <button
         className={`tbtn${fkeysOn && fkeysAvailable ? " accent" : ""}`}
@@ -51,22 +64,22 @@ export function Toolbar() {
         Fn
       </button>
       <button className="tbtn" onClick={() => actions.compareFiles.run()}>
-        <span className="glyph">≡</span> {t("toolbar.compare")}
+        <Icon of={GitCompare} /> {t("toolbar.compare")}
       </button>
       <button className="tbtn" title="⌃M" onClick={() => actions.multiRename.run()}>
-        <span className="glyph">✎</span> {t("toolbar.rename")}
+        <Icon of={PencilLine} /> {t("toolbar.rename")}
       </button>
       <button className="tbtn" title="⌘F" onClick={() => actions.findFiles.run()}>
-        <span className="glyph">⌕</span> {t("toolbar.find")}
+        <Icon of={Search} /> {t("toolbar.find")}
       </button>
       <button className="tbtn" title="⌘=" onClick={() => actions.syncFolders.run()}>
-        <span className="glyph">⇅</span> {t("toolbar.sync")}
+        <Icon of={FolderSync} /> {t("toolbar.sync")}
       </button>
       <button
         className="tbtn accent"
         onClick={() => useDialogs.getState().open({ type: "connect", protocol: "smb" })}
       >
-        <span className="glyph">⇄</span> {t("toolbar.connect")}
+        <Icon of={Network} /> {t("toolbar.connect")}
       </button>
     </div>
   );

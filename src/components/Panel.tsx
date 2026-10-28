@@ -1,5 +1,6 @@
 import clsx from "clsx";
 import i18next from "i18next";
+import { ChevronDown, Eject, HardDrive, House, Plus, Star, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
@@ -13,6 +14,7 @@ import type { Side, TabState } from "../store/panels";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
 import { FileTable } from "./FileTable";
+import { Icon } from "./icons";
 import { QuickView } from "./QuickView";
 
 async function ejectVolume(volPath: string, side: Side, currentPath: string) {
@@ -87,13 +89,13 @@ function TabStrip({ side }: { side: Side }) {
                 closeTab(side, i);
               }}
             >
-              ✕
+              <Icon of={X} size={12} />
             </span>
           )}
         </button>
       ))}
       <button className="tab-new" title={t("panel.newTab")} onClick={() => openTab(side)}>
-        +
+        <Icon of={Plus} size={14} />
       </button>
     </div>
   );
@@ -134,7 +136,9 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
       <div className="drive" ref={menuRef}>
         <button onClick={() => setMenuOpen((v) => !v)}>
           <span className="name">
-            ◉ {tab.remoteLabel ?? currentVol?.name ?? "Macintosh HD"} ▾
+            <Icon of={HardDrive} size={14} />{" "}
+            {tab.remoteLabel ?? currentVol?.name ?? "Macintosh HD"}{" "}
+            <Icon of={ChevronDown} size={12} />
           </span>
           {currentVol && !tab.remoteLabel && currentVol.total > 0 && (
             <span className="free">
@@ -157,7 +161,9 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
                       usePanels.getState().disconnectSftp(tab.location.connId);
                   }}
                 >
-                  <span>⏏ {t("panel2.disconnect")}</span>
+                  <span>
+                    <Icon of={Eject} size={14} /> {t("panel2.disconnect")}
+                  </span>
                   <span className="sub">{tab.remoteLabel}</span>
                 </button>
                 <div className="sep" />
@@ -170,7 +176,9 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
                 if (home) void navigate(side, home, { kind: "local" }, null);
               }}
             >
-              <span>⌂ {t("panel.home")}</span>
+              <span>
+                <Icon of={House} size={14} /> {t("panel.home")}
+              </span>
             </button>
             {config && config.favorites.length > 0 && (
               <>
@@ -185,7 +193,9 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
                       void navigate(side, f.path, { kind: "local" }, null);
                     }}
                   >
-                    <span>★ {f.name}</span>
+                    <span>
+                      <Icon of={Star} size={14} /> {f.name}
+                    </span>
                     <span className="sub">{displayPath(f.path, home)}</span>
                   </button>
                 ))}
@@ -202,7 +212,9 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
                     void navigate(side, v.path, { kind: "local" }, null);
                   }}
                 >
-                  <span>◉ {v.name}</span>
+                  <span>
+                    <Icon of={HardDrive} size={14} /> {v.name}
+                  </span>
                   {v.total > 0 && (
                     <span className="sub">
                       {t("panel.freeOf", {
@@ -221,7 +233,7 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
                     void ejectVolume(v.path, side, tab.path);
                   }}
                 >
-                  ⏏
+                  <Icon of={Eject} size={14} />
                 </button>
               </div>
             ))}
@@ -234,7 +246,7 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
         title={isFav ? t("panel.removeFavorite") : t("panel.addFavorite")}
         onClick={toggleFavorite}
       >
-        ★
+        <Icon of={Star} fill={isFav} />
       </button>
     </div>
   );

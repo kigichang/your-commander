@@ -1,3 +1,4 @@
+import { Folder, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
@@ -6,6 +7,7 @@ import { baseName } from "../lib/path";
 import { visibleEntries } from "../lib/selectors";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
+import { Icon } from "./icons";
 
 // pdf.js is ~450 KB; load it only when the first PDF is previewed.
 const PdfPreview = lazy(() =>
@@ -139,7 +141,7 @@ export function QuickView() {
           title="F3"
           onClick={() => usePanels.getState().toggleQuickView()}
         >
-          ✕ F3
+          <Icon of={X} size={14} /> F3
         </button>
       </div>
       <div className="qv-body">
@@ -162,7 +164,15 @@ export function QuickView() {
         ) : preview.kind === "text" ? (
           <pre>{preview.text}</pre>
         ) : (
-          <span className="none">{entry.isDir ? "▸ " + entry.name : t("quickview.noPreview")}</span>
+          <span className="none">
+            {entry.isDir ? (
+              <>
+                <Icon of={Folder} size={14} /> {entry.name}
+              </>
+            ) : (
+              t("quickview.noPreview")
+            )}
+          </span>
         )}
       </div>
       {entry && (

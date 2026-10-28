@@ -117,8 +117,11 @@ input:focus {
 .tbtn.accent {
   color: var(--color-accent);
 }
-.tbtn .glyph {
-  font-size: 13px;
+/* Lucide icons: sized by the component, aligned here. Inside flex buttons
+ * they center themselves; in running text they sit on the baseline. */
+svg.li {
+  flex: 0 0 auto;
+  vertical-align: -3px;
 }
 
 .seg {
@@ -128,6 +131,9 @@ input:focus {
   overflow: hidden;
 }
 .seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 3px 10px;
   font-size: 12.5px;
   color: var(--text-muted);
@@ -198,8 +204,9 @@ input:focus {
   background: var(--hover-tint);
 }
 .tab .close {
+  display: inline-flex;
+  align-items: center;
   color: var(--text-faint);
-  font-size: 11px;
   padding: 0 1px;
   border-radius: 3px;
 }
@@ -242,6 +249,9 @@ input:focus {
   background: var(--hover-tint);
 }
 .drive .name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12.5px;
   white-space: nowrap;
   overflow: hidden;
@@ -274,6 +284,11 @@ input:focus {
   padding: 5px 9px;
   border-radius: var(--radius-sm);
   text-align: left;
+}
+.menu .item > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 .menu .item:hover {
   background: var(--cursor-tint);
@@ -437,9 +452,10 @@ input:focus {
 .row .icon {
   flex: none;
   width: 16px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-muted);
-  font-size: 12px;
 }
 .row .icon-img {
   width: 16px;
@@ -753,6 +769,9 @@ input:focus {
   color: var(--text-faint);
 }
 .q-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   color: var(--text-muted);
   padding: 1px 7px;

@@ -1,5 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
+import { ArrowLeft, ArrowLeftRight, ArrowRight, Minus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
@@ -8,11 +9,16 @@ import { formatDate } from "../lib/format";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
+import { Icon } from "./icons";
 
 type Action = SyncDirection | "skip";
 
 const CYCLE: Record<Action, Action> = { ltr: "rtl", rtl: "skip", skip: "ltr" };
-const GLYPH: Record<Action, string> = { ltr: "→", rtl: "←", skip: "·" };
+const GLYPH: Record<Action, typeof ArrowRight> = {
+  ltr: ArrowRight,
+  rtl: ArrowLeft,
+  skip: Minus,
+};
 
 function defaultAction(row: SyncRow): Action {
   if (row.left && !row.right) return "ltr";
@@ -124,7 +130,9 @@ export function SyncDialog({ d }: { d: Extract<Dialog, { type: "sync" }> }) {
         <h2>{t("sync.title")}</h2>
         <div className="sync-paths">
           <span>{d.leftLabel}</span>
-          <span className="arrow">⇄</span>
+          <span className="arrow">
+            <Icon of={ArrowLeftRight} size={14} />
+          </span>
           <span>{d.rightLabel}</span>
         </div>
         <div className="sync-bar">
@@ -181,7 +189,7 @@ export function SyncDialog({ d }: { d: Extract<Dialog, { type: "sync" }> }) {
                       title="→ / ← / ·"
                       onClick={() => cycle(row.rel)}
                     >
-                      {GLYPH[action]}
+                      <Icon of={GLYPH[action]} size={14} />
                     </button>
                     <span className="date">
                       {row.right ? formatDate(row.right.modified) : ""}

@@ -1,5 +1,7 @@
+import { File, Folder } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fileIcon } from "../ipc/commands";
+import { Icon } from "./icons";
 
 /** Finder icons as blob URLs, one fetch per key for the app's lifetime. */
 const urls = new Map<string, string>();
@@ -46,6 +48,8 @@ export function FileIcon({ isDir, ext }: { isDir: boolean; ext: string }) {
   return url ? (
     <img className="icon icon-img" src={url} alt="" draggable={false} />
   ) : (
-    <span className="icon">{isDir ? "▸" : "·"}</span>
+    <span className="icon">
+      <Icon of={isDir ? Folder : File} size={14} />
+    </span>
   );
 }
