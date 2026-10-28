@@ -14,6 +14,18 @@ import { useSettings } from "./store/settings";
 export default function App() {
   useKeyboard();
 
+  // Suppress the webview's browser context menu (Reload/Inspect…); text
+  // inputs keep theirs for paste and spelling.
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable]")) return;
+      e.preventDefault();
+    };
+    window.addEventListener("contextmenu", onContextMenu);
+    return () => window.removeEventListener("contextmenu", onContextMenu);
+  }, []);
+
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     void (async () => {
