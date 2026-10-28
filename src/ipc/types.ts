@@ -78,6 +78,9 @@ export interface Config {
   hotkey_preset: string | null;
   hotkeys: Record<string, string>;
   recent_dirs: string[];
+  plantuml_mode: string;
+  plantuml_server: string;
+  plantuml_jar: string;
   left_cols: number[];
   right_cols: number[];
   window_size: [number, number] | null;

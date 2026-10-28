@@ -93,6 +93,8 @@ function GeneralPane() {
   const showHidden = useSettings((s) => s.showHidden);
   const fkeysOn = useSettings((s) => s.fkeysWithoutFn);
   const fkeysAvailable = useSettings((s) => s.fkeysAvailable);
+  const config = useSettings((s) => s.config);
+  const plantumlMode = config?.plantuml_mode ?? "off";
 
   return (
     <div className="settings-pane">
@@ -121,6 +123,41 @@ function GeneralPane() {
         />
         {t("settings.fkeys")}
       </label>
+
+      <label>{t("settings.plantuml")}</label>
+      <select
+        value={plantumlMode}
+        onChange={(e) => useSettings.getState().save({ plantuml_mode: e.target.value })}
+      >
+        <option value="off">{t("settings.plantumlOff")}</option>
+        <option value="server">{t("settings.plantumlServer")}</option>
+        <option value="jar">{t("settings.plantumlJar")}</option>
+      </select>
+      {plantumlMode === "server" && (
+        <>
+          <label>{t("settings.plantumlServerUrl")}</label>
+          <input
+            className="wide-in"
+            value={config?.plantuml_server ?? ""}
+            spellCheck={false}
+            onChange={(e) => useSettings.getState().save({ plantuml_server: e.target.value })}
+          />
+          <div className="settings-note">{t("settings.plantumlPrivacy")}</div>
+        </>
+      )}
+      {plantumlMode === "jar" && (
+        <>
+          <label>{t("settings.plantumlJarPath")}</label>
+          <input
+            className="wide-in"
+            value={config?.plantuml_jar ?? ""}
+            spellCheck={false}
+            placeholder="/usr/local/lib/plantuml.jar"
+            onChange={(e) => useSettings.getState().save({ plantuml_jar: e.target.value })}
+          />
+          <div className="settings-note">{t("settings.plantumlJarNote")}</div>
+        </>
+      )}
     </div>
   );
 }

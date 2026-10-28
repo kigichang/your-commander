@@ -16,9 +16,13 @@ const PdfPreview = lazy(() =>
 const MarkdownPreview = lazy(() =>
   import("./MarkdownPreview").then((m) => ({ default: m.MarkdownPreview })),
 );
+const PlantUmlPreview = lazy(() =>
+  import("./MarkdownPreview").then((m) => ({ default: m.PlantUmlPreview })),
+);
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico"]);
 const MD_EXTS = new Set(["md", "markdown"]);
+const PUML_EXTS = new Set(["puml", "plantuml", "pu"]);
 const TEXT_EXTS = new Set([
   "txt", "json", "js", "ts", "tsx", "jsx", "rs", "py", "sh", "zsh", "css",
   "html", "xml", "yml", "yaml", "toml", "ini", "conf", "log", "csv", "swift",
@@ -35,6 +39,7 @@ type Preview =
   | { kind: "image"; url: string }
   | { kind: "text"; text: string }
   | { kind: "markdown"; text: string }
+  | { kind: "plantuml"; text: string }
   | { kind: "pdf"; data: ArrayBuffer }
   | { kind: "none" };
 
@@ -81,6 +86,10 @@ export function QuickView() {
           const buf = await ipc.readPreview(tab.location, entry.path, MD_MAX);
           if (stale) return;
           setPreview({ kind: "markdown", text: new TextDecoder().decode(buf) });
+        } else if (PUML_EXTS.has(entry.ext) && entry.size <= TEXT_MAX) {
+          const buf = await ipc.readPreview(tab.location, entry.path, TEXT_MAX);
+          if (stale) return;
+          setPreview({ kind: "plantuml", text: new TextDecoder().decode(buf) });
         } else if (IMAGE_EXTS.has(entry.ext) && entry.size <= IMAGE_MAX) {
           const buf = await ipc.readPreview(tab.location, entry.path, IMAGE_MAX);
           if (stale) return;
@@ -143,6 +152,10 @@ export function QuickView() {
         ) : preview.kind === "markdown" ? (
           <Suspense fallback={<span className="none">…</span>}>
             <MarkdownPreview text={preview.text} />
+          </Suspense>
+        ) : preview.kind === "plantuml" ? (
+          <Suspense fallback={<span className="none">…</span>}>
+            <PlantUmlPreview text={preview.text} />
           </Suspense>
         ) : preview.kind === "image" ? (
           <img src={preview.url} alt={entry.name} />

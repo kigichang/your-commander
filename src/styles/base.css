@@ -588,6 +588,35 @@ input:focus {
   background: transparent;
   text-align: center;
 }
+.markdown-body pre.plantuml.rendered {
+  background: transparent;
+  text-align: center;
+}
+.markdown-body pre.plantuml img {
+  max-width: 100%;
+  display: inline-block;
+}
+.plantuml-hint {
+  margin-top: 6px;
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  color: var(--color-accent-2);
+}
+.plantuml-error {
+  margin-top: 6px;
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  color: #e08a8a;
+}
+.qv-body .markdown-body.puml-only {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.qv-body .markdown-body.puml-only pre.plantuml {
+  max-width: 100%;
+  overflow: auto;
+}
 .qv-body .pdf {
   align-self: stretch;
   flex: 1;
@@ -1211,6 +1240,16 @@ input:focus {
 }
 .settings-pane .check input {
   accent-color: var(--color-accent);
+}
+.settings-pane .wide-in {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.settings-note {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 4px;
 }
 .hk-bar {
   display: flex;

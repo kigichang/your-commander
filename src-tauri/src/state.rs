@@ -63,6 +63,8 @@ pub struct AppState {
     /// Cancel flags of running file searches.
     pub finds: Mutex<HashMap<u64, Arc<AtomicBool>>>,
     next_find_id: AtomicU64,
+    /// Rendered PlantUML SVGs keyed by hash(mode config + source).
+    pub plantuml_cache: Mutex<HashMap<u64, Arc<String>>>,
 }
 
 impl AppState {

@@ -82,6 +82,11 @@ pub struct Config {
     pub hotkeys: std::collections::HashMap<String, String>,
     /// Recently visited local folders, newest first (command palette).
     pub recent_dirs: Vec<PathBuf>,
+    /// PlantUML rendering: "off" (default, nothing leaves the machine),
+    /// "server" (encode + GET {server}/svg/…), or "jar" (local java).
+    pub plantuml_mode: String,
+    pub plantuml_server: String,
+    pub plantuml_jar: String,
     /// Column widths [ext, size, date] in px; Name takes the rest.
     pub left_cols: Vec<u32>,
     pub right_cols: Vec<u32>,
@@ -110,6 +115,9 @@ impl Default for Config {
             hotkey_preset: None,
             hotkeys: std::collections::HashMap::new(),
             recent_dirs: Vec::new(),
+            plantuml_mode: "off".to_string(),
+            plantuml_server: "https://www.plantuml.com/plantuml".to_string(),
+            plantuml_jar: String::new(),
             left_cols: Vec::new(),
             right_cols: Vec::new(),
             window_size: None,

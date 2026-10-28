@@ -181,7 +181,15 @@
     "resetDone": "快捷鍵已重設為預設集",
     "recordHint": "點擊後按下新按鍵（Backspace 清除）",
     "pressKeys": "請按按鍵…",
-    "rebound": "{{chord}} 已從「{{action}}」移除"
+    "rebound": "{{chord}} 已從「{{action}}」移除",
+    "plantuml": "PlantUML 渲染",
+    "plantumlOff": "關閉",
+    "plantumlServer": "PlantUML 伺服器",
+    "plantumlJar": "本機 plantuml.jar（需要 Java）",
+    "plantumlServerUrl": "伺服器網址",
+    "plantumlPrivacy": "預覽時圖表文字會傳送到此伺服器。",
+    "plantumlJarPath": "plantuml.jar 路徑",
+    "plantumlJarNote": "由本機 java 渲染——內容不會離開這台電腦。"
   },
   "action": {
     "switchPanel": "切換作用面板",
@@ -214,6 +222,9 @@
     "commandPalette": "指令面板",
     "openSettings": "設定",
     "quit": "結束"
+  },
+  "preview": {
+    "plantumlOff": "PlantUML 渲染未啟用——到設定（⌘,）› 一般 開啟"
   },
   "palette": {
     "hint": "動作或資料夾…",

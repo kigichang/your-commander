@@ -138,6 +138,9 @@ export const setConfig = (config: Config) =>
 export const fileIcon = async (key: string): Promise<ArrayBuffer> =>
   invoke("file_icon", { key });
 
+export const renderPlantuml = (code: string) =>
+  invoke<string>("render_plantuml", { code });
+
 export const fkeysSet = (enabled: boolean) => invoke<void>("fkeys_set", { enabled });
 export const fkeysAvailable = () => invoke<boolean>("fkeys_available");
 

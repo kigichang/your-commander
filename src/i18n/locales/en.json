@@ -181,7 +181,15 @@
     "resetDone": "Hotkeys reset to preset defaults",
     "recordHint": "Click, then press the new keys (Backspace clears)",
     "pressKeys": "press keys…",
-    "rebound": "{{chord}} was taken from \"{{action}}\""
+    "rebound": "{{chord}} was taken from \"{{action}}\"",
+    "plantuml": "PlantUML rendering",
+    "plantumlOff": "Off",
+    "plantumlServer": "PlantUML server",
+    "plantumlJar": "Local plantuml.jar (needs Java)",
+    "plantumlServerUrl": "Server URL",
+    "plantumlPrivacy": "Diagram text is sent to this server when previewing.",
+    "plantumlJarPath": "plantuml.jar path",
+    "plantumlJarNote": "Rendered locally via java — nothing leaves the machine."
   },
   "action": {
     "switchPanel": "Switch active panel",
@@ -214,6 +222,9 @@
     "commandPalette": "Command palette",
     "openSettings": "Settings",
     "quit": "Quit"
+  },
+  "preview": {
+    "plantumlOff": "PlantUML rendering is off — enable it in Settings (⌘,) › General"
   },
   "palette": {
     "hint": "action or folder…",

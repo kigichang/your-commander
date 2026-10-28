@@ -2,6 +2,7 @@ pub mod config;
 pub mod find;
 pub mod fs;
 pub mod ops;
+pub mod plantuml;
 pub mod preview;
 pub mod sftp;
 pub mod smb;
