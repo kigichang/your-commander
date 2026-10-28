@@ -11,6 +11,7 @@ import { actions } from "../keymap/actions";
 import type { ColKey, ColWidths, Side, SortKey, TabState, ViewMode } from "../store/panels";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
+import { useCtxMenu } from "./ContextMenu";
 import { FileIcon } from "./FileIcon";
 import { Icon } from "./icons";
 
@@ -132,7 +133,18 @@ export function FileTable({
           </span>
         </div>
       )}
-      <div className="tbody" ref={scrollRef}>
+      <div
+        className="tbody"
+        ref={scrollRef}
+        onContextMenu={(e) => {
+          // Rows handle their own menu; this is the blank space below them.
+          if ((e.target as HTMLElement).closest(".row")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          usePanels.getState().setActiveSide(side);
+          useCtxMenu.getState().open(e.clientX, e.clientY, side, "empty");
+        }}
+      >
         {tab.error ? (
           <div className="error">{tab.error}</div>
         ) : visible.length === 0 && !tab.loading ? (
@@ -179,6 +191,7 @@ function Row({
   const isMarked = tab.marked.has(entry.name);
 
   const onMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 2) return; // handled by onContextMenu
     const s = usePanels.getState();
     if (e.metaKey) {
       s.toggleMark(side, index, false);
@@ -187,6 +200,18 @@ function Row({
     } else {
       s.setCursor(side, index);
     }
+  };
+
+  // Finder convention: right-clicking a marked row acts on the whole mark
+  // set; right-clicking anything else retargets to that row alone.
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const s = usePanels.getState();
+    s.setActiveSide(side);
+    if (!tab.marked.has(entry.name)) s.unmarkAll(side);
+    s.setCursor(side, index);
+    useCtxMenu.getState().open(e.clientX, e.clientY, side, "row");
   };
 
   return (
@@ -201,6 +226,7 @@ function Row({
       )}
       style={{ top, gridTemplateColumns: brief ? "1fr" : cols }}
       onMouseDown={onMouseDown}
+      onContextMenu={onContextMenu}
       onDoubleClick={() => {
         usePanels.getState().setActiveSide(side);
         actions.enter.run();

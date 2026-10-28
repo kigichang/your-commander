@@ -26,6 +26,7 @@ export type ActionId =
   | "renameOne"
   | "multiRename"
   | "compareFiles"
+  | "copyPath"
   | "syncFolders"
   | "findFiles"
   | "trash"
@@ -56,6 +57,18 @@ function activeTargets() {
   const side = s.activeSide;
   const tab = s.activeTab(side);
   return { side, tab, items: targetEntries(tab, s.visible(side)) };
+}
+
+/** Clipboard write that works in WKWebView without a permission prompt. */
+function copyText(text: string) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  ta.remove();
 }
 
 function openCopyMove(move: boolean) {
@@ -178,6 +191,16 @@ export const actions: Record<ActionId, Action> = {
         left: { location: l.tab.location, path: le.path, label: prefix(l.tab) + le.path },
         right: { location: r.tab.location, path: re.path, label: prefix(r.tab) + re.path },
       });
+    },
+  },
+
+  copyPath: {
+    id: "copyPath",
+    run: () => {
+      const { items } = activeTargets();
+      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+      copyText(items.map((e) => e.path).join("\n"));
+      ops().toast(i18n.t("status.pathCopied", { count: items.length }));
     },
   },
 

@@ -55,6 +55,7 @@
     "cancelled": "Cancelled",
     "folderCreated": "Folder created",
     "renamed": "Renamed",
+    "pathCopied": "Copied {{count}} path(s)",
     "nothingSelected": "Nothing selected",
     "archiveReadOnly": "Archives are read-only — press F5 to extract",
     "comingSoon": "Not implemented yet"
@@ -220,6 +221,7 @@
     "renameOne": "Rename",
     "multiRename": "Multi-rename",
     "compareFiles": "Compare files",
+    "copyPath": "Copy path",
     "syncFolders": "Sync folders",
     "findFiles": "Find files",
     "trash": "Move to Trash",
@@ -233,6 +235,11 @@
     "commandPalette": "Command palette",
     "openSettings": "Settings",
     "quit": "Quit"
+  },
+  "ctx": {
+    "open": "Open",
+    "openInNewTab": "Open in New Tab",
+    "openOtherPane": "Open in Other Pane"
   },
   "compare": {
     "needTwo": "Put the cursor on a file in each panel",

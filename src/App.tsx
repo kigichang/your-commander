@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
+import { ContextMenu } from "./components/ContextMenu";
 import { Dialogs } from "./components/Dialogs";
 import { FKeyBar } from "./components/FKeyBar";
 import { OpsUI } from "./components/OpsUI";
@@ -52,6 +53,7 @@ export default function App() {
       <OpsUI />
       <FKeyBar />
       <Dialogs />
+      <ContextMenu />
     </div>
   );
 }

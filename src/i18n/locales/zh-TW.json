@@ -55,6 +55,7 @@
     "cancelled": "已取消",
     "folderCreated": "已建立資料夾",
     "renamed": "已重新命名",
+    "pathCopied": "已複製 {{count}} 個路徑",
     "nothingSelected": "未選取任何項目",
     "archiveReadOnly": "壓縮檔為唯讀——按 F5 解壓選取項目",
     "comingSoon": "功能尚未完成"
@@ -220,6 +221,7 @@
     "renameOne": "重新命名",
     "multiRename": "批次改名",
     "compareFiles": "比對檔案內容",
+    "copyPath": "複製路徑",
     "syncFolders": "同步資料夾",
     "findFiles": "搜尋檔案",
     "trash": "移至垃圾筒",
@@ -233,6 +235,11 @@
     "commandPalette": "指令面板",
     "openSettings": "設定",
     "quit": "結束"
+  },
+  "ctx": {
+    "open": "開啟",
+    "openInNewTab": "在新分頁開啟",
+    "openOtherPane": "在對側開啟"
   },
   "compare": {
     "needTwo": "左右面板各需選取一個檔案",

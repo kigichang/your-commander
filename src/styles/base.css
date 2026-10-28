@@ -1683,6 +1683,27 @@ svg.li {
     0 6px 18px rgba(0, 0, 0, 0.55);
 }
 
+/* File-list context menu: reuses .menu visuals at the pointer position. */
+.ctx-menu {
+  position: fixed;
+  top: auto;
+  left: auto;
+  min-width: 210px;
+  max-height: none;
+  z-index: 300;
+}
+.ctx-menu .item {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  white-space: nowrap;
+}
+.ctx-menu .ctx-chord {
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
 /* Compare-by-content dialog */
 .dialog.cmp {
   width: min(96vw, 1240px);

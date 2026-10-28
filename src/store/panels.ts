@@ -84,6 +84,8 @@ interface PanelsStore {
   markRange: (side: Side, index: number) => void;
   markAll: (side: Side) => void;
   clearMarks: (side: Side) => void;
+  /** Clear only the marks, keeping the path-bar filter (context menu). */
+  unmarkAll: (side: Side) => void;
   setSort: (side: Side, key: SortKey) => void;
   setFilter: (side: Side, filter: string) => void;
   openTab: (side: Side, path?: string, location?: Location, remoteLabel?: string | null) => void;
@@ -441,6 +443,13 @@ export const usePanels = create<PanelsStore>((set, get) => ({
     const tab = get().activeTab(side);
     set((s) => ({
       panels: updateTab(s.panels, side, tab.id, { marked: new Set<string>(), filter: "" }),
+    }));
+  },
+
+  unmarkAll: (side) => {
+    const tab = get().activeTab(side);
+    set((s) => ({
+      panels: updateTab(s.panels, side, tab.id, { marked: new Set<string>() }),
     }));
   },
 
