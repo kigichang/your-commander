@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod dock;
 mod fnkeys;
 mod fs;
 mod icons;
@@ -47,6 +48,7 @@ pub fn run() {
             if let (Some((w, h)), Some(window)) = (size, app.get_webview_window("main")) {
                 let _ = window.set_size(LogicalSize::new(w.max(800.0), h.max(500.0)));
             }
+            dock::install(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| match event {

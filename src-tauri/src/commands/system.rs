@@ -6,8 +6,8 @@ use tauri::Manager;
 
 /// Open another main window — an independent workspace. Labels run
 /// "main", "main-2", "main-3", … and share the "main*" capability.
-#[tauri::command]
-pub async fn new_window(app: tauri::AppHandle) -> Result<(), String> {
+/// Must run on the main thread (IPC commands and menu actions both do).
+pub fn open_new_window(app: &tauri::AppHandle) -> Result<(), String> {
     use tauri::{LogicalPosition, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
     let mut n = 2;
     while app.get_webview_window(&format!("main-{n}")).is_some() {
@@ -22,7 +22,7 @@ pub async fn new_window(app: tauri::AppHandle) -> Result<(), String> {
         .window_size
         .unwrap_or((1150.0, 720.0));
 
-    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::default())
         .title("Your Commander")
         .inner_size(f64::from(w.max(800.0)), f64::from(h.max(500.0)))
         .min_inner_size(800.0, 500.0)
@@ -41,6 +41,11 @@ pub async fn new_window(app: tauri::AppHandle) -> Result<(), String> {
     }
     builder.build().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn new_window(app: tauri::AppHandle) -> Result<(), String> {
+    open_new_window(&app)
 }
 
 /// Quit by closing every window: each one's CloseRequested handler still
