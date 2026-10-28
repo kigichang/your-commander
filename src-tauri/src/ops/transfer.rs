@@ -375,6 +375,34 @@ mod tests {
     }
 
     #[test]
+    fn copy_recreates_symlinks_and_delete_keeps_target() {
+        let src_root = tmp("ln_src");
+        let dest_root = tmp("ln_dest");
+        let dir = src_root.join("tree");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("real.txt"), b"data").unwrap();
+        std::os::unix::fs::symlink("real.txt", dir.join("link.txt")).unwrap();
+        std::os::unix::fs::symlink("/nonexistent/target", dir.join("broken")).unwrap();
+
+        let mut ctx = test_ctx();
+        copy_op(&mut ctx, vec![dir.clone()], dest_root.clone(), false).unwrap();
+        let copied = dest_root.join("tree/link.txt");
+        assert!(copied.is_symlink(), "link must stay a link");
+        assert_eq!(std::fs::read_link(&copied).unwrap(), PathBuf::from("real.txt"));
+        assert_eq!(std::fs::read(&copied).unwrap(), b"data");
+        assert!(dest_root.join("tree/broken").is_symlink(), "broken links copy too");
+
+        let mut ctx2 = test_ctx();
+        crate::ops::delete::delete_op(&mut ctx2, vec![dir.join("link.txt")]).unwrap();
+        assert!(!dir.join("link.txt").is_symlink(), "link removed");
+        assert!(dir.join("real.txt").exists(), "target untouched");
+
+        for d in [&src_root, &dest_root] {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    #[test]
     fn copy_skips_conflicts_with_skip_all_policy() {
         let src_root = tmp("c_src");
         let dest_root = tmp("c_dest");

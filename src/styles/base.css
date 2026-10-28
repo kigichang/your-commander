@@ -485,6 +485,12 @@ input:focus {
 .row.symlink .name {
   font-style: italic;
 }
+.row.symlink .name::after {
+  content: "→";
+  margin-left: 6px;
+  opacity: 0.55;
+  font-style: normal;
+}
 
 .tbody .empty,
 .tbody .error {

@@ -133,6 +133,13 @@ fn write_zip(
                 .map_err(|e| e.to_string())?;
             continue;
         }
+        if path.is_symlink() {
+            let target =
+                std::fs::read_link(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            zip.add_symlink(rel.clone(), target.to_string_lossy(), options)
+                .map_err(|e| e.to_string())?;
+            continue;
+        }
         zip.start_file(rel.clone(), options)
             .map_err(|e| e.to_string())?;
         let mut reader =
@@ -306,6 +313,17 @@ fn extract_zip(ctx: &mut OpCtx, archive: &Path, dest: &Path) -> Result<(), Strin
         if let Some(parent) = out.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
+        if entry.is_symlink() {
+            // The entry's data is the link target, verbatim.
+            let mut target = String::new();
+            entry
+                .read_to_string(&mut target)
+                .map_err(|e| e.to_string())?;
+            let _ = std::fs::remove_file(&out);
+            std::os::unix::fs::symlink(&target, &out)
+                .map_err(|e| format!("{}: {e}", out.display()))?;
+            continue;
+        }
         let mut writer = std::fs::File::create(&out)
             .map_err(|e| format!("{}: {e}", out.display()))?;
         std::io::copy(&mut entry, &mut writer).map_err(|e| e.to_string())?;
@@ -400,6 +418,7 @@ mod tests {
         let src = work.join("stuff");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(src.join("f.txt"), b"hello tar").unwrap();
+        std::os::unix::fs::symlink("f.txt", src.join("ln.txt")).unwrap();
 
         let dest = work.join("stuff.tar.gz");
         let mut ctx = test_ctx();
@@ -412,6 +431,31 @@ mod tests {
             std::fs::read(extract_to.join("stuff/stuff/f.txt")).unwrap(),
             b"hello tar"
         );
+        let link = extract_to.join("stuff/stuff/ln.txt");
+        assert!(link.is_symlink(), "tar must preserve symlinks");
+        assert_eq!(std::fs::read(&link).unwrap(), b"hello tar");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn zip_roundtrip_preserves_symlinks() {
+        let work = tmp("zipln");
+        let src = work.join("proj");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("real.txt"), b"content").unwrap();
+        std::os::unix::fs::symlink("real.txt", src.join("link.txt")).unwrap();
+
+        let dest = work.join("out.zip");
+        let mut ctx = test_ctx();
+        compress_op(&mut ctx, vec![src], dest.clone(), ArchiveFormat::Zip).unwrap();
+
+        let extract_to = work.join("x");
+        let mut ctx2 = test_ctx();
+        extract_op(&mut ctx2, vec![dest], extract_to.clone()).unwrap();
+        let link = extract_to.join("out/proj/link.txt");
+        assert!(link.is_symlink(), "zip must preserve symlinks");
+        assert_eq!(std::fs::read_link(&link).unwrap(), PathBuf::from("real.txt"));
+        assert_eq!(std::fs::read(&link).unwrap(), b"content");
         let _ = std::fs::remove_dir_all(&work);
     }
 }

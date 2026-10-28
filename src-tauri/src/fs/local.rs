@@ -9,13 +9,18 @@ pub fn list_dir(path: &Path) -> io::Result<Vec<FsEntry>> {
         let Ok(entry) = entry else { continue };
         let name = entry.file_name().to_string_lossy().to_string();
         let path = entry.path();
-        let symlink_meta = entry.metadata();
-        // For symlinks, follow the link for type/size but remember it is one.
-        let is_symlink = path
-            .symlink_metadata()
-            .map(|m| m.file_type().is_symlink())
+        // DirEntry::metadata is an lstat for symlinks: follow the link for
+        // type/size/date, falling back to the link's own data when broken.
+        let is_symlink = entry
+            .file_type()
+            .map(|t| t.is_symlink())
             .unwrap_or(false);
-        let (is_dir, size, modified) = match symlink_meta {
+        let meta = if is_symlink {
+            std::fs::metadata(&path).or_else(|_| entry.metadata())
+        } else {
+            entry.metadata()
+        };
+        let (is_dir, size, modified) = match meta {
             Ok(m) => (path.is_dir(), m.len(), m.modified().ok().map(epoch_millis)),
             Err(_) => (false, 0, None),
         };

@@ -114,7 +114,7 @@ function CopyMoveDialog({ d }: { d: Extract<Dialog, { type: "copyMove" }> }) {
     const request = {
       op: "copy" as const,
       src: srcTab.location,
-      sources: d.items.map((e) => ({ path: e.path, isDir: e.isDir })),
+      sources: d.items.map((e) => ({ path: e.path, isDir: e.isDir, isSymlink: e.isSymlink })),
       // Typing a different path only makes sense toward the other panel's
       // location; the default is exactly that panel's folder.
       dest: sameDest ? destTab.location : ({ kind: "local" } as const),

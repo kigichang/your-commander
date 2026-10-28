@@ -24,32 +24,38 @@ fn remote_keep_both(conn: &SftpConnection, dest: &Path) -> PathBuf {
     dest.to_path_buf()
 }
 
-fn local_total_bytes(paths: &[PathBuf]) -> u64 {
-    fn walk(path: &Path) -> u64 {
-        if path.is_symlink() {
+fn local_total_bytes(paths: &[PathBuf], follow: bool) -> u64 {
+    fn walk(path: &Path, follow: bool) -> u64 {
+        if path.is_symlink() && !(follow && path.is_file()) {
             return 0;
         }
         if path.is_dir() {
             std::fs::read_dir(path)
-                .map(|rd| rd.flatten().map(|e| walk(&e.path())).sum())
+                .map(|rd| rd.flatten().map(|e| walk(&e.path(), follow)).sum())
                 .unwrap_or(0)
         } else {
             path.metadata().map(|m| m.len()).unwrap_or(0)
         }
     }
-    paths.iter().map(|p| walk(p)).sum()
+    paths.iter().map(|p| walk(p, follow)).sum()
 }
 
-fn remote_total_bytes(conn: &SftpConnection, paths: &[(PathBuf, bool)]) -> u64 {
-    fn walk(conn: &SftpConnection, path: &Path, is_dir: bool) -> u64 {
+fn remote_total_bytes(conn: &SftpConnection, paths: &[(PathBuf, bool, bool)]) -> u64 {
+    fn walk(conn: &SftpConnection, path: &Path, is_dir: bool, is_symlink: bool) -> u64 {
+        if is_symlink {
+            // Recreated as a link (or streamed, where size is unknown anyway).
+            return 0;
+        }
         if is_dir {
             conn.list(path)
                 .map(|entries| {
                     entries
                         .iter()
                         .map(|e| {
-                            if e.is_dir {
-                                walk(conn, &e.path, true)
+                            if e.is_symlink {
+                                0
+                            } else if e.is_dir {
+                                walk(conn, &e.path, true, false)
                             } else {
                                 e.size
                             }
@@ -69,7 +75,7 @@ fn remote_total_bytes(conn: &SftpConnection, paths: &[(PathBuf, bool)]) -> u64 {
                 .unwrap_or(0)
         }
     }
-    paths.iter().map(|(p, d)| walk(conn, p, *d)).sum()
+    paths.iter().map(|(p, d, s)| walk(conn, p, *d, *s)).sum()
 }
 
 /// Copy or move local `sources` into the remote directory `remote_dir`.
@@ -81,7 +87,7 @@ pub fn upload_op(
     remote_dir: PathBuf,
     remove_source: bool,
 ) -> Result<usize, String> {
-    ctx.total_bytes = local_total_bytes(&sources);
+    ctx.total_bytes = local_total_bytes(&sources, ctx.options.follow_symlinks);
     let mut count = 0usize;
     for src in &sources {
         if ctx.cancelled() {
@@ -110,6 +116,26 @@ fn upload_item(
 ) -> Result<(), String> {
     if ctx.cancelled() {
         return Err(cancelled_err());
+    }
+    // Recreate links by default; with follow-symlinks on, file links are
+    // uploaded like regular files (directory links always stay links).
+    if src.is_symlink() && !(ctx.options.follow_symlinks && src.is_file()) {
+        if !ctx.mask_matches(&src.file_name().unwrap_or_default().to_string_lossy()) {
+            return Ok(());
+        }
+        let target = std::fs::read_link(src).map_err(|e| format!("{}: {e}", src.display()))?;
+        let mut dest = dest.to_path_buf();
+        if conn.exists(&dest).is_some() {
+            match ctx.ask_conflict(src, &dest) {
+                ConflictChoice::Overwrite => conn.remove_recursive(&dest)?,
+                ConflictChoice::Skip => return Ok(()),
+                ConflictChoice::KeepBoth => dest = remote_keep_both(conn, &dest),
+                ConflictChoice::CancelOp => return Err(cancelled_err()),
+                _ => return Ok(()),
+            }
+        }
+        ctx.report(&src.to_string_lossy());
+        return conn.make_symlink(&dest, &target.to_string_lossy());
     }
     if src.is_dir() && !src.is_symlink() {
         match conn.exists(dest) {
@@ -146,23 +172,23 @@ fn upload_item(
     }
 }
 
-/// Copy or move remote `sources` (path, is_dir) into local `local_dir`.
-/// Returns the number of top-level items processed.
+/// Copy or move remote `sources` (path, is_dir, is_symlink) into local
+/// `local_dir`. Returns the number of top-level items processed.
 pub fn download_op(
     ctx: &mut OpCtx,
     conn: Arc<SftpConnection>,
-    sources: Vec<(PathBuf, bool)>,
+    sources: Vec<(PathBuf, bool, bool)>,
     local_dir: PathBuf,
     remove_source: bool,
 ) -> Result<usize, String> {
     ctx.total_bytes = remote_total_bytes(&conn, &sources);
     let mut count = 0usize;
-    for (src, is_dir) in &sources {
+    for (src, is_dir, is_symlink) in &sources {
         if ctx.cancelled() {
             return Err(cancelled_err());
         }
         let Some(name) = src.file_name() else { continue };
-        download_item(ctx, &conn, src, *is_dir, &local_dir.join(name))?;
+        download_item(ctx, &conn, src, *is_dir, *is_symlink, &local_dir.join(name))?;
         if remove_source {
             conn.remove_recursive(src)?;
         }
@@ -176,10 +202,39 @@ fn download_item(
     conn: &SftpConnection,
     src: &Path,
     is_dir: bool,
+    is_symlink: bool,
     dest: &Path,
 ) -> Result<(), String> {
     if ctx.cancelled() {
         return Err(cancelled_err());
+    }
+    // Recreate links by default; with follow-symlinks on, file links are
+    // downloaded like regular files (directory links always stay links).
+    if is_symlink && !(ctx.options.follow_symlinks && !is_dir) {
+        if !ctx.mask_matches(&src.file_name().unwrap_or_default().to_string_lossy()) {
+            return Ok(());
+        }
+        let target = conn.read_link(src)?;
+        let mut dest = dest.to_path_buf();
+        if dest.exists() || dest.is_symlink() {
+            match ctx.ask_conflict(src, &dest) {
+                ConflictChoice::Overwrite => {
+                    if dest.is_dir() && !dest.is_symlink() {
+                        std::fs::remove_dir_all(&dest)
+                    } else {
+                        std::fs::remove_file(&dest)
+                    }
+                    .map_err(|e| format!("{}: {e}", dest.display()))?;
+                }
+                ConflictChoice::Skip => return Ok(()),
+                ConflictChoice::KeepBoth => dest = super::queue::keep_both_path(&dest),
+                ConflictChoice::CancelOp => return Err(cancelled_err()),
+                _ => return Ok(()),
+            }
+        }
+        ctx.report(&src.to_string_lossy());
+        return std::os::unix::fs::symlink(&target, &dest)
+            .map_err(|e| format!("{}: {e}", dest.display()));
     }
     if is_dir {
         std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
@@ -187,7 +242,14 @@ fn download_item(
             .list(src)
             .map_err(|e| format!("{}: {e}", src.display()))?;
         for entry in entries {
-            download_item(ctx, conn, &entry.path, entry.is_dir, &dest.join(&entry.name))?;
+            download_item(
+                ctx,
+                conn,
+                &entry.path,
+                entry.is_dir,
+                entry.is_symlink,
+                &dest.join(&entry.name),
+            )?;
         }
         Ok(())
     } else {

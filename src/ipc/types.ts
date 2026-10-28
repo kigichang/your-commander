@@ -130,6 +130,7 @@ export type OpEvent =
 export interface SourceItem {
   path: string;
   isDir: boolean;
+  isSymlink: boolean;
 }
 
 export interface SyncSideInfo {

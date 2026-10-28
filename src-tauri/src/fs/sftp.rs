@@ -190,10 +190,17 @@ impl SftpConnection {
             let mut out = Vec::new();
             for entry in dir {
                 let name = entry.file_name();
-                let meta = entry.metadata();
-                let is_dir = meta.is_dir();
+                let mut meta = entry.metadata();
                 let is_symlink = meta.is_symlink();
                 let full = path.join(&name);
+                // READDIR attrs are an lstat: follow symlinks so a link to a
+                // directory can be entered; broken links keep the link's data.
+                if is_symlink
+                    && let Ok(target) = self.session.metadata(rp(&full)).await
+                {
+                    meta = target;
+                }
+                let is_dir = meta.is_dir();
                 let ext = if is_dir {
                     String::new()
                 } else {
@@ -218,9 +225,39 @@ impl SftpConnection {
     }
 
     /// None if the path does not exist, Some(is_dir) otherwise.
+    /// A symlink counts as existing even when broken (lstat), and is a
+    /// directory only when its target is one.
     pub fn exists(&self, path: &Path) -> Option<bool> {
         runtime().block_on(async {
-            self.session.metadata(rp(path)).await.ok().map(|m| m.is_dir())
+            let meta = self.session.symlink_metadata(rp(path)).await.ok()?;
+            if !meta.is_symlink() {
+                return Some(meta.is_dir());
+            }
+            let target = self.session.metadata(rp(path)).await;
+            Some(target.map(|m| m.is_dir()).unwrap_or(false))
+        })
+    }
+
+    /// Where a remote symlink points (verbatim, possibly relative).
+    pub fn read_link(&self, path: &Path) -> Result<String, String> {
+        runtime().block_on(async {
+            self.session
+                .read_link(rp(path))
+                .await
+                .map_err(|e| format!("{}: {e}", path.display()))
+        })
+    }
+
+    /// Create a remote symlink at `link` pointing to `target`.
+    pub fn make_symlink(&self, link: &Path, target: &str) -> Result<(), String> {
+        runtime().block_on(async {
+            // OpenSSH's sftp-server swaps SYMLINK's arguments relative to the
+            // spec (target comes first on the wire); russh-sftp follows the
+            // spec, so pass them swapped for the de-facto standard server.
+            self.session
+                .symlink(target, rp(link))
+                .await
+                .map_err(|e| format!("{}: {e}", link.display()))
         })
     }
 
@@ -243,10 +280,12 @@ impl SftpConnection {
     }
 
     pub fn remove_recursive(&self, path: &Path) -> Result<(), String> {
-        let is_dir = self.exists(path).ok_or_else(|| {
-            format!("{}: not found", path.display())
-        })?;
-        if is_dir {
+        // lstat, not stat: a symlink is removed as a file, never recursed
+        // into — deleting a link must not delete what it points to.
+        let meta = runtime()
+            .block_on(self.session.symlink_metadata(rp(path)))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        if meta.is_dir() && !meta.is_symlink() {
             let entries = self
                 .list(path)
                 .map_err(|e| format!("{}: {e}", path.display()))?;

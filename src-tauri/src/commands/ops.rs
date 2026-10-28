@@ -137,6 +137,8 @@ pub enum OpRequest {
 pub struct SourceItem {
     pub path: PathBuf,
     pub is_dir: bool,
+    #[serde(default)]
+    pub is_symlink: bool,
 }
 
 struct OpOutcome {
@@ -171,7 +173,10 @@ fn run_request(
                     remote::upload_op(ctx, conn, paths, dest_dir, remove_source).map(counted)
                 }
                 (Resolved::Sftp(conn), Resolved::Local) => {
-                    let pairs = sources.into_iter().map(|s| (s.path, s.is_dir)).collect();
+                    let pairs = sources
+                        .into_iter()
+                        .map(|s| (s.path, s.is_dir, s.is_symlink))
+                        .collect();
                     remote::download_op(ctx, conn, pairs, dest_dir, remove_source).map(counted)
                 }
                 // Copying OUT of an archive extracts the selection (2d).
