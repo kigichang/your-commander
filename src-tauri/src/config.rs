@@ -59,6 +59,8 @@ pub struct Config {
     pub smb_connections: Vec<SmbConnection>,
     pub ssh_connections: Vec<SshConnection>,
     pub language: Option<String>,
+    /// UI theme: "system" (default), "dark", or "light".
+    pub theme: String,
     pub show_hidden: bool,
     /// Flip the IOKit HIDFKeyMode while the app is focused so F1–F12 work
     /// without holding fn.
@@ -101,6 +103,7 @@ impl Default for Config {
             smb_connections: Vec::new(),
             ssh_connections: Vec::new(),
             language: None,
+            theme: "system".to_string(),
             show_hidden: false,
             fkeys_without_fn: true,
             favorites: Vec::new(),

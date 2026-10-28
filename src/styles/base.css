@@ -493,7 +493,9 @@ svg.li {
 }
 .row.marked .name,
 .row.marked .ext {
+  /* Monochrome accent: bold carries the mark where hue no longer can. */
   color: var(--color-accent);
+  font-weight: 600;
 }
 .row.hidden-entry {
   opacity: 0.5;
@@ -521,7 +523,7 @@ svg.li {
   text-align: center;
 }
 .tbody .error {
-  color: #e08a8a;
+  color: var(--color-danger);
   user-select: text;
 }
 
@@ -628,7 +630,7 @@ svg.li {
   margin-top: 6px;
   font-family: var(--font-body);
   font-size: 11.5px;
-  color: #e08a8a;
+  color: var(--color-danger);
 }
 .qv-body .markdown-body.puml-only {
   display: flex;
@@ -944,11 +946,11 @@ svg.li {
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 .btn.danger {
-  color: #e08a8a;
-  border-color: color-mix(in srgb, #e08a8a 55%, transparent);
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 55%, transparent);
 }
 .btn.danger:hover {
-  background: color-mix(in srgb, #e08a8a 12%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
 }
 
 /* ── Connect dialog ────────────────────────────────────────────────── */
@@ -1654,7 +1656,7 @@ svg.li {
   color: var(--text-faint);
 }
 .mr-row.bad .new {
-  color: #e08a8a;
+  color: var(--color-danger);
 }
 
 .toasts {
@@ -1676,8 +1678,8 @@ svg.li {
   user-select: text;
 }
 .toast.error {
-  color: #e9a0a0;
-  box-shadow: 0 0 0 1px color-mix(in srgb, #e08a8a 45%, transparent),
+  color: var(--color-danger);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-danger) 45%, transparent),
     0 6px 18px rgba(0, 0, 0, 0.55);
 }
 
@@ -1711,7 +1713,7 @@ svg.li {
   font-size: 12.5px;
 }
 .cmp-note.error {
-  color: #e9a0a0;
+  color: var(--color-danger);
 }
 .cmp-body {
   flex: 1;

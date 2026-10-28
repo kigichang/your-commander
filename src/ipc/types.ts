@@ -62,6 +62,7 @@ export interface Config {
   smb_connections: SmbConnection[];
   ssh_connections: SshConnection[];
   language: string | null;
+  theme: string;
   show_hidden: boolean;
   fkeys_without_fn: boolean;
   favorites: Favorite[];

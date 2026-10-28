@@ -100,6 +100,15 @@ function GeneralPane() {
 
   return (
     <div className="settings-pane">
+      <label>{t("settings.theme")}</label>
+      <select
+        value={config?.theme ?? "system"}
+        onChange={(e) => useSettings.getState().setTheme(e.target.value)}
+      >
+        <option value="system">{t("settings.theme_system")}</option>
+        <option value="dark">{t("settings.theme_dark")}</option>
+        <option value="light">{t("settings.theme_light")}</option>
+      </select>
       <label>{t("settings.language")}</label>
       <select
         value={i18n.language.startsWith("zh") ? "zh-TW" : "en"}
