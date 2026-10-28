@@ -43,6 +43,7 @@ export const defaultKeymap: Record<string, ActionId> = {
   "meta+r": "refresh",
   "meta+t": "newTab",
   "meta+w": "closeTab",
+  "meta+n": "newWindow",
   "meta+u": "swap",
   "meta+shift+.": "toggleHidden",
   "meta+k": "commandPalette",

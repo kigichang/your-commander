@@ -62,6 +62,13 @@ pub fn run() {
                     config.window_size = Some((logical.width, logical.height));
                     config.save();
                 }
+                // Drop this window's directory watchers.
+                let prefix = format!("{}:", window.label());
+                app.state::<AppState>()
+                    .watchers
+                    .lock()
+                    .unwrap()
+                    .retain(|key, _| !key.starts_with(&prefix));
                 apply_fnkeys(app, false);
             }
             _ => {}
@@ -72,6 +79,8 @@ pub fn run() {
             commands::fs::rename,
             commands::fs::batch_rename,
             commands::fs::exists,
+            commands::system::new_window,
+            commands::system::quit_app,
             commands::system::volumes,
             commands::system::home_dir,
             commands::system::open_path,

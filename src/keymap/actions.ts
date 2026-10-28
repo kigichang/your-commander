@@ -1,4 +1,3 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import i18n from "../i18n";
 import * as ipc from "../ipc/commands";
 import { targetEntries } from "../lib/selectors";
@@ -35,6 +34,7 @@ export type ActionId =
   | "refresh"
   | "newTab"
   | "closeTab"
+  | "newWindow"
   | "swap"
   | "toggleHidden"
   | "commandPalette"
@@ -304,6 +304,11 @@ export const actions: Record<ActionId, Action> = {
     },
   },
 
+  newWindow: {
+    id: "newWindow",
+    run: () => void ipc.newWindow().catch((e) => ops().toast(String(e), "error")),
+  },
+
   swap: { id: "swap", run: () => panels().swapPanels() },
 
   toggleHidden: {
@@ -325,5 +330,7 @@ export const actions: Record<ActionId, Action> = {
     run: () => dialogs().open({ type: "settings", section: "hotkeys" }),
   },
 
-  quit: { id: "quit", run: () => void getCurrentWindow().close() },
+  // Quit closes every window (size/state still saved per window); the red
+  // traffic light closes just one.
+  quit: { id: "quit", run: () => void ipc.quitApp() },
 };

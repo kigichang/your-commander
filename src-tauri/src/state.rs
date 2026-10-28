@@ -57,7 +57,7 @@ pub struct AppState {
     next_conn_id: AtomicU32,
     pub ops: Mutex<HashMap<OpId, Arc<OpControl>>>,
     next_op_id: AtomicU64,
-    pub watchers: Mutex<HashMap<u32, notify::RecommendedWatcher>>,
+    pub watchers: Mutex<HashMap<String, notify::RecommendedWatcher>>,
     /// PNG system icons keyed by "folder"/"generic"/extension.
     pub icons: Mutex<HashMap<String, Arc<Vec<u8>>>>,
     /// Cancel flags of running file searches.

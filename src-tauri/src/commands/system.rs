@@ -1,6 +1,56 @@
 use crate::fs::local::{self, VolumeInfo};
 use crate::ops::archive;
+use crate::state::AppState;
 use std::path::PathBuf;
+use tauri::Manager;
+
+/// Open another main window — an independent workspace. Labels run
+/// "main", "main-2", "main-3", … and share the "main*" capability.
+#[tauri::command]
+pub async fn new_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::{LogicalPosition, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
+    let mut n = 2;
+    while app.get_webview_window(&format!("main-{n}")).is_some() {
+        n += 1;
+    }
+    let label = format!("main-{n}");
+    let (w, h) = app
+        .state::<AppState>()
+        .config
+        .lock()
+        .unwrap()
+        .window_size
+        .unwrap_or((1150.0, 720.0));
+
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
+        .title("Your Commander")
+        .inner_size(f64::from(w.max(800.0)), f64::from(h.max(500.0)))
+        .min_inner_size(800.0, 500.0)
+        .hidden_title(true)
+        .title_bar_style(TitleBarStyle::Overlay)
+        .traffic_light_position(LogicalPosition::new(16.0, 18.0));
+    // Cascade below the window the user is working in.
+    if let Some(focused) = app
+        .webview_windows()
+        .values()
+        .find(|win| win.is_focused().unwrap_or(false))
+        && let (Ok(pos), Ok(scale)) = (focused.outer_position(), focused.scale_factor())
+    {
+        let p = pos.to_logical::<f64>(scale);
+        builder = builder.position(p.x + 28.0, p.y + 28.0);
+    }
+    builder.build().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Quit by closing every window: each one's CloseRequested handler still
+/// runs (window size saved, fn-keys released), then the app exits.
+#[tauri::command]
+pub fn quit_app(app: tauri::AppHandle) {
+    for window in app.webview_windows().values() {
+        let _ = window.close();
+    }
+}
 
 #[tauri::command]
 pub async fn volumes() -> Result<Vec<VolumeInfo>, String> {

@@ -230,6 +230,7 @@
     "refresh": "Refresh",
     "newTab": "New tab",
     "closeTab": "Close tab",
+    "newWindow": "New window",
     "swap": "Swap panels",
     "toggleHidden": "Show/hide hidden files",
     "commandPalette": "Command palette",

@@ -145,6 +145,8 @@ export const renderPlantuml = (code: string) =>
 
 export const fkeysSet = (enabled: boolean) => invoke<void>("fkeys_set", { enabled });
 export const fkeysAvailable = () => invoke<boolean>("fkeys_available");
+export const newWindow = () => invoke<void>("new_window");
+export const quitApp = () => invoke<void>("quit_app");
 
 export const watchDir = (watchId: number, path: string) =>
   invoke<void>("watch_dir", { watchId, path });
