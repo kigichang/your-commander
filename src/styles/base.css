@@ -570,6 +570,24 @@ input:focus {
 .qv-body .none {
   color: var(--text-faint);
 }
+.qv-body .markdown-body {
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: transparent;
+  font-size: 13px;
+  padding: var(--space-2) var(--space-3);
+  user-select: text;
+  cursor: auto;
+}
+.qv-body .markdown-body img {
+  max-width: 100%;
+}
+.qv-body .markdown-body pre.mermaid {
+  background: transparent;
+  text-align: center;
+}
 .qv-body .pdf {
   align-self: stretch;
   flex: 1;

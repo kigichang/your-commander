@@ -11,15 +11,22 @@ import { useSettings } from "../store/settings";
 const PdfPreview = lazy(() =>
   import("./PdfPreview").then((m) => ({ default: m.PdfPreview })),
 );
+// markdown-it + KaTeX + highlight.js ride their own chunk too (mermaid
+// loads on top of that only when a document actually has diagrams).
+const MarkdownPreview = lazy(() =>
+  import("./MarkdownPreview").then((m) => ({ default: m.MarkdownPreview })),
+);
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico"]);
+const MD_EXTS = new Set(["md", "markdown"]);
 const TEXT_EXTS = new Set([
-  "txt", "md", "json", "js", "ts", "tsx", "jsx", "rs", "py", "sh", "zsh", "css",
+  "txt", "json", "js", "ts", "tsx", "jsx", "rs", "py", "sh", "zsh", "css",
   "html", "xml", "yml", "yaml", "toml", "ini", "conf", "log", "csv", "swift",
   "c", "h", "cpp", "go", "java", "rb", "sql", "lock",
 ]);
 const IMAGE_MAX = 32 * 1024 * 1024;
 const TEXT_MAX = 256 * 1024;
+const MD_MAX = 2 * 1024 * 1024;
 // pdf.js needs the whole file; past this size show no preview instead of
 // freezing the pane on a huge download.
 const PDF_MAX = 64 * 1024 * 1024;
@@ -27,6 +34,7 @@ const PDF_MAX = 64 * 1024 * 1024;
 type Preview =
   | { kind: "image"; url: string }
   | { kind: "text"; text: string }
+  | { kind: "markdown"; text: string }
   | { kind: "pdf"; data: ArrayBuffer }
   | { kind: "none" };
 
@@ -69,6 +77,10 @@ export function QuickView() {
           const buf = await ipc.readPreview(tab.location, entry.path, PDF_MAX);
           if (stale) return;
           setPreview({ kind: "pdf", data: buf });
+        } else if (MD_EXTS.has(entry.ext) && entry.size <= MD_MAX) {
+          const buf = await ipc.readPreview(tab.location, entry.path, MD_MAX);
+          if (stale) return;
+          setPreview({ kind: "markdown", text: new TextDecoder().decode(buf) });
         } else if (IMAGE_EXTS.has(entry.ext) && entry.size <= IMAGE_MAX) {
           const buf = await ipc.readPreview(tab.location, entry.path, IMAGE_MAX);
           if (stale) return;
@@ -127,6 +139,10 @@ export function QuickView() {
         ) : preview.kind === "pdf" ? (
           <Suspense fallback={<span className="none">…</span>}>
             <PdfPreview data={preview.data} onPages={setPdfPages} />
+          </Suspense>
+        ) : preview.kind === "markdown" ? (
+          <Suspense fallback={<span className="none">…</span>}>
+            <MarkdownPreview text={preview.text} />
           </Suspense>
         ) : preview.kind === "image" ? (
           <img src={preview.url} alt={entry.name} />
