@@ -1,3 +1,4 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import i18n from "../i18n";
 import * as ipc from "../ipc/commands";
 import { targetEntries } from "../lib/selectors";
@@ -332,6 +333,12 @@ export const actions: Record<ActionId, Action> = {
     id: "closeTab",
     run: () => {
       const s = panels();
+      // Browser convention: ⌘W closes the tab, and the window itself once
+      // the active side is down to its last tab.
+      if (s.panels[s.activeSide].tabs.length <= 1) {
+        void getCurrentWindow().close();
+        return;
+      }
       s.closeTab(s.activeSide, s.panels[s.activeSide].active);
     },
   },
