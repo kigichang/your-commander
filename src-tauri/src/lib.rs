@@ -13,6 +13,37 @@ use fnkeys::FnKeysState;
 use state::AppState;
 use tauri::{LogicalSize, Manager, WindowEvent};
 
+/// Add "New Window" (⌘N) to the top of the default menu's File submenu.
+fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem};
+    let Some(menu) = app.menu() else {
+        return Ok(());
+    };
+    let lang = app
+        .state::<AppState>()
+        .config
+        .lock()
+        .unwrap()
+        .language
+        .clone();
+    let title = if lang.as_deref().is_some_and(|l| l.starts_with("zh")) {
+        "開新視窗"
+    } else {
+        "New Window"
+    };
+    for item in menu.items()? {
+        if let MenuItemKind::Submenu(sub) = item
+            && sub.text()? == "File"
+        {
+            let new_win = MenuItem::with_id(app, "new-window", title, true, Some("CmdOrCtrl+N"))?;
+            sub.insert(&new_win, 0)?;
+            sub.insert(&PredefinedMenuItem::separator(app)?, 1)?;
+            break;
+        }
+    }
+    Ok(())
+}
+
 fn apply_fnkeys(app: &tauri::AppHandle, focused: bool) {
     let enabled = app
         .state::<AppState>()
@@ -49,7 +80,13 @@ pub fn run() {
                 let _ = window.set_size(LogicalSize::new(w.max(800.0), h.max(500.0)));
             }
             dock::install(app.handle());
+            add_new_window_menu(app.handle())?;
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            if event.id() == "new-window" {
+                let _ = commands::system::open_new_window(app);
+            }
         })
         .on_window_event(|window, event| match event {
             WindowEvent::Focused(focused) => {
