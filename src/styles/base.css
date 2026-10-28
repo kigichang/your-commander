@@ -1655,3 +1655,96 @@ input:focus {
   box-shadow: 0 0 0 1px color-mix(in srgb, #e08a8a 45%, transparent),
     0 6px 18px rgba(0, 0, 0, 0.55);
 }
+
+/* Compare-by-content dialog */
+.dialog.cmp {
+  width: min(96vw, 1240px);
+  height: 84vh;
+  display: flex;
+  flex-direction: column;
+}
+.cmp-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+.cmp-file {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmp-note {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+.cmp-note.error {
+  color: #e9a0a0;
+}
+.cmp-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: color-mix(in srgb, var(--color-bg) 55%, var(--color-surface));
+}
+.cmp-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 46px minmax(0, 1fr);
+  height: 19px;
+  line-height: 19px;
+}
+.cmp-row .num {
+  text-align: right;
+  padding-right: 8px;
+  color: var(--text-faint);
+  user-select: none;
+}
+.cmp-row .txt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  padding: 0 8px;
+}
+.cmp-row .txt.void {
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 5px,
+    color-mix(in srgb, var(--color-text) 4%, transparent) 5px 10px
+  );
+}
+.cmp-row.del .txt.l,
+.cmp-row.mod .txt.l {
+  background: color-mix(in srgb, #e06c75 13%, transparent);
+}
+.cmp-row.add .txt.r,
+.cmp-row.mod .txt.r {
+  background: color-mix(in srgb, #98c379 12%, transparent);
+}
+.cmp-foot {
+  align-items: center;
+}
+.cmp-foot .cmp-count {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-right: auto;
+}
+.cmp-foot .check {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

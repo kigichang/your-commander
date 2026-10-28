@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { actions } from "../keymap/actions";
 import { useDialogs } from "../store/dialogs";
-import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
 
@@ -10,10 +9,8 @@ export function Toolbar() {
   const activeSide = usePanels((s) => s.activeSide);
   const viewMode = usePanels((s) => s.panels[s.activeSide].viewMode);
   const setViewMode = usePanels((s) => s.setViewMode);
-  const toast = useOps((s) => s.toast);
   const fkeysOn = useSettings((s) => s.fkeysWithoutFn);
   const fkeysAvailable = useSettings((s) => s.fkeysAvailable);
-  const soon = () => toast(t("status.comingSoon"));
 
   return (
     <div className="toolbar" data-tauri-drag-region>
@@ -53,7 +50,7 @@ export function Toolbar() {
       >
         Fn
       </button>
-      <button className="tbtn" disabled onClick={soon}>
+      <button className="tbtn" onClick={() => actions.compareFiles.run()}>
         <span className="glyph">≡</span> {t("toolbar.compare")}
       </button>
       <button className="tbtn" title="⌃M" onClick={() => actions.multiRename.run()}>

@@ -21,7 +21,12 @@ export type Dialog =
       rightLabel: string;
     }
   | { type: "confirmDelete"; side: Side; items: FsEntry[]; remote: boolean }
-  | { type: "compress"; side: Side; items: FsEntry[]; destDir: string };
+  | { type: "compress"; side: Side; items: FsEntry[]; destDir: string }
+  | {
+      type: "compare";
+      left: { location: Location; path: string; label: string };
+      right: { location: Location; path: string; label: string };
+    };
 
 interface DialogStore {
   dialog: Dialog | null;

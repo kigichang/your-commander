@@ -215,6 +215,7 @@
     "newFolder": "New folder",
     "renameOne": "Rename",
     "multiRename": "Multi-rename",
+    "compareFiles": "Compare files",
     "syncFolders": "Sync folders",
     "findFiles": "Find files",
     "trash": "Move to Trash",
@@ -228,6 +229,12 @@
     "commandPalette": "Command palette",
     "openSettings": "Settings",
     "quit": "Quit"
+  },
+  "compare": {
+    "needTwo": "Put the cursor on a file in each panel",
+    "identical": "Files are identical",
+    "binaryDiffer": "Binary files differ ({{a}} vs {{b}})",
+    "diffs": "{{count}} changed lines"
   },
   "preview": {
     "plantumlOff": "PlantUML rendering is off — enable it in Settings (⌘,) › General"

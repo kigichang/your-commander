@@ -25,6 +25,7 @@ export type ActionId =
   | "newFolder"
   | "renameOne"
   | "multiRename"
+  | "compareFiles"
   | "syncFolders"
   | "findFiles"
   | "trash"
@@ -151,6 +152,32 @@ export const actions: Record<ActionId, Action> = {
       const { side, items } = activeTargets();
       if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
       dialogs().open({ type: "multiRename", side, items });
+    },
+  },
+
+  compareFiles: {
+    id: "compareFiles",
+    run: () => {
+      const s = panels();
+      // One file per panel: the single marked entry, or the one under cursor.
+      const pick = (side: 0 | 1) => {
+        const tab = s.activeTab(side);
+        return { tab, entry: targetEntries(tab, s.visible(side))[0] };
+      };
+      const l = pick(0);
+      const r = pick(1);
+      const le = l.entry;
+      const re = r.entry;
+      if (!le || !re || le.isDir || re.isDir) {
+        return ops().toast(i18n.t("compare.needTwo"));
+      }
+      const prefix = (tab: { remoteLabel: string | null }) =>
+        tab.remoteLabel ? `${tab.remoteLabel}:` : "";
+      dialogs().open({
+        type: "compare",
+        left: { location: l.tab.location, path: le.path, label: prefix(l.tab) + le.path },
+        right: { location: r.tab.location, path: re.path, label: prefix(r.tab) + re.path },
+      });
     },
   },
 

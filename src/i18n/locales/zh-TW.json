@@ -215,6 +215,7 @@
     "newFolder": "新資料夾",
     "renameOne": "重新命名",
     "multiRename": "批次改名",
+    "compareFiles": "比對檔案內容",
     "syncFolders": "同步資料夾",
     "findFiles": "搜尋檔案",
     "trash": "移至垃圾筒",
@@ -228,6 +229,12 @@
     "commandPalette": "指令面板",
     "openSettings": "設定",
     "quit": "結束"
+  },
+  "compare": {
+    "needTwo": "左右面板各需選取一個檔案",
+    "identical": "兩個檔案內容相同",
+    "binaryDiffer": "二進位內容不同（{{a}} / {{b}}）",
+    "diffs": "{{count}} 行差異"
   },
   "preview": {
     "plantumlOff": "PlantUML 渲染未啟用——到設定（⌘,）› 一般 開啟"

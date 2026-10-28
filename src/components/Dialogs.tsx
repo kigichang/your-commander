@@ -7,6 +7,7 @@ import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
+import { CompareDialog } from "./CompareDialog";
 import { ConnectDialog } from "./ConnectDialog";
 import { MultiRenameDialog } from "./MultiRenameDialog";
 import { FindDialog } from "./FindDialog";
@@ -43,6 +44,8 @@ export function Dialogs() {
       return <ConfirmDeleteDialog d={dialog} />;
     case "compress":
       return <CompressDialog d={dialog} />;
+    case "compare":
+      return <CompareDialog d={dialog} />;
   }
 }
 
