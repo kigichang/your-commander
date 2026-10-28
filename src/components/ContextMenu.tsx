@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { create } from "zustand";
 import * as ipc from "../ipc/commands";
 import type { ActionId } from "../keymap/actions";
-import { actions } from "../keymap/actions";
+import { actions, ARCHIVE_RE } from "../keymap/actions";
 import { prettyChord } from "../keymap/keymap";
 import { targetEntries, visibleEntries } from "../lib/selectors";
 import type { Side } from "../store/panels";
@@ -69,7 +69,9 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
     const visible = visibleEntries(tab, showHidden);
     const entry = visible[tab.cursor];
     if (!entry) return [];
-    const n = targetEntries(tab, visible).length;
+    const targets = targetEntries(tab, visible);
+    const n = targets.length;
+    const archives = targets.filter((e) => !e.isDir && ARCHIVE_RE.test(e.name)).length;
     const many = (label: string) => (n > 1 ? `${label} (${n})` : label);
     const s = usePanels.getState();
 
@@ -105,6 +107,17 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
       ...(loc !== "archive" ? [act("renameOne")] : []),
       ...(loc !== "archive" && n > 1 ? [act("multiRename")] : []),
       ...(loc === "local" ? [{ ...act("compress"), label: many(t("action.compress")) }] : []),
+      ...(loc === "local" && archives > 0
+        ? [
+            {
+              ...act("extract"),
+              label:
+                archives > 1
+                  ? `${t("action.extract")} (${archives})`
+                  : t("action.extract"),
+            },
+          ]
+        : []),
       ...(!entry.isDir ? [act("compareFiles")] : []),
     ];
 

@@ -31,6 +31,7 @@ export type ActionId =
   | "trash"
   | "deletePermanent"
   | "compress"
+  | "extract"
   | "refresh"
   | "newTab"
   | "closeTab"
@@ -47,6 +48,9 @@ export interface Action {
   id: ActionId;
   run: (mods?: Modded) => void;
 }
+
+/** Keep in sync with the backend's is_archive (ops/archive.rs). */
+export const ARCHIVE_RE = /\.(zip|7z|tar|tgz|gz)$/i;
 
 const panels = () => usePanels.getState();
 const ops = () => useOps.getState();
@@ -287,6 +291,23 @@ export const actions: Record<ActionId, Action> = {
         items,
         destDir: panels().activeTab(other).path,
       });
+    },
+  },
+
+  extract: {
+    id: "extract",
+    run: () => {
+      const { side, tab, items } = activeTargets();
+      if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
+      const archives = items.filter((e) => !e.isDir && ARCHIVE_RE.test(e.name));
+      if (archives.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+      const otherTab = panels().activeTab(panels().otherSide(side));
+      if (otherTab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
+      void ops().run(
+        i18n.t("action.extract"),
+        { op: "extract", archives: archives.map((e) => e.path), destDir: otherTab.path },
+        (done) => ops().toast(i18n.t("status.extracted", { count: done.count })),
+      );
     },
   },
 

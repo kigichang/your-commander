@@ -227,6 +227,7 @@
     "trash": "Move to Trash",
     "deletePermanent": "Delete permanently",
     "compress": "Compress",
+    "extract": "Extract",
     "refresh": "Refresh",
     "newTab": "New tab",
     "closeTab": "Close tab",
