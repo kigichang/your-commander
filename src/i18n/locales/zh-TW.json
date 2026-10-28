@@ -126,6 +126,7 @@
     "auth_key": "SSH 金鑰",
     "auth_password": "密碼",
     "auth_agent": "Agent",
+    "pwTitle": "需要密碼",
     "test": "測試",
     "testing": "測試中…",
     "testOk": "連線正常",

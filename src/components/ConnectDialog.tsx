@@ -52,18 +52,25 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
   const [secret, setSecret] = useState("");
   const [hosts, setHosts] = useState<SshConfigHost[]>([]);
   const [busy, setBusy] = useState<"" | "test" | "connect">("");
+  // Password prompt shown when connecting with a username but no password.
+  const [askPw, setAskPw] = useState(false);
+  const [pwInput, setPwInput] = useState("");
 
   useEffect(() => {
     void ipc.sshHosts().then(setHosts);
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        close();
+        if (askPw) setAskPw(false);
+        else close();
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [close]);
+  }, [close, askPw]);
 
   const authMode: SshAuthMode = ssh.use_agent ? "agent" : ssh.use_password ? "password" : "key";
   const setAuthMode = (m: SshAuthMode) =>
@@ -125,7 +132,8 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
 
   const toast = (text: string, kind?: "info" | "error") => useOps.getState().toast(text, kind);
 
-  const save = () => {
+  const save = (pwOverride?: string) => {
+    const pw = pwOverride ?? secret;
     if (protocol === "sftp") {
       if (!ssh.host || !ssh.username) return;
       const name = ssh.name.trim() || `${ssh.username}@${ssh.host}`;
@@ -141,8 +149,8 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
         (c) => !(c.server === smb.server && c.share === smb.share && c.username === smb.username),
       );
       useSettings.getState().save({ smb_connections: [...rest, { ...smb, name }] });
-      if (smb.username && secret)
-        void ipc.smbStorePassword(smb.username, smb.server, smb.share, secret);
+      if (smb.username && pw)
+        void ipc.smbStorePassword(smb.username, smb.server, smb.share, pw);
     }
     toast(t("connect.saved2"));
   };
@@ -173,6 +181,29 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     }
   };
 
+  const mountSmb = (password: string) => {
+    if (smb.remember) save(password);
+    close();
+    void useOps.getState().run(
+      "SMB",
+      {
+        op: "smbMount",
+        server: smb.server,
+        share: smb.share,
+        username: smb.username,
+        password,
+      },
+      (done) => {
+        if (done.name) {
+          toast(t("status.mounted", { path: done.name }));
+          const startIn = smb.start_in.replace(/^\/+/, "");
+          const target = startIn ? joinPath(done.name, startIn) : done.name;
+          void usePanels.getState().navigate(side, target, { kind: "local" }, null);
+        }
+      },
+    );
+  };
+
   const connect = async () => {
     if (busy) return;
     setBusy("connect");
@@ -186,31 +217,31 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
           .getState()
           .navigate(side, res.home, { kind: "sftp", connId: res.connId }, res.label);
       } else {
-        if (smb.remember) save();
-        close();
-        void useOps.getState().run(
-          "SMB",
-          {
-            op: "smbMount",
-            server: smb.server,
-            share: smb.share,
-            username: smb.username,
-            password: secret,
-          },
-          (done) => {
-            if (done.name) {
-              toast(t("status.mounted", { path: done.name }));
-              const startIn = smb.start_in.replace(/^\/+/, "");
-              const target = startIn ? joinPath(done.name, startIn) : done.name;
-              void usePanels.getState().navigate(side, target, { kind: "local" }, null);
-            }
-          },
-        );
+        // No password typed: fall back to the Keychain, then ask for one —
+        // never hand NetFS a passwordless URL that fails or double-prompts.
+        let pw = secret;
+        if (!pw && smb.username) {
+          pw = (await ipc.smbSavedPassword(smb.username, smb.server, smb.share)) ?? "";
+          if (pw) setSecret(pw);
+        }
+        if (!pw && smb.username) {
+          setPwInput("");
+          setAskPw(true);
+          setBusy("");
+          return;
+        }
+        mountSmb(pw);
       }
     } catch (e) {
       toast(String(e), "error");
       setBusy("");
     }
+  };
+
+  const submitPw = () => {
+    setAskPw(false);
+    setSecret(pwInput);
+    mountSmb(pwInput);
   };
 
   const canSubmit =
@@ -447,7 +478,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
               <button className="btn" disabled={!canSubmit || busy !== ""} onClick={() => void test()}>
                 {busy === "test" ? t("connect.testing") : t("connect.test")}
               </button>
-              <button className="btn" disabled={!canSubmit} onClick={save}>
+              <button className="btn" disabled={!canSubmit} onClick={() => save()}>
                 {t("connect.save")}
               </button>
               <span className="pane-pick">
@@ -470,6 +501,43 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
             </div>
           </div>
         </div>
+        {askPw && (
+          <div
+            className="overlay"
+            onMouseDown={(e) => e.target === e.currentTarget && setAskPw(false)}
+          >
+            <div className="dialog">
+              <h2>{t("connect.pwTitle")}</h2>
+              <div className="settings-note">
+                {`${smb.username}@${smb.server}/${smb.share}`}
+              </div>
+              <label>{t("connect.password")}</label>
+              <input
+                type="password"
+                autoFocus
+                value={pwInput}
+                onChange={(e) => setPwInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submitPw()}
+              />
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={smb.remember}
+                  onChange={(e) => setSmb((s) => ({ ...s, remember: e.target.checked }))}
+                />
+                {t("connect.remember")}
+              </label>
+              <div className="buttons">
+                <button className="btn" onClick={() => setAskPw(false)}>
+                  {t("dialog.cancel")}
+                </button>
+                <button className="btn primary" onClick={submitPw}>
+                  {t("connect.connect")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

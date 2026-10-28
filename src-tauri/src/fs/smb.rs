@@ -63,11 +63,21 @@ pub fn mount(
     // AppleScript string literal: escape backslash and double quote.
     let escaped = url.replace('\\', "\\\\").replace('"', "\\\"");
     let script = format!("mount volume \"{escaped}\"");
-    let output = Command::new("/usr/bin/osascript")
-        .arg("-e")
-        .arg(&script)
-        .output()
+    // Feed the script through stdin: as an argument the URL (password
+    // included) would be visible to every local process via `ps`.
+    let mut child = Command::new("/usr/bin/osascript")
+        .arg("-")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| e.to_string())?;
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().ok_or("osascript: no stdin")?;
+        stdin.write_all(script.as_bytes()).map_err(|e| e.to_string())?;
+    }
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr).trim().to_string();

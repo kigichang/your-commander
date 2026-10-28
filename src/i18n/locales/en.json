@@ -126,6 +126,7 @@
     "auth_key": "SSH key",
     "auth_password": "Password",
     "auth_agent": "Agent",
+    "pwTitle": "Password required",
     "test": "Test",
     "testing": "Testing…",
     "testOk": "Connection OK",
