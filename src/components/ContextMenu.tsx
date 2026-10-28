@@ -63,6 +63,9 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
           act("markAll"),
           act("toggleHidden"),
         ],
+        ...(loc === "local"
+          ? [[act("newTerminalHere"), act("newVscodeHere"), act("newZedHere")]]
+          : []),
       ];
     }
 

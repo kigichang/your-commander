@@ -36,6 +36,9 @@ export type ActionId =
   | "newTab"
   | "closeTab"
   | "newWindow"
+  | "newTerminalHere"
+  | "newVscodeHere"
+  | "newZedHere"
   | "swap"
   | "toggleHidden"
   | "commandPalette"
@@ -73,6 +76,14 @@ function copyText(text: string) {
   ta.select();
   document.execCommand("copy");
   ta.remove();
+}
+
+/** "New … Here": launch a terminal/editor in the active panel's folder. */
+function openHere(tool: "terminal" | "vscode" | "zed") {
+  const s = panels();
+  const tab = s.activeTab(s.activeSide);
+  if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
+  void ipc.openIn(tool, tab.path).catch((e) => ops().toast(String(e), "error"));
 }
 
 function openCopyMove(move: boolean) {
@@ -329,6 +340,10 @@ export const actions: Record<ActionId, Action> = {
     id: "newWindow",
     run: () => void ipc.newWindow().catch((e) => ops().toast(String(e), "error")),
   },
+
+  newTerminalHere: { id: "newTerminalHere", run: () => openHere("terminal") },
+  newVscodeHere: { id: "newVscodeHere", run: () => openHere("vscode") },
+  newZedHere: { id: "newZedHere", run: () => openHere("zed") },
 
   swap: { id: "swap", run: () => panels().swapPanels() },
 

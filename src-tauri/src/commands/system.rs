@@ -69,6 +69,92 @@ pub fn home_dir() -> PathBuf {
     local::home_dir()
 }
 
+/// First existing path among `candidates`, else a PATH lookup via `which`
+/// (the app's own PATH lacks Homebrew when launched from Finder).
+fn find_cli(name: &str, candidates: &[&str]) -> Option<PathBuf> {
+    for c in candidates {
+        let p = PathBuf::from(c);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    let out = std::process::Command::new("/usr/bin/which")
+        .arg(name)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!path.is_empty()).then(|| PathBuf::from(path))
+}
+
+/// "New … Here" in the blank-space context menu: open a terminal or editor
+/// in `dir`. `tool` is "terminal", "vscode", or "zed".
+#[tauri::command]
+pub async fn open_in(tool: String, dir: PathBuf) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let spawn = |mut cmd: std::process::Command| {
+            cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+        };
+        match tool.as_str() {
+            "terminal" => {
+                let mut cmd = std::process::Command::new("/usr/bin/open");
+                cmd.arg("-a").arg("Terminal").arg(&dir);
+                spawn(cmd)
+            }
+            "vscode" => {
+                let cli = find_cli(
+                    "code",
+                    &[
+                        "/opt/homebrew/bin/code",
+                        "/usr/local/bin/code",
+                        "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+                    ],
+                );
+                match cli {
+                    // -n: always a new window, like the menu item says.
+                    Some(code) => {
+                        let mut cmd = std::process::Command::new(code);
+                        cmd.arg("-n").arg(&dir);
+                        spawn(cmd)
+                    }
+                    None => {
+                        let mut cmd = std::process::Command::new("/usr/bin/open");
+                        cmd.arg("-na").arg("Visual Studio Code").arg("--args").arg(&dir);
+                        spawn(cmd)
+                    }
+                }
+            }
+            "zed" => {
+                let cli = find_cli(
+                    "zed",
+                    &[
+                        "/opt/homebrew/bin/zed",
+                        "/usr/local/bin/zed",
+                        "/Applications/Zed.app/Contents/MacOS/cli",
+                    ],
+                );
+                match cli {
+                    Some(zed) => {
+                        let mut cmd = std::process::Command::new(zed);
+                        cmd.arg(&dir);
+                        spawn(cmd)
+                    }
+                    None => {
+                        let mut cmd = std::process::Command::new("/usr/bin/open");
+                        cmd.arg("-a").arg("Zed").arg(&dir);
+                        spawn(cmd)
+                    }
+                }
+            }
+            other => Err(format!("unknown tool: {other}")),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Open a local file or folder with its default app.
 #[tauri::command]
 pub async fn open_path(path: PathBuf) -> Result<(), String> {
