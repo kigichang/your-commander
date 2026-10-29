@@ -321,6 +321,7 @@
     "title": "快速預覽",
     "copyTarget": "複製目標：{{name}}",
     "kind": "種類",
+    "dimensions": "尺寸",
     "size": "大小",
     "modified": "修改時間",
     "tags": "標籤",

@@ -64,6 +64,8 @@ export function QuickView() {
   const [preview, setPreview] = useState<Preview>({ kind: "none" });
   const [tags, setTags] = useState<string[]>([]);
   const [pdfPages, setPdfPages] = useState(0);
+  /** Pixel size of the previewed image, from the decoded bitmap. */
+  const [dims, setDims] = useState<string | null>(null);
 
   useEffect(() => {
     let revoked: string | null = null;
@@ -71,6 +73,7 @@ export function QuickView() {
     setPreview({ kind: "none" });
     setTags([]);
     setPdfPages(0);
+    setDims(null);
     if (!entry || entry.isDir || !tab) return;
 
     const timer = setTimeout(async () => {
@@ -160,7 +163,17 @@ export function QuickView() {
             <PlantUmlPreview text={preview.text} />
           </Suspense>
         ) : preview.kind === "image" ? (
-          <img src={preview.url} alt={entry.name} />
+          <img
+            src={preview.url}
+            alt={entry.name}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              // SVGs without intrinsic size report 0 — show nothing then.
+              if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                setDims(`${img.naturalWidth} × ${img.naturalHeight}`);
+              }
+            }}
+          />
         ) : preview.kind === "text" ? (
           <pre>{preview.text}</pre>
         ) : (
@@ -180,6 +193,12 @@ export function QuickView() {
           <dl className="qv-meta">
             <dt>{t("quickview.kind")}</dt>
             <dd>{kindLabel}</dd>
+            {preview.kind === "image" && dims && (
+              <>
+                <dt>{t("quickview.dimensions")}</dt>
+                <dd>{dims}</dd>
+              </>
+            )}
             <dt>{t("quickview.size")}</dt>
             <dd>{entry.isDir ? "—" : humanSize(entry.size)}</dd>
             <dt>{t("quickview.modified")}</dt>

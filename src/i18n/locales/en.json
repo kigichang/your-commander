@@ -321,6 +321,7 @@
     "title": "Quick View",
     "copyTarget": "copy target: {{name}}",
     "kind": "Kind",
+    "dimensions": "Dimensions",
     "size": "Size",
     "modified": "Modified",
     "tags": "Tags",
