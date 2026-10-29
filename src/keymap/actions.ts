@@ -20,6 +20,7 @@ export type ActionId =
   | "markAll"
   | "clearMarks"
   | "quickView"
+  | "getInfo"
   | "edit"
   | "copy"
   | "move"
@@ -167,6 +168,18 @@ export const actions: Record<ActionId, Action> = {
   clearMarks: { id: "clearMarks", run: () => panels().clearMarks(panels().activeSide) },
 
   quickView: { id: "quickView", run: () => panels().toggleQuickView() },
+
+  getInfo: {
+    id: "getInfo",
+    run: () => {
+      const { tab, items } = activeTargets();
+      if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
+      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+      void ipc
+        .getInfo(items.map((e) => e.path))
+        .catch((e) => ops().toast(String(e), "error"));
+    },
+  },
 
   edit: { id: "edit", run: () => ops().toast(i18n.t("status.comingSoon")) },
 

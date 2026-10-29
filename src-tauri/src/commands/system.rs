@@ -155,6 +155,45 @@ pub async fn open_in(tool: String, dir: PathBuf) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Finder's Get Info window for each path (local only, capped so a huge
+/// mark set can't flood the screen with windows).
+#[tauri::command]
+pub async fn get_info(paths: Vec<PathBuf>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut script = String::from("tell application \"Finder\"\nactivate\n");
+        for p in paths.iter().take(10) {
+            let s = p
+                .to_string_lossy()
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
+            script.push_str(&format!(
+                "open information window of (POSIX file \"{s}\" as alias)\n"
+            ));
+        }
+        script.push_str("end tell\n");
+        let mut child = std::process::Command::new("/usr/bin/osascript")
+            .arg("-")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        {
+            use std::io::Write;
+            let stdin = child.stdin.as_mut().ok_or("osascript: no stdin")?;
+            stdin.write_all(script.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        let output = child.wait_with_output().map_err(|e| e.to_string())?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Open a local file or folder with its default app.
 #[tauri::command]
 pub async fn open_path(path: PathBuf) -> Result<(), String> {

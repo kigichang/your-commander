@@ -103,6 +103,7 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
               label: t("quickview.reveal"),
               run: () => void ipc.revealInFinder(entry.path),
             },
+            { ...act("getInfo"), label: many(t("action.getInfo")) },
           ]
         : []),
     ];

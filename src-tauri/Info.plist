@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Get Info (⌘I) opens Finder's information window via Apple Events. -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Used to open Finder's Get Info window for the selected files.</string>
+</dict>
+</plist>

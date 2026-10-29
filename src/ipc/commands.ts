@@ -148,6 +148,7 @@ export const fkeysAvailable = () => invoke<boolean>("fkeys_available");
 export const newWindow = () => invoke<void>("new_window");
 export const openIn = (tool: "terminal" | "vscode" | "zed", dir: string) =>
   invoke<void>("open_in", { tool, dir });
+export const getInfo = (paths: string[]) => invoke<void>("get_info", { paths });
 export const quitApp = () => invoke<void>("quit_app");
 
 export const watchDir = (watchId: number, path: string) =>

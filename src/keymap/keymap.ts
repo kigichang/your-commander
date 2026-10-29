@@ -48,6 +48,7 @@ export const defaultKeymap: Record<string, ActionId> = {
   "meta+x": "clipCut",
   "meta+v": "clipPaste",
   "meta+p": "clipPaste",
+  "meta+i": "getInfo",
   "meta+u": "swap",
   "meta+shift+.": "toggleHidden",
   "meta+k": "commandPalette",
