@@ -6,6 +6,7 @@ import type { ActionId } from "../keymap/actions";
 import { actions, ARCHIVE_RE } from "../keymap/actions";
 import { prettyChord } from "../keymap/keymap";
 import { targetEntries, visibleEntries } from "../lib/selectors";
+import { useClipboard } from "../store/clipboard";
 import type { Side } from "../store/panels";
 import { usePanels } from "../store/panels";
 import { useKeymap } from "../store/keymapStore";
@@ -56,8 +57,10 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
 
     const loc = tab.location.kind;
     if (kind === "empty") {
+      const hasClip = useClipboard.getState().clip !== null;
       return [
         [
+          ...(hasClip && loc !== "archive" ? [act("clipPaste")] : []),
           ...(loc !== "archive" ? [act("newFolder")] : []),
           act("refresh"),
           act("markAll"),
@@ -124,7 +127,13 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
       ...(!entry.isDir ? [act("compareFiles")] : []),
     ];
 
-    const clipboard: Section = [{ ...act("copyPath"), label: many(t("action.copyPath")) }];
+    const hasClip = useClipboard.getState().clip !== null;
+    const clipboard: Section = [
+      { ...act("clipCopy"), label: many(t("action.clipCopy")) },
+      ...(loc !== "archive" ? [{ ...act("clipCut"), label: many(t("action.clipCut")) }] : []),
+      ...(hasClip && loc !== "archive" ? [act("clipPaste")] : []),
+      { ...act("copyPath"), label: many(t("action.copyPath")) },
+    ];
 
     const danger: Section = [
       ...(loc === "local" ? [{ ...act("trash"), label: many(t("action.trash")) }] : []),

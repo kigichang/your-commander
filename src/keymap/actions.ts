@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import i18n from "../i18n";
 import * as ipc from "../ipc/commands";
 import { targetEntries } from "../lib/selectors";
+import { useClipboard } from "../store/clipboard";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
@@ -22,6 +23,9 @@ export type ActionId =
   | "edit"
   | "copy"
   | "move"
+  | "clipCopy"
+  | "clipCut"
+  | "clipPaste"
   | "newFolder"
   | "renameOne"
   | "multiRename"
@@ -85,6 +89,16 @@ function openHere(tool: "terminal" | "vscode" | "zed") {
   const tab = s.activeTab(s.activeSide);
   if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
   void ipc.openIn(tool, tab.path).catch((e) => ops().toast(String(e), "error"));
+}
+
+/** ⌘C/⌘X: put the selection on the in-app clipboard for a later paste. */
+function clipTake(move: boolean) {
+  const { tab, items } = activeTargets();
+  if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+  if (move && tab.location.kind === "archive")
+    return ops().toast(i18n.t("status.archiveReadOnly"));
+  useClipboard.getState().set({ items, location: tab.location, move });
+  ops().toast(i18n.t(move ? "status.clipCut" : "status.clipCopied", { count: items.length }));
 }
 
 function openCopyMove(move: boolean) {
@@ -158,6 +172,43 @@ export const actions: Record<ActionId, Action> = {
 
   copy: { id: "copy", run: () => openCopyMove(false) },
   move: { id: "move", run: () => openCopyMove(true) },
+
+  clipCopy: { id: "clipCopy", run: () => clipTake(false) },
+  clipCut: { id: "clipCut", run: () => clipTake(true) },
+
+  clipPaste: {
+    id: "clipPaste",
+    run: () => {
+      const clip = useClipboard.getState().clip;
+      if (!clip) return ops().toast(i18n.t("status.clipEmpty"));
+      const s = panels();
+      const tab = s.activeTab(s.activeSide);
+      if (tab.location.kind === "archive")
+        return ops().toast(i18n.t("status.archiveReadOnly"));
+      const label = i18n.t(clip.move ? "dialog.move" : "dialog.copy");
+      void ops().run(
+        label,
+        {
+          op: "copy",
+          src: clip.location,
+          sources: clip.items.map((e) => ({
+            path: e.path,
+            isDir: e.isDir,
+            isSymlink: e.isSymlink,
+          })),
+          dest: tab.location,
+          destDir: tab.path,
+          removeSource: clip.move,
+        },
+        (done) =>
+          ops().toast(
+            i18n.t(clip.move ? "status.moved" : "status.copied", { count: done.count }),
+          ),
+      );
+      // A cut pastes once; a copy can paste again elsewhere.
+      if (clip.move) useClipboard.getState().clear();
+    },
+  },
 
   newFolder: {
     id: "newFolder",
