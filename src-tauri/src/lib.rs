@@ -101,13 +101,22 @@ pub fn run() {
                     config.window_size = Some((logical.width, logical.height));
                     config.save();
                 }
-                // Drop this window's directory watchers.
+                // Drop this window's directory watchers — off the main
+                // thread, since FSEvents teardown can block on a dead volume.
                 let prefix = format!("{}:", window.label());
-                app.state::<AppState>()
-                    .watchers
-                    .lock()
-                    .unwrap()
-                    .retain(|key, _| !key.starts_with(&prefix));
+                let dropped: Vec<_> = {
+                    let state = app.state::<AppState>();
+                    let mut watchers = state.watchers.lock().unwrap();
+                    let keys: Vec<String> = watchers
+                        .keys()
+                        .filter(|k| k.starts_with(&prefix))
+                        .cloned()
+                        .collect();
+                    keys.iter().filter_map(|k| watchers.remove(k)).collect()
+                };
+                if !dropped.is_empty() {
+                    std::thread::spawn(move || drop(dropped));
+                }
                 apply_fnkeys(app, false);
             }
             _ => {}

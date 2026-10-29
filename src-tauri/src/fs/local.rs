@@ -72,6 +72,18 @@ fn statfs(path: &Path) -> Option<(u64, u64)> {
     Some((stat.f_bavail * block, stat.f_blocks * block))
 }
 
+/// statfs with a deadline: a sleeping disk or a dead network mount can hang
+/// the syscall for tens of seconds, which must not stall the drives menu.
+/// On timeout the stuck thread finishes (and is discarded) on its own.
+fn statfs_timeout(path: &Path, ms: u64) -> Option<(u64, u64)> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let p = path.to_path_buf();
+    std::thread::spawn(move || {
+        let _ = tx.send(statfs(&p));
+    });
+    rx.recv_timeout(std::time::Duration::from_millis(ms)).ok()?
+}
+
 pub fn volumes() -> Vec<VolumeInfo> {
     let mut out = Vec::new();
     // The boot volume itself ("/") is Macintosh HD; /Volumes holds the rest
@@ -83,7 +95,7 @@ pub fn volumes() -> Vec<VolumeInfo> {
                 continue;
             }
             let path = entry.path();
-            let (free, total) = statfs(&path).unwrap_or((0, 0));
+            let (free, total) = statfs_timeout(&path, 800).unwrap_or((0, 0));
             out.push(VolumeInfo {
                 name,
                 path,
