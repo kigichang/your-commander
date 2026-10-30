@@ -3,7 +3,8 @@ import clsx from "clsx";
 import { ChevronDown, ChevronUp, CornerLeftUp } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import type { FsEntry } from "../ipc/types";
+import type { FsEntry, Location } from "../ipc/types";
+import { useClipboard } from "../store/clipboard";
 import { formatDate, humanSize } from "../lib/format";
 import { parentPath } from "../lib/path";
 import { visibleEntries } from "../lib/selectors";
@@ -32,6 +33,13 @@ const COLUMNS: Array<{
 
 function gridColumns(w: ColWidths): string {
   return `minmax(0, 1fr) ${w.ext}px ${w.size}px ${w.date}px`;
+}
+
+function sameLocation(a: Location, b: Location): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "sftp" && b.kind === "sftp") return a.connId === b.connId;
+  if (a.kind === "archive" && b.kind === "archive") return a.archive === b.archive;
+  return true;
 }
 
 /** Header divider: dragging moves the boundary with the mouse by resizing
@@ -95,6 +103,16 @@ export function FileTable({
   const brief = viewMode === "brief";
   const colWidths = usePanels((s) => s.panels[side].colWidths);
   const cols = gridColumns(colWidths);
+
+  // Items pending ⌘X show greyed, pending ⌘C show bold, until pasted or Esc.
+  const clip = useClipboard((s) => s.clip);
+  const clipPaths = useMemo(
+    () =>
+      clip && sameLocation(clip.location, tab.location)
+        ? new Set(clip.items.map((i) => i.path))
+        : null,
+    [clip, tab.location],
+  );
 
   return (
     <div className="ftable">
@@ -161,6 +179,13 @@ export function FileTable({
                 brief={brief}
                 top={item.start}
                 cols={cols}
+                clipKind={
+                  clipPaths?.has(visible[item.index].path)
+                    ? clip!.move
+                      ? "cut"
+                      : "copy"
+                    : null
+                }
               />
             ))}
           </div>
@@ -178,6 +203,7 @@ function Row({
   brief,
   top,
   cols,
+  clipKind,
 }: {
   entry: FsEntry;
   index: number;
@@ -186,6 +212,7 @@ function Row({
   brief: boolean;
   top: number;
   cols: string;
+  clipKind: "cut" | "copy" | null;
 }) {
   const isCursor = index === tab.cursor;
   const isMarked = tab.marked.has(entry.name);
@@ -223,6 +250,8 @@ function Row({
         entry.isHidden && "hidden-entry",
         isCursor && "cursor",
         isMarked && "marked",
+        clipKind === "cut" && "clip-cut",
+        clipKind === "copy" && "clip-copy",
       )}
       style={{ top, gridTemplateColumns: brief ? "1fr" : cols }}
       onMouseDown={onMouseDown}

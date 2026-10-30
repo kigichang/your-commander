@@ -504,6 +504,15 @@ svg.li {
   color: var(--color-accent);
   font-weight: 600;
 }
+/* Pending ⌘X: greyed until pasted or cancelled with Esc. */
+.row.clip-cut {
+  opacity: 0.45;
+}
+/* Pending ⌘C: bold until the clip is replaced or cancelled with Esc. */
+.row.clip-copy .name,
+.row.clip-copy .ext {
+  font-weight: 600;
+}
 .row.hidden-entry {
   opacity: 0.5;
 }
