@@ -268,7 +268,7 @@
     "diffs": "{{count}} 行差異"
   },
   "preview": {
-    "plantumlOff": "PlantUML 渲染未啟用——到設定（⌘,）› 一般 開啟"
+    "plantumlOff": "PlantUML 渲染未啟用——到設定（⌘,）› 外掛 開啟"
   },
   "palette": {
     "hint": "動作或資料夾…",

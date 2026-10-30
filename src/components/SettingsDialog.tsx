@@ -14,7 +14,7 @@ import { useSettings } from "../store/settings";
 import { Icon } from "./icons";
 
 const SECTIONS = ["general", "favorites", "hotkeys", "panes", "appearance", "transfers", "plugins"] as const;
-const READY = new Set(["general", "favorites", "hotkeys"]);
+const READY = new Set(["general", "favorites", "hotkeys", "plugins"]);
 
 export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }> }) {
   const { t } = useTranslation();
@@ -82,6 +82,8 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
             <GeneralPane />
           ) : section === "favorites" ? (
             <FavoritesPane />
+          ) : section === "plugins" ? (
+            <PluginsPane />
           ) : (
             <HotkeysPane capture={capture} setCapture={setCapture} />
           )}
@@ -102,7 +104,6 @@ function GeneralPane() {
   const fkeysOn = useSettings((s) => s.fkeysWithoutFn);
   const fkeysAvailable = useSettings((s) => s.fkeysAvailable);
   const config = useSettings((s) => s.config);
-  const plantumlMode = config?.plantuml_mode ?? "off";
 
   return (
     <div className="settings-pane">
@@ -140,7 +141,17 @@ function GeneralPane() {
         />
         {t("settings.fkeys")}
       </label>
+    </div>
+  );
+}
 
+function PluginsPane() {
+  const { t } = useTranslation();
+  const config = useSettings((s) => s.config);
+  const plantumlMode = config?.plantuml_mode ?? "off";
+
+  return (
+    <div className="settings-pane">
       <label>{t("settings.plantuml")}</label>
       <select
         value={plantumlMode}

@@ -268,7 +268,7 @@
     "diffs": "{{count}} changed lines"
   },
   "preview": {
-    "plantumlOff": "PlantUML rendering is off — enable it in Settings (⌘,) › General"
+    "plantumlOff": "PlantUML rendering is off — enable it in Settings (⌘,) › Plugins"
   },
   "palette": {
     "hint": "action or folder…",
