@@ -1,7 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
 import { ChevronDown, ChevronUp, CornerLeftUp } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { FsEntry, Location } from "../ipc/types";
 import { useClipboard } from "../store/clipboard";
@@ -175,10 +175,11 @@ export function FileTable({
                 entry={visible[item.index]}
                 index={item.index}
                 side={side}
-                tab={tab}
                 brief={brief}
                 top={item.start}
                 cols={cols}
+                isCursor={item.index === tab.cursor}
+                isMarked={tab.marked.has(visible[item.index].name)}
                 clipKind={
                   clipPaths?.has(visible[item.index].path)
                     ? clip!.move
@@ -195,28 +196,29 @@ export function FileTable({
   );
 }
 
-function Row({
+/** Memoized with scalar props only: scrolling re-renders just the rows
+ *  entering the viewport, a cursor move just the two rows that changed. */
+const Row = memo(function Row({
   entry,
   index,
   side,
-  tab,
   brief,
   top,
   cols,
+  isCursor,
+  isMarked,
   clipKind,
 }: {
   entry: FsEntry;
   index: number;
   side: Side;
-  tab: TabState;
   brief: boolean;
   top: number;
   cols: string;
+  isCursor: boolean;
+  isMarked: boolean;
   clipKind: "cut" | "copy" | null;
 }) {
-  const isCursor = index === tab.cursor;
-  const isMarked = tab.marked.has(entry.name);
-
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button === 2) return; // handled by onContextMenu
     const s = usePanels.getState();
@@ -236,7 +238,7 @@ function Row({
     e.stopPropagation();
     const s = usePanels.getState();
     s.setActiveSide(side);
-    if (!tab.marked.has(entry.name)) s.unmarkAll(side);
+    if (!s.activeTab(side).marked.has(entry.name)) s.unmarkAll(side);
     s.setCursor(side, index);
     useCtxMenu.getState().open(e.clientX, e.clientY, side, "row");
   };
@@ -272,4 +274,4 @@ function Row({
       {!brief && <span className="num date">{formatDate(entry.modified)}</span>}
     </div>
   );
-}
+});

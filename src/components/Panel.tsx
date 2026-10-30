@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import i18next from "i18next";
 import { ChevronDown, Eject, HardDrive, House, Plus, Star, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import { useOps } from "../store/ops";
@@ -330,26 +330,34 @@ function PathBar({ side, tab }: { side: Side; tab: TabState }) {
 function StatusLine({ tab }: { tab: TabState }) {
   const { t } = useTranslation();
   const showHidden = useSettings((s) => s.showHidden);
-  const visible = visibleEntries(tab, showHidden);
-  const marked = targetEntries(tab, visible);
+  // O(n) folds over large listings — recompute only when the inputs change,
+  // not on every cursor move.
+  const { visibleCount, size, totalSize } = useMemo(() => {
+    const visible = visibleEntries(tab, showHidden);
+    if (tab.marked.size === 0)
+      return { visibleCount: visible.length, size: 0, totalSize: 0 };
+    const marked = targetEntries(tab, visible);
+    return {
+      visibleCount: visible.length,
+      size: marked.reduce((a, e) => a + (e.isDir ? 0 : e.size), 0),
+      totalSize: visible.reduce((a, e) => a + (e.isDir ? 0 : e.size), 0),
+    };
+  }, [tab.entries, tab.marked, tab.filter, tab.sortKey, tab.sortDir, showHidden]);
   if (tab.marked.size === 0) {
     return (
-      <div className="statusline">{t("status.items", { count: visible.length })}</div>
+      <div className="statusline">{t("status.items", { count: visibleCount })}</div>
     );
   }
-  const markedFiles = marked.filter((e) => !e.isDir);
-  const size = markedFiles.reduce((a, e) => a + e.size, 0);
-  const totalSize = visible.filter((e) => !e.isDir).reduce((a, e) => a + e.size, 0);
   return (
     <div className="statusline">
       {size > 0
         ? t("status.markedSize", {
             marked: tab.marked.size,
-            total: visible.length,
+            total: visibleCount,
             size: humanSize(size),
             totalSize: humanSize(totalSize),
           })
-        : t("status.marked", { marked: tab.marked.size, total: visible.length })}
+        : t("status.marked", { marked: tab.marked.size, total: visibleCount })}
     </div>
   );
 }
