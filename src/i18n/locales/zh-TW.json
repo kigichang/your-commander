@@ -60,6 +60,7 @@
     "clipCopied": "已複製 {{count}} 個項目——⌘V 貼上",
     "clipCut": "已剪下 {{count}} 個項目——⌘V 貼上時移動",
     "clipEmpty": "剪貼簿是空的",
+    "clipCancelled": "已取消複製／剪下",
     "nothingSelected": "未選取任何項目",
     "archiveReadOnly": "壓縮檔為唯讀——按 F5 解壓選取項目",
     "comingSoon": "功能尚未完成"

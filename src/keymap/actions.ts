@@ -165,7 +165,18 @@ export const actions: Record<ActionId, Action> = {
     run: () => panels().toggleMark(panels().activeSide, undefined, true),
   },
   markAll: { id: "markAll", run: () => panels().markAll(panels().activeSide) },
-  clearMarks: { id: "clearMarks", run: () => panels().clearMarks(panels().activeSide) },
+  clearMarks: {
+    id: "clearMarks",
+    run: () => {
+      // Esc peels one layer at a time: a pending ⌘C/⌘X first, marks next.
+      if (useClipboard.getState().clip) {
+        useClipboard.getState().clear();
+        ops().toast(i18n.t("status.clipCancelled"));
+        return;
+      }
+      panels().clearMarks(panels().activeSide);
+    },
+  },
 
   quickView: { id: "quickView", run: () => panels().toggleQuickView() },
 

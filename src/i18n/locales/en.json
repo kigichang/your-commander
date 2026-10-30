@@ -60,6 +60,7 @@
     "clipCopied": "Copied {{count}} item(s) — paste with ⌘V",
     "clipCut": "Cut {{count}} item(s) — ⌘V moves them",
     "clipEmpty": "The clipboard is empty",
+    "clipCancelled": "Cut/copy cancelled",
     "nothingSelected": "Nothing selected",
     "archiveReadOnly": "Archives are read-only — press F5 to extract",
     "comingSoon": "Not implemented yet"
