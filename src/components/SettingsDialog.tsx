@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { X } from "lucide-react";
+import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActionId } from "../keymap/actions";
@@ -13,8 +13,8 @@ import { useOps } from "../store/ops";
 import { useSettings } from "../store/settings";
 import { Icon } from "./icons";
 
-const SECTIONS = ["general", "hotkeys", "panes", "appearance", "transfers", "plugins"] as const;
-const READY = new Set(["general", "hotkeys"]);
+const SECTIONS = ["general", "favorites", "hotkeys", "panes", "appearance", "transfers", "plugins"] as const;
+const READY = new Set(["general", "favorites", "hotkeys"]);
 
 export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }> }) {
   const { t } = useTranslation();
@@ -78,7 +78,13 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
               </button>
             ))}
           </nav>
-          {section === "general" ? <GeneralPane /> : <HotkeysPane capture={capture} setCapture={setCapture} />}
+          {section === "general" ? (
+            <GeneralPane />
+          ) : section === "favorites" ? (
+            <FavoritesPane />
+          ) : (
+            <HotkeysPane capture={capture} setCapture={setCapture} />
+          )}
         </div>
         <div className="buttons">
           <button className="btn primary" onClick={close}>
@@ -177,6 +183,78 @@ function GeneralPane() {
           <div className="settings-note">{t("settings.plantumlJarNote")}</div>
         </>
       )}
+    </div>
+  );
+}
+
+function FavoritesPane() {
+  const { t } = useTranslation();
+  const config = useSettings((s) => s.config);
+  const favorites = config?.favorites ?? [];
+
+  const update = (next: typeof favorites) =>
+    useSettings.getState().save({ favorites: next });
+  const move = (from: number, to: number) => {
+    if (to < 0 || to >= favorites.length) return;
+    const next = favorites.slice();
+    const [f] = next.splice(from, 1);
+    next.splice(to, 0, f);
+    update(next);
+  };
+  const rename = (index: number, name: string) => {
+    const next = favorites.slice();
+    next[index] = { ...next[index], name };
+    update(next);
+  };
+
+  if (favorites.length === 0) {
+    return (
+      <div className="settings-pane">
+        <div className="settings-note">{t("settings.favNone")}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="settings-pane">
+      <div className="hk-table fav-table">
+        {favorites.map((f, i) => (
+          <div key={f.path} className="hk-row fav-row">
+            <input
+              className="fav-name"
+              value={f.name}
+              spellCheck={false}
+              onChange={(e) => rename(i, e.target.value)}
+            />
+            <span className="fav-path" title={f.path}>
+              {f.path}
+            </span>
+            <button
+              className="fav-btn"
+              disabled={i === 0}
+              title={t("settings.favUp")}
+              onClick={() => move(i, i - 1)}
+            >
+              <Icon of={ChevronUp} size={13} />
+            </button>
+            <button
+              className="fav-btn"
+              disabled={i === favorites.length - 1}
+              title={t("settings.favDown")}
+              onClick={() => move(i, i + 1)}
+            >
+              <Icon of={ChevronDown} size={13} />
+            </button>
+            <button
+              className="fav-btn danger"
+              title={t("panel.removeFavorite")}
+              onClick={() => update(favorites.filter((_, j) => j !== i))}
+            >
+              <Icon of={X} size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="settings-note">{t("settings.favHint")}</div>
     </div>
   );
 }

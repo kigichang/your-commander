@@ -176,6 +176,7 @@
     "title": "設定",
     "done": "完成",
     "sec_general": "一般",
+    "sec_favorites": "我的最愛",
     "sec_hotkeys": "快捷鍵",
     "sec_panes": "面板",
     "sec_appearance": "外觀",
@@ -205,7 +206,11 @@
     "plantumlJarPath": "plantuml.jar 路徑",
     "plantumlJavaPath": "java 執行檔",
     "plantumlJavaAuto": "自動偵測（java_home／Homebrew／PATH）",
-    "plantumlJarNote": "由本機 java 渲染——內容不會離開這台電腦。"
+    "plantumlJarNote": "由本機 java 渲染——內容不會離開這台電腦。",
+    "favNone": "還沒有我的最愛——在路徑列旁按 ★ 加入。",
+    "favHint": "此處的順序就是磁碟選單中的顯示順序。",
+    "favUp": "上移",
+    "favDown": "下移"
   },
   "action": {
     "switchPanel": "切換作用面板",

@@ -176,6 +176,7 @@
     "title": "Settings",
     "done": "Done",
     "sec_general": "General",
+    "sec_favorites": "Favorites",
     "sec_hotkeys": "Hotkeys",
     "sec_panes": "Panes",
     "sec_appearance": "Appearance",
@@ -205,7 +206,11 @@
     "plantumlJarPath": "plantuml.jar path",
     "plantumlJavaPath": "java binary",
     "plantumlJavaAuto": "auto-detect (java_home / Homebrew / PATH)",
-    "plantumlJarNote": "Rendered locally via java — nothing leaves the machine."
+    "plantumlJarNote": "Rendered locally via java — nothing leaves the machine.",
+    "favNone": "No favorites yet — add one with the ★ next to the path bar.",
+    "favHint": "The order here is the order in the drives menu.",
+    "favUp": "Move up",
+    "favDown": "Move down"
   },
   "action": {
     "switchPanel": "Switch active panel",
