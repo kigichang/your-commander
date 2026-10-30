@@ -22,6 +22,7 @@ export interface VolumeInfo {
   free: number;
   total: number;
   ready: boolean;
+  isSystem: boolean;
 }
 
 export interface SshConfigHost {

@@ -230,17 +230,19 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
                     <span className="sub">{t("panel.notReady")}</span>
                   )}
                 </button>
-                <button
-                  className="eject"
-                  title={t("panel2.eject")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuOpen(false);
-                    void ejectVolume(v.path, side, tab.path);
-                  }}
-                >
-                  <Icon of={Eject} size={14} />
-                </button>
+                {!v.isSystem && (
+                  <button
+                    className="eject"
+                    title={t("panel2.eject")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuOpen(false);
+                      void ejectVolume(v.path, side, tab.path);
+                    }}
+                  >
+                    <Icon of={Eject} size={14} />
+                  </button>
+                )}
               </div>
             ))}
           </div>

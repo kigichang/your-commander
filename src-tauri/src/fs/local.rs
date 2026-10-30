@@ -61,6 +61,8 @@ pub struct VolumeInfo {
     /// False while the volume doesn't answer statfs in time (still spinning
     /// up, or a dead network mount) — shown but not clickable in the menu.
     pub ready: bool,
+    /// The boot volume (its /Volumes entry links to "/") — not ejectable.
+    pub is_system: bool,
 }
 
 fn statfs(path: &Path) -> Option<(u64, u64)> {
@@ -98,6 +100,11 @@ pub fn volumes() -> Vec<VolumeInfo> {
                 continue;
             }
             let path = entry.path();
+            // read_link is an lstat on the /Volumes entry itself — it never
+            // touches the (possibly sleeping) volume behind it.
+            let is_system = std::fs::read_link(&path)
+                .map(|t| t == Path::new("/"))
+                .unwrap_or(false);
             let stat = statfs_timeout(&path, 800);
             let ready = stat.is_some();
             let (free, total) = stat.unwrap_or((0, 0));
@@ -107,6 +114,7 @@ pub fn volumes() -> Vec<VolumeInfo> {
                 free,
                 total,
                 ready,
+                is_system,
             });
         }
     }
