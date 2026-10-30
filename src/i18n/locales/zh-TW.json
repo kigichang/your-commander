@@ -19,6 +19,7 @@
     "removeFavorite": "從常用目錄移除",
     "drives": "磁碟",
     "freeOf": "{{free}} 可用，共 {{total}}",
+    "notReady": "尚未就緒",
     "newTab": "新分頁",
     "closeTab": "關閉分頁",
     "disconnect": "中斷連線"

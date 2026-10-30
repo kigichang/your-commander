@@ -207,6 +207,8 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
               <div key={v.path} className="item-row">
                 <button
                   className="item"
+                  disabled={!v.ready}
+                  title={v.ready ? undefined : t("panel.notReady")}
                   onClick={() => {
                     setMenuOpen(false);
                     void navigate(side, v.path, { kind: "local" }, null);
@@ -215,13 +217,17 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
                   <span>
                     <Icon of={HardDrive} size={14} /> {v.name}
                   </span>
-                  {v.total > 0 && (
-                    <span className="sub">
-                      {t("panel.freeOf", {
-                        free: humanSize(v.free),
-                        total: humanSize(v.total),
-                      })}
-                    </span>
+                  {v.ready ? (
+                    v.total > 0 && (
+                      <span className="sub">
+                        {t("panel.freeOf", {
+                          free: humanSize(v.free),
+                          total: humanSize(v.total),
+                        })}
+                      </span>
+                    )
+                  ) : (
+                    <span className="sub">{t("panel.notReady")}</span>
                   )}
                 </button>
                 <button

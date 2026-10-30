@@ -293,6 +293,13 @@ svg.li {
 .menu .item:hover {
   background: var(--cursor-tint);
 }
+.menu .item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.menu .item:disabled:hover {
+  background: none;
+}
 .menu .item .sub {
   font-size: 10.5px;
   color: var(--text-faint);

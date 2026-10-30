@@ -19,6 +19,7 @@
     "removeFavorite": "Remove from favorites",
     "drives": "Drives",
     "freeOf": "{{free}} free of {{total}}",
+    "notReady": "Not ready yet",
     "newTab": "New tab",
     "closeTab": "Close tab",
     "disconnect": "Disconnect"

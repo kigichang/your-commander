@@ -58,6 +58,9 @@ pub struct VolumeInfo {
     pub path: PathBuf,
     pub free: u64,
     pub total: u64,
+    /// False while the volume doesn't answer statfs in time (still spinning
+    /// up, or a dead network mount) — shown but not clickable in the menu.
+    pub ready: bool,
 }
 
 fn statfs(path: &Path) -> Option<(u64, u64)> {
@@ -95,12 +98,15 @@ pub fn volumes() -> Vec<VolumeInfo> {
                 continue;
             }
             let path = entry.path();
-            let (free, total) = statfs_timeout(&path, 800).unwrap_or((0, 0));
+            let stat = statfs_timeout(&path, 800);
+            let ready = stat.is_some();
+            let (free, total) = stat.unwrap_or((0, 0));
             out.push(VolumeInfo {
                 name,
                 path,
                 free,
                 total,
+                ready,
             });
         }
     }
