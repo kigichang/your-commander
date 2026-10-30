@@ -210,7 +210,8 @@
     "favNone": "No favorites yet — add one with the ★ next to the path bar.",
     "favHint": "The order here is the order in the drives menu.",
     "favUp": "Move up",
-    "favDown": "Move down"
+    "favDown": "Move down",
+    "favDrag": "Drag to reorder"
   },
   "action": {
     "switchPanel": "Switch active panel",

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { ChevronDown, ChevronUp, X } from "lucide-react";
+import { ChevronDown, ChevronUp, GripVertical, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActionId } from "../keymap/actions";
@@ -191,6 +191,16 @@ function FavoritesPane() {
   const { t } = useTranslation();
   const config = useSettings((s) => s.config);
   const favorites = config?.favorites ?? [];
+  // Index of the row being dragged by its grip (mouse-based: the webview's
+  // native drag-drop interception breaks HTML5 DnD on macOS).
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (dragIdx === null) return;
+    const up = () => setDragIdx(null);
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, [dragIdx]);
 
   const update = (next: typeof favorites) =>
     useSettings.getState().save({ favorites: next });
@@ -218,7 +228,27 @@ function FavoritesPane() {
     <div className="settings-pane">
       <div className="hk-table fav-table">
         {favorites.map((f, i) => (
-          <div key={f.path} className="hk-row fav-row">
+          <div
+            key={f.path}
+            className={clsx("hk-row fav-row", dragIdx === i && "dragging")}
+            onMouseEnter={() => {
+              // Live reorder: the dragged row follows the cursor row by row.
+              if (dragIdx !== null && dragIdx !== i) {
+                move(dragIdx, i);
+                setDragIdx(i);
+              }
+            }}
+          >
+            <span
+              className="fav-grip"
+              title={t("settings.favDrag")}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setDragIdx(i);
+              }}
+            >
+              <Icon of={GripVertical} size={13} />
+            </span>
             <input
               className="fav-name"
               value={f.name}

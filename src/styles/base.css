@@ -1387,6 +1387,18 @@ svg.li {
 .fav-row {
   gap: var(--space-2);
 }
+.fav-row.dragging {
+  background: var(--cursor-tint);
+}
+.fav-grip {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
+  cursor: grab;
+}
+.fav-row.dragging .fav-grip {
+  cursor: grabbing;
+}
 .fav-name {
   width: 130px;
   flex: none;
