@@ -1416,23 +1416,21 @@ svg.li {
   color: var(--text-faint);
   font-size: 11.5px;
 }
-.tool-name,
-.tool-app {
-  width: 105px;
+.saved-list.tool-list {
+  border-right: 0;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-2);
+  max-height: 170px;
+  overflow-y: auto;
+  margin-bottom: var(--space-3);
   flex: none;
-  font-size: 12.5px;
-  padding: 3px 6px;
 }
-.tool-ext {
-  flex: 1;
-  min-width: 60px;
-  font-size: 12.5px;
-  padding: 3px 6px;
-}
-.settings-pane .tool-dirs {
-  flex: none;
-  white-space: nowrap;
-  margin-top: 0;
+.tool-form-title {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 .tool-add {
   margin-top: var(--space-3);

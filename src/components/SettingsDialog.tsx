@@ -247,6 +247,7 @@ function ToolsPane() {
   const { t } = useTranslation();
   const config = useSettings((s) => s.config);
   const tools = config?.external_tools ?? [];
+  const [selected, setSelected] = useState<number | null>(null);
   const [draft, setDraft] = useState<ExternalTool>(EMPTY_TOOL);
 
   const update = (next: ExternalTool[]) =>
@@ -256,102 +257,108 @@ function ToolsPane() {
     next[i] = { ...next[i], ...patch };
     update(next);
   };
+  const remove = (i: number) => {
+    update(tools.filter((_, j) => j !== i));
+    setSelected((s) => (s === null || s === i ? null : s > i ? s - 1 : s));
+  };
+
+  // The form edits the selected tool in place (instant save, like the rest
+  // of Settings) or, with nothing selected, a draft for the Add button.
+  const sel = selected !== null && selected < tools.length ? selected : null;
+  const cur = sel !== null ? tools[sel] : draft;
+  const set = (patch: Partial<ExternalTool>) =>
+    sel !== null ? edit(sel, patch) : setDraft({ ...draft, ...patch });
 
   return (
     <div className="settings-pane">
       {tools.length === 0 ? (
         <div className="settings-note">{t("settings.toolNone")}</div>
       ) : (
-        <div className="hk-table fav-table">
+        <div className="saved-list tool-list">
           {tools.map((tool, i) => (
-            <div key={i} className="hk-row fav-row">
-              <input
-                className="tool-name"
-                value={tool.name}
-                placeholder={t("settings.toolName")}
-                spellCheck={false}
-                onChange={(e) => edit(i, { name: e.target.value })}
-              />
-              <input
-                className="tool-app"
-                value={tool.app}
-                placeholder={t("settings.toolApp")}
-                spellCheck={false}
-                onChange={(e) => edit(i, { app: e.target.value })}
-              />
-              <input
-                className="tool-ext"
-                value={tool.extensions}
-                placeholder={t("settings.toolExts")}
-                spellCheck={false}
-                onChange={(e) => edit(i, { extensions: e.target.value })}
-              />
-              <label className="check tool-dirs" title={t("settings.toolDirs")}>
-                <input
-                  type="checkbox"
-                  checked={tool.dirs}
-                  onChange={(e) => edit(i, { dirs: e.target.checked })}
-                />
-                {t("settings.toolDirs")}
-              </label>
+            <div key={i} className={clsx("saved", sel === i && "on")}>
+              <button className="pick" onClick={() => setSelected(i)}>
+                <span className="label">{tool.name}</span>
+                <span className="sub">
+                  {tool.app} · {tool.extensions || t("settings.toolAllFiles")}
+                  {tool.dirs ? ` · ${t("settings.toolDirs")}` : ""}
+                </span>
+              </button>
               <button
-                className="fav-btn danger"
+                className="close"
                 title={t("settings.toolRemove")}
-                onClick={() => update(tools.filter((_, j) => j !== i))}
+                onClick={() => remove(i)}
               >
-                <Icon of={X} size={13} />
+                <Icon of={X} size={12} />
               </button>
             </div>
           ))}
+          <button
+            className="tab-new new-conn"
+            onClick={() => {
+              setSelected(null);
+              setDraft(EMPTY_TOOL);
+            }}
+          >
+            + {t("settings.toolNew")}
+          </button>
         </div>
       )}
+      <div className="tool-form-title">
+        {sel !== null
+          ? t("settings.toolEdit", { name: cur.name })
+          : t("settings.toolNew")}
+      </div>
       <label>{t("settings.toolName")}</label>
       <input
         className="wide-in"
-        value={draft.name}
+        value={cur.name}
         placeholder="Extract with Keka"
         spellCheck={false}
-        onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+        onChange={(e) => set({ name: e.target.value })}
       />
       <label>{t("settings.toolApp")}</label>
       <input
         className="wide-in"
-        value={draft.app}
+        value={cur.app}
         placeholder="Keka"
         spellCheck={false}
-        onChange={(e) => setDraft({ ...draft, app: e.target.value })}
+        onChange={(e) => set({ app: e.target.value })}
       />
       <label>{t("settings.toolExts")}</label>
       <input
         className="wide-in"
-        value={draft.extensions}
+        value={cur.extensions}
         placeholder="zip,7z,rar,tar,gz,tgz"
         spellCheck={false}
-        onChange={(e) => setDraft({ ...draft, extensions: e.target.value })}
+        onChange={(e) => set({ extensions: e.target.value })}
       />
       <label className="check">
         <input
           type="checkbox"
-          checked={draft.dirs}
-          onChange={(e) => setDraft({ ...draft, dirs: e.target.checked })}
+          checked={cur.dirs}
+          onChange={(e) => set({ dirs: e.target.checked })}
         />
         {t("settings.toolDirs")}
       </label>
-      <div className="tool-add">
-        <button
-          className="btn"
-          disabled={!draft.name.trim() || !draft.app.trim()}
-          onClick={() => {
-            update([
-              ...tools,
-              { ...draft, name: draft.name.trim(), app: draft.app.trim() },
-            ]);
-            setDraft(EMPTY_TOOL);
-          }}
-        >
-          {t("settings.toolAdd")}
-        </button>
-      </div>
+      {sel === null && (
+        <div className="tool-add">
+          <button
+            className="btn"
+            disabled={!draft.name.trim() || !draft.app.trim()}
+            onClick={() => {
+              update([
+                ...tools,
+                { ...draft, name: draft.name.trim(), app: draft.app.trim() },
+              ]);
+              setDraft(EMPTY_TOOL);
+              setSelected(tools.length);
+            }}
+          >
+            {t("settings.toolAdd")}
+          </button>
+        </div>
+      )}
       <div className="settings-note">{t("settings.toolHint")}</div>
     </div>
   );
