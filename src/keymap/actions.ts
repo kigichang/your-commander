@@ -116,7 +116,13 @@ function openCopyMove(move: boolean) {
 export const actions: Record<ActionId, Action> = {
   switchPanel: {
     id: "switchPanel",
-    run: () => panels().setActiveSide(panels().otherSide(panels().activeSide)),
+    run: () => {
+      const s = panels();
+      const target = s.otherSide(s.activeSide);
+      // Never focus a pane that is showing the Quick View preview.
+      if (s.quickViewSide === target && s.quickViewShown) return;
+      s.setActiveSide(target);
+    },
   },
 
   enter: {

@@ -252,6 +252,11 @@ svg.li {
   background: var(--hover-tint);
 }
 
+/* Quick View pseudo-tab: accent-tinted so it reads as a preview, not a folder. */
+.tab.tab-qv .label {
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-text));
+}
+
 .panel-bar {
   display: flex;
   align-items: center;

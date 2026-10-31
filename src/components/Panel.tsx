@@ -36,10 +36,11 @@ export function Panel({ side }: { side: Side }) {
   const panel = usePanels((s) => s.panels[side]);
   const isActive = usePanels((s) => s.activeSide === side);
   const quickViewSide = usePanels((s) => s.quickViewSide);
+  const quickViewShown = usePanels((s) => s.quickViewShown);
   const tab = panel.tabs[panel.active];
   if (!tab) return <section className="panel" />;
 
-  const isQuickView = quickViewSide === side;
+  const isQuickView = quickViewSide === side && quickViewShown;
   return (
     <section
       className={clsx("panel", isActive && !isQuickView && "active")}
@@ -64,6 +65,8 @@ export function Panel({ side }: { side: Side }) {
 function TabStrip({ side }: { side: Side }) {
   const { t } = useTranslation();
   const panel = usePanels((s) => s.panels[side]);
+  const hasQuickView = usePanels((s) => s.quickViewSide === side);
+  const quickViewShown = usePanels((s) => s.quickViewShown);
   const { setActiveTab, closeTab, openTab } = usePanels.getState();
   return (
     <div className="tabstrip">
@@ -94,6 +97,24 @@ function TabStrip({ side }: { side: Side }) {
           )}
         </button>
       ))}
+      {hasQuickView && (
+        <button
+          className={clsx("tab", "tab-qv", quickViewShown && "on")}
+          onClick={() => usePanels.getState().showQuickView()}
+        >
+          <span className="label">{t("quickview.title")}</span>
+          <span
+            className="close"
+            title="F3"
+            onClick={(e) => {
+              e.stopPropagation();
+              usePanels.getState().toggleQuickView();
+            }}
+          >
+            <Icon of={X} size={12} />
+          </span>
+        </button>
+      )}
       <button className="tab-new" title={t("panel.newTab")} onClick={() => openTab(side)}>
         <Icon of={Plus} size={14} />
       </button>

@@ -66,8 +66,10 @@ function newTab(location: Location, path: string, remoteLabel: string | null = n
 interface PanelsStore {
   panels: [PanelState, PanelState];
   activeSide: Side;
-  /** Side whose pane is replaced by Quick View (follows the other cursor). */
+  /** Side carrying the Quick View pseudo-tab (follows the other cursor). */
   quickViewSide: Side | null;
+  /** Whether the pseudo-tab is the pane's current content (vs. a real tab). */
+  quickViewShown: boolean;
 
   init: () => Promise<void>;
   activeTab: (side: Side) => TabState;
@@ -100,6 +102,8 @@ interface PanelsStore {
   /** Navigate to a folder and put the cursor on one of its entries. */
   revealEntry: (side: Side, path: string, name: string, location?: Location) => Promise<void>;
   toggleQuickView: () => void;
+  /** Bring the Quick View pseudo-tab back to the front of its pane. */
+  showQuickView: () => void;
   /** Close an SFTP connection and send every tab that used it back home. */
   disconnectSftp: (connId: number) => void;
 }
@@ -182,6 +186,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   ],
   activeSide: 0,
   quickViewSide: null,
+  quickViewShown: false,
 
   init: async () => {
     const home = await ipc.homeDir();
@@ -505,7 +510,10 @@ export const usePanels = create<PanelsStore>((set, get) => ({
         tabs: [...next[side].tabs, tab],
         active: next[side].tabs.length,
       };
-      return { panels: next };
+      // A new tab takes the pane over from the Quick View pseudo-tab.
+      return side === s.quickViewSide
+        ? { panels: next, quickViewShown: false }
+        : { panels: next };
     });
     void get().refresh(side);
     persistPanels();
@@ -532,7 +540,10 @@ export const usePanels = create<PanelsStore>((set, get) => ({
     set((s) => {
       const next = [...s.panels] as [PanelState, PanelState];
       next[side] = { ...next[side], active: index };
-      return { panels: next };
+      // Picking a real tab browses it instead of the Quick View pseudo-tab.
+      return side === s.quickViewSide
+        ? { panels: next, quickViewShown: false }
+        : { panels: next };
     });
     void get().refresh(side, { silent: true });
     persistPanels();
@@ -541,6 +552,8 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   swapPanels: () => {
     set((s) => ({
       panels: [s.panels[1], s.panels[0]] as [PanelState, PanelState],
+      // Quick View previews the other pane's cursor, so it swaps along.
+      quickViewSide: s.quickViewSide === null ? null : s.otherSide(s.quickViewSide),
     }));
     void get().refresh(0, { silent: true });
     void get().refresh(1, { silent: true });
@@ -584,10 +597,14 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   },
 
   toggleQuickView: () => {
-    set((s) => ({
-      quickViewSide: s.quickViewSide === null ? s.otherSide(s.activeSide) : null,
-    }));
+    set((s) =>
+      s.quickViewSide === null
+        ? { quickViewSide: s.otherSide(s.activeSide), quickViewShown: true }
+        : { quickViewSide: null, quickViewShown: false },
+    );
   },
+
+  showQuickView: () => set({ quickViewShown: true }),
 
   disconnectSftp: (connId) => {
     void ipc.sftpDisconnect(connId);
