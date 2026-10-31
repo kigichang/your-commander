@@ -623,16 +623,87 @@ svg.li {
 }
 .qv-body img,
 .qv-body video {
-  width: 100%;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: var(--radius-sm);
+}
+.qv-body video {
+  width: 100%;
   background: #000;
 }
-.qv-body audio {
+/* ── Audio preview: playbar on top, per-channel waveform + spectrogram ── */
+.qv-audio {
+  align-self: stretch;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.qv-audio audio {
   width: 100%;
-  max-width: 420px;
+  flex: none;
+}
+.qv-audio .qa-block {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-accent) 4%, transparent);
+  overflow: hidden;
+}
+.qv-audio .qa-title {
+  flex: none;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 4px 8px 2px;
+}
+.qv-audio .qa-ch {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.qv-audio .qa-ch + .qa-ch {
+  border-top: 1px solid color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.qv-audio .qa-ch canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.qv-audio .qa-ch .qa-label {
+  position: absolute;
+  top: 3px;
+  left: 6px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.qv-audio .qa-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--color-accent-2);
+  box-shadow: 0 0 4px var(--color-accent);
+  pointer-events: none;
+}
+.qv-audio .qa-pending {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 .qv-body pre {
   align-self: stretch;
