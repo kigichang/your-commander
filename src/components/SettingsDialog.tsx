@@ -110,9 +110,18 @@ function GeneralPane() {
   const showHidden = useSettings((s) => s.showHidden);
   const fkeysOn = useSettings((s) => s.fkeysWithoutFn);
   const fkeysAvailable = useSettings((s) => s.fkeysAvailable);
+  const config = useSettings((s) => s.config);
 
   return (
     <div className="settings-pane">
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={config?.save_tabs ?? true}
+          onChange={(e) => useSettings.getState().save({ save_tabs: e.target.checked })}
+        />
+        {t("settings.saveTabs")}
+      </label>
       <label className="check">
         <input
           type="checkbox"

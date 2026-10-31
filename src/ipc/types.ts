@@ -75,6 +75,7 @@ export interface Config {
   show_hidden: boolean;
   fkeys_without_fn: boolean;
   favorites: Favorite[];
+  save_tabs: boolean;
   left_path: string | null;
   right_path: string | null;
   left_view: string | null;

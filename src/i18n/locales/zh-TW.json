@@ -199,6 +199,7 @@
     "theme_dark": "深色",
     "theme_light": "淺色",
     "menus": "選單",
+    "saveTabs": "結束時記住已開啟的分頁",
     "showHidden": "顯示隱藏檔",
     "fkeys": "F 鍵免按 fn",
     "presetCommander": "Commander（F 鍵）",

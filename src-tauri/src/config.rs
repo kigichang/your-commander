@@ -79,6 +79,8 @@ pub struct Config {
     /// without holding fn.
     pub fkeys_without_fn: bool,
     pub favorites: Vec<Favorite>,
+    /// Remember open tabs across launches; off = both panes start at HOME.
+    pub save_tabs: bool,
     pub left_path: Option<PathBuf>,
     pub right_path: Option<PathBuf>,
     pub left_view: Option<String>,
@@ -127,6 +129,7 @@ impl Default for Config {
             show_hidden: false,
             fkeys_without_fn: true,
             favorites: Vec::new(),
+            save_tabs: true,
             left_path: None,
             right_path: None,
             left_view: None,

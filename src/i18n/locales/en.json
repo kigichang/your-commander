@@ -199,6 +199,7 @@
     "theme_dark": "Dark",
     "theme_light": "Light",
     "menus": "Menus",
+    "saveTabs": "Save open tabs when quitting",
     "showHidden": "Show hidden files",
     "fkeys": "Use F-keys without fn",
     "presetCommander": "Commander (F-keys)",

@@ -152,19 +152,26 @@ function persistPanels() {
   };
   const left = sideOf(0);
   const right = sideOf(1);
+  // With save_tabs off, view/sort/columns still persist but the session
+  // (tabs, active tab, paths) is never recorded.
+  const saveTabs = settings.config.save_tabs ?? true;
   settings.save({
-    left_tabs: left.tabs,
-    right_tabs: right.tabs,
-    left_active: left.active,
-    right_active: right.active,
     left_view: left.view,
     right_view: right.view,
     left_sort: left.sort,
     right_sort: right.sort,
     left_cols: left.cols,
     right_cols: right.cols,
-    ...(left.path ? { left_path: left.path } : {}),
-    ...(right.path ? { right_path: right.path } : {}),
+    ...(saveTabs
+      ? {
+          left_tabs: left.tabs,
+          right_tabs: right.tabs,
+          left_active: left.active,
+          right_active: right.active,
+          ...(left.path ? { left_path: left.path } : {}),
+          ...(right.path ? { right_path: right.path } : {}),
+        }
+      : {}),
   });
 }
 
@@ -211,20 +218,23 @@ export const usePanels = create<PanelsStore>((set, get) => ({
         colWidths,
       };
     };
+    // With save_tabs off, ignore any recorded session: both panes start
+    // at HOME (view/sort/columns are still restored).
+    const saveTabs = config?.save_tabs ?? true;
     set({
       panels: [
         restore(
-          config?.left_tabs,
-          config?.left_path,
-          config?.left_active,
+          saveTabs ? config?.left_tabs : undefined,
+          saveTabs ? config?.left_path : null,
+          saveTabs ? config?.left_active : 0,
           config?.left_view,
           config?.left_sort,
           config?.left_cols,
         ),
         restore(
-          config?.right_tabs,
-          config?.right_path,
-          config?.right_active,
+          saveTabs ? config?.right_tabs : undefined,
+          saveTabs ? config?.right_path : null,
+          saveTabs ? config?.right_active : 0,
           config?.right_view,
           config?.right_sort,
           config?.right_cols,
@@ -232,6 +242,16 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       ],
     });
     await Promise.all([get().refresh(0), get().refresh(1)]);
+    // A restored path that fails to list (unmounted share, deleted
+    // folder) falls back to HOME instead of sitting on the error.
+    await Promise.all(
+      ([0, 1] as Side[]).map((side) => {
+        const tab = get().activeTab(side);
+        return tab.error && tab.location.kind === "local" && tab.path !== home
+          ? get().navigate(side, home)
+          : Promise.resolve();
+      }),
+    );
   },
 
   activeTab: (side) => {
