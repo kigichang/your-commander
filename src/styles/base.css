@@ -623,14 +623,16 @@ svg.li {
 }
 .qv-body img,
 .qv-body video {
+  width: 100%;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: var(--radius-sm);
-}
-.qv-body video {
-  width: 100%;
   background: #000;
+}
+.qv-body audio {
+  width: 100%;
+  max-width: 420px;
 }
 .qv-body pre {
   align-self: stretch;

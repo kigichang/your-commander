@@ -31,6 +31,10 @@ const VIDEO_EXTS = new Set([
   "mp4", "mov", "m4v", "avi", "mkv", "webm", "mpg", "mpeg", "wmv", "flv",
   "3gp", "mts", "m2ts",
 ]);
+const AUDIO_EXTS = new Set([
+  "mp3", "m4a", "m4b", "aac", "wav", "flac", "aiff", "aif", "ogg", "oga",
+  "opus", "caf", "wma",
+]);
 
 /** 65.4s → "1:05"; 5025s → "1:23:45". */
 function formatDuration(secs: number): string {
@@ -63,11 +67,25 @@ const VIDEO_MIME: Record<string, string> = {
   webm: "video/webm",
   avi: "video/x-msvideo",
 };
+const AUDIO_MIME: Record<string, string> = {
+  m4a: "audio/mp4",
+  m4b: "audio/mp4",
+  aac: "audio/aac",
+  wav: "audio/wav",
+  flac: "audio/flac",
+  aiff: "audio/aiff",
+  aif: "audio/aiff",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  opus: "audio/ogg",
+  caf: "audio/x-caf",
+};
 
 type Preview =
   | { kind: "image"; url: string }
   | { kind: "video"; url: string }
   | { kind: "video-failed" }
+  | { kind: "audio"; url: string }
   | { kind: "text"; text: string }
   | { kind: "markdown"; text: string }
   | { kind: "plantuml"; text: string }
@@ -124,7 +142,8 @@ export function QuickView() {
         void ipc.fileTags(entry.path).then((v) => {
           if (!stale) setTags(v);
         });
-        if (VIDEO_EXTS.has(entry.ext)) {
+        const isVideo = VIDEO_EXTS.has(entry.ext);
+        if (isVideo || AUDIO_EXTS.has(entry.ext)) {
           void ipc
             .mediaInfo(entry.path)
             .then((info) => {
@@ -133,6 +152,7 @@ export function QuickView() {
               if (info.width && info.height) setDims(`${info.width} × ${info.height}`);
             })
             .catch(() => {});
+          const kind = isVideo ? "video" : "audio";
           try {
             const needsBlob =
               entry.size < VIDEO_BLOB_MIN ||
@@ -142,15 +162,17 @@ export function QuickView() {
             if (needsBlob) {
               const buf = await ipc.readPreview(tab.location, entry.path, VIDEO_BLOB_MAX);
               if (stale) return;
-              const mime = VIDEO_MIME[entry.ext] ?? "video/mp4";
+              const mime = isVideo
+                ? (VIDEO_MIME[entry.ext] ?? "video/mp4")
+                : (AUDIO_MIME[entry.ext] ?? "audio/mpeg");
               const url = URL.createObjectURL(new Blob([buf], { type: mime }));
               revoked = url;
-              setPreview({ kind: "video", url });
+              setPreview({ kind, url });
             } else {
               // Local disks stream through the asset protocol (range
               // requests, nothing read into memory). Formats the webview
               // can't decode fall back to "none" via onError.
-              setPreview({ kind: "video", url: convertFileSrc(entry.path) });
+              setPreview({ kind, url: convertFileSrc(entry.path) });
             }
           } catch {
             if (!stale) setPreview({ kind: "none" });
@@ -315,6 +337,18 @@ export function QuickView() {
               )}
             </div>
           </div>
+        ) : preview.kind === "audio" ? (
+          <audio
+            src={preview.url}
+            controls
+            onLoadedMetadata={(e) => {
+              const a = e.currentTarget;
+              if (Number.isFinite(a.duration)) {
+                setDuration((d) => d ?? formatDuration(a.duration));
+              }
+            }}
+            onError={() => setPreview({ kind: "none" })}
+          />
         ) : preview.kind === "image" ? (
           <img
             src={preview.url}
