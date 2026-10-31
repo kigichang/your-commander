@@ -155,6 +155,36 @@ pub async fn open_in(tool: String, dir: PathBuf) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Launch a user-defined external tool: `open -a <app> <paths...>`.
+/// Waits for `open` to exit (it returns right after handing the files to
+/// LaunchServices) so a missing app surfaces as an error instead of nothing.
+#[tauri::command]
+pub async fn open_with(app: String, paths: Vec<PathBuf>) -> Result<(), String> {
+    if app.trim().is_empty() || paths.is_empty() {
+        return Err("open_with: app and paths required".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let output = std::process::Command::new("/usr/bin/open")
+            .arg("-a")
+            .arg(&app)
+            .args(&paths)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(if err.is_empty() {
+                format!("open -a \"{app}\" failed")
+            } else {
+                err
+            })
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Finder's Get Info window for each path (local only, capped so a huge
 /// mark set can't flood the screen with windows).
 #[tauri::command]

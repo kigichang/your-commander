@@ -9,6 +9,19 @@ pub struct Favorite {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
+pub struct ExternalTool {
+    /// Menu label, e.g. "Extract with Keka".
+    pub name: String,
+    /// App name or .app path passed to `open -a`, e.g. "Keka".
+    pub app: String,
+    /// Comma-separated extensions ("zip,7z,rar"); empty = any file.
+    pub extensions: String,
+    /// Also offer the tool when folders are selected.
+    pub dirs: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
 pub struct SmbConnection {
     pub name: String,
     pub server: String,
@@ -91,6 +104,11 @@ pub struct Config {
     pub plantuml_jar: String,
     /// Explicit java binary; empty = auto-detect (java_home, Homebrew, PATH).
     pub plantuml_java: String,
+    /// Show "New VSCode Here" / "New Zed Here" in the context menu.
+    pub menu_vscode: bool,
+    pub menu_zed: bool,
+    /// User-defined tools shown in the file context menu (`open -a`).
+    pub external_tools: Vec<ExternalTool>,
     /// Column widths [ext, size, date] in px; Name takes the rest.
     pub left_cols: Vec<u32>,
     pub right_cols: Vec<u32>,
@@ -124,6 +142,9 @@ impl Default for Config {
             plantuml_server: "https://www.plantuml.com/plantuml".to_string(),
             plantuml_jar: String::new(),
             plantuml_java: String::new(),
+            menu_vscode: false,
+            menu_zed: false,
+            external_tools: Vec::new(),
             left_cols: Vec::new(),
             right_cols: Vec::new(),
             window_size: None,

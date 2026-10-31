@@ -60,6 +60,13 @@ export interface SshConnection {
   remember: boolean;
 }
 
+export interface ExternalTool {
+  name: string;
+  app: string;
+  extensions: string;
+  dirs: boolean;
+}
+
 export interface Config {
   smb_connections: SmbConnection[];
   ssh_connections: SshConnection[];
@@ -85,6 +92,9 @@ export interface Config {
   plantuml_server: string;
   plantuml_jar: string;
   plantuml_java: string;
+  menu_vscode: boolean;
+  menu_zed: boolean;
+  external_tools: ExternalTool[];
   left_cols: number[];
   right_cols: number[];
   window_size: [number, number] | null;

@@ -133,6 +133,7 @@ pub fn run() {
             commands::system::home_dir,
             commands::system::open_path,
             commands::system::open_in,
+            commands::system::open_with,
             commands::system::get_info,
             commands::system::reveal_in_finder,
             commands::system::is_archive,

@@ -6,7 +6,9 @@ import type { ActionId } from "../keymap/actions";
 import { actions, ARCHIVE_RE } from "../keymap/actions";
 import { prettyChord } from "../keymap/keymap";
 import { targetEntries, visibleEntries } from "../lib/selectors";
+import type { ExternalTool } from "../ipc/types";
 import { useClipboard } from "../store/clipboard";
+import { useOps } from "../store/ops";
 import type { Side } from "../store/panels";
 import { usePanels } from "../store/panels";
 import { useKeymap } from "../store/keymapStore";
@@ -27,6 +29,23 @@ export const useCtxMenu = create<CtxState>((set) => ({
 type Item = { label: string; chord?: string; run: () => void };
 type Section = Item[];
 
+/** Every selected entry must match the tool's filter, so the tool receives
+ *  only files its label promises to handle. */
+function toolMatches(tool: ExternalTool, targets: { name: string; isDir: boolean }[]) {
+  const exts = tool.extensions
+    .split(",")
+    .map((s) => s.trim().toLowerCase().replace(/^\./, ""))
+    .filter(Boolean);
+  return (
+    targets.length > 0 &&
+    targets.every((e) =>
+      e.isDir
+        ? tool.dirs
+        : exts.length === 0 || exts.some((x) => e.name.toLowerCase().endsWith("." + x)),
+    )
+  );
+}
+
 export function ContextMenu() {
   const menu = useCtxMenu((s) => s.menu);
   if (!menu) return null;
@@ -38,6 +57,7 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
   const close = useCtxMenu((s) => s.close);
   const keymap = useKeymap((s) => s.map);
   const showHidden = useSettings((s) => s.showHidden);
+  const config = useSettings((s) => s.config);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -62,12 +82,26 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
         [
           ...(hasClip && loc !== "archive" ? [act("clipPaste")] : []),
           ...(loc !== "archive" ? [act("newFolder")] : []),
+          ...(loc === "local"
+            ? [
+                {
+                  label: t("action.getInfo"),
+                  run: () => void ipc.getInfo([tab.path]),
+                },
+              ]
+            : []),
           act("refresh"),
           act("markAll"),
           act("toggleHidden"),
         ],
         ...(loc === "local"
-          ? [[act("newTerminalHere"), act("newVscodeHere"), act("newZedHere")]]
+          ? [
+              [
+                act("newTerminalHere"),
+                ...(config?.menu_vscode ? [act("newVscodeHere")] : []),
+                ...(config?.menu_zed ? [act("newZedHere")] : []),
+              ],
+            ]
           : []),
       ];
     }
@@ -136,6 +170,19 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
       { ...act("copyPath"), label: many(t("action.copyPath")) },
     ];
 
+    const tools: Section =
+      loc === "local"
+        ? (config?.external_tools ?? [])
+            .filter((tl) => tl.name && tl.app && toolMatches(tl, targets))
+            .map((tl) => ({
+              label: many(tl.name),
+              run: () =>
+                void ipc
+                  .openWith(tl.app, targets.map((e) => e.path))
+                  .catch((e) => useOps.getState().toast(String(e), "error")),
+            }))
+        : [];
+
     const danger: Section = [
       ...(loc === "local" ? [{ ...act("trash"), label: many(t("action.trash")) }] : []),
       ...(loc !== "archive"
@@ -143,8 +190,8 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
         : []),
     ];
 
-    return [open, work, clipboard, danger].filter((sec) => sec.length > 0);
-  }, [tab, side, kind, keymap, showHidden, t]);
+    return [open, work, tools, clipboard, danger].filter((sec) => sec.length > 0);
+  }, [tab, side, kind, keymap, showHidden, config, t]);
 
   // Keep the menu inside the window.
   useLayoutEffect(() => {
@@ -193,9 +240,9 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
       {sections.map((section, i) => (
         <Fragment key={i}>
           {i > 0 && <div className="sep" />}
-          {section.map((item) => (
+          {section.map((item, j) => (
             <button
-              key={item.label}
+              key={`${j}-${item.label}`}
               className="item"
               onClick={() => {
                 close();

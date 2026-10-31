@@ -6,6 +6,7 @@ import type { ActionId } from "../keymap/actions";
 import { actions } from "../keymap/actions";
 import type { PresetName } from "../keymap/keymap";
 import { chordOf, prettyChord } from "../keymap/keymap";
+import type { ExternalTool } from "../ipc/types";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useKeymap } from "../store/keymapStore";
@@ -13,8 +14,8 @@ import { useOps } from "../store/ops";
 import { useSettings } from "../store/settings";
 import { Icon } from "./icons";
 
-const SECTIONS = ["general", "favorites", "hotkeys", "panes", "appearance", "transfers", "plugins"] as const;
-const READY = new Set(["general", "favorites", "hotkeys", "plugins"]);
+const SECTIONS = ["general", "appearance", "favorites", "hotkeys", "panes", "tools", "plugins"] as const;
+const READY = new Set(["general", "appearance", "favorites", "hotkeys", "panes", "tools", "plugins"]);
 
 export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }> }) {
   const { t } = useTranslation();
@@ -80,6 +81,12 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
           </nav>
           {section === "general" ? (
             <GeneralPane />
+          ) : section === "appearance" ? (
+            <AppearancePane />
+          ) : section === "panes" ? (
+            <PanesPane />
+          ) : section === "tools" ? (
+            <ToolsPane />
           ) : section === "favorites" ? (
             <FavoritesPane />
           ) : section === "plugins" ? (
@@ -99,10 +106,36 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
 }
 
 function GeneralPane() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const showHidden = useSettings((s) => s.showHidden);
   const fkeysOn = useSettings((s) => s.fkeysWithoutFn);
   const fkeysAvailable = useSettings((s) => s.fkeysAvailable);
+
+  return (
+    <div className="settings-pane">
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={showHidden}
+          onChange={() => useSettings.getState().toggleShowHidden()}
+        />
+        {t("settings.showHidden")}
+      </label>
+      <label className="check">
+        <input
+          type="checkbox"
+          disabled={!fkeysAvailable}
+          checked={fkeysOn && fkeysAvailable}
+          onChange={() => useSettings.getState().toggleFkeys()}
+        />
+        {t("settings.fkeys")}
+      </label>
+    </div>
+  );
+}
+
+function AppearancePane() {
+  const { t, i18n } = useTranslation();
   const config = useSettings((s) => s.config);
 
   return (
@@ -124,23 +157,6 @@ function GeneralPane() {
         <option value="en">English</option>
         <option value="zh-TW">繁體中文</option>
       </select>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={showHidden}
-          onChange={() => useSettings.getState().toggleShowHidden()}
-        />
-        {t("settings.showHidden")}
-      </label>
-      <label className="check">
-        <input
-          type="checkbox"
-          disabled={!fkeysAvailable}
-          checked={fkeysOn && fkeysAvailable}
-          onChange={() => useSettings.getState().toggleFkeys()}
-        />
-        {t("settings.fkeys")}
-      </label>
     </div>
   );
 }
@@ -194,6 +210,149 @@ function PluginsPane() {
           <div className="settings-note">{t("settings.plantumlJarNote")}</div>
         </>
       )}
+    </div>
+  );
+}
+
+function PanesPane() {
+  const { t } = useTranslation();
+  const config = useSettings((s) => s.config);
+
+  return (
+    <div className="settings-pane">
+      <label>{t("settings.menus")}</label>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={config?.menu_vscode ?? false}
+          onChange={(e) => useSettings.getState().save({ menu_vscode: e.target.checked })}
+        />
+        {t("action.newVscodeHere")}
+      </label>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={config?.menu_zed ?? false}
+          onChange={(e) => useSettings.getState().save({ menu_zed: e.target.checked })}
+        />
+        {t("action.newZedHere")}
+      </label>
+    </div>
+  );
+}
+
+const EMPTY_TOOL: ExternalTool = { name: "", app: "", extensions: "", dirs: false };
+
+function ToolsPane() {
+  const { t } = useTranslation();
+  const config = useSettings((s) => s.config);
+  const tools = config?.external_tools ?? [];
+  const [draft, setDraft] = useState<ExternalTool>(EMPTY_TOOL);
+
+  const update = (next: ExternalTool[]) =>
+    useSettings.getState().save({ external_tools: next });
+  const edit = (i: number, patch: Partial<ExternalTool>) => {
+    const next = tools.slice();
+    next[i] = { ...next[i], ...patch };
+    update(next);
+  };
+
+  return (
+    <div className="settings-pane">
+      {tools.length === 0 ? (
+        <div className="settings-note">{t("settings.toolNone")}</div>
+      ) : (
+        <div className="hk-table fav-table">
+          {tools.map((tool, i) => (
+            <div key={i} className="hk-row fav-row">
+              <input
+                className="tool-name"
+                value={tool.name}
+                placeholder={t("settings.toolName")}
+                spellCheck={false}
+                onChange={(e) => edit(i, { name: e.target.value })}
+              />
+              <input
+                className="tool-app"
+                value={tool.app}
+                placeholder={t("settings.toolApp")}
+                spellCheck={false}
+                onChange={(e) => edit(i, { app: e.target.value })}
+              />
+              <input
+                className="tool-ext"
+                value={tool.extensions}
+                placeholder={t("settings.toolExts")}
+                spellCheck={false}
+                onChange={(e) => edit(i, { extensions: e.target.value })}
+              />
+              <label className="check tool-dirs" title={t("settings.toolDirs")}>
+                <input
+                  type="checkbox"
+                  checked={tool.dirs}
+                  onChange={(e) => edit(i, { dirs: e.target.checked })}
+                />
+                {t("settings.toolDirs")}
+              </label>
+              <button
+                className="fav-btn danger"
+                title={t("settings.toolRemove")}
+                onClick={() => update(tools.filter((_, j) => j !== i))}
+              >
+                <Icon of={X} size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <label>{t("settings.toolName")}</label>
+      <input
+        className="wide-in"
+        value={draft.name}
+        placeholder="Extract with Keka"
+        spellCheck={false}
+        onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+      />
+      <label>{t("settings.toolApp")}</label>
+      <input
+        className="wide-in"
+        value={draft.app}
+        placeholder="Keka"
+        spellCheck={false}
+        onChange={(e) => setDraft({ ...draft, app: e.target.value })}
+      />
+      <label>{t("settings.toolExts")}</label>
+      <input
+        className="wide-in"
+        value={draft.extensions}
+        placeholder="zip,7z,rar,tar,gz,tgz"
+        spellCheck={false}
+        onChange={(e) => setDraft({ ...draft, extensions: e.target.value })}
+      />
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={draft.dirs}
+          onChange={(e) => setDraft({ ...draft, dirs: e.target.checked })}
+        />
+        {t("settings.toolDirs")}
+      </label>
+      <div className="tool-add">
+        <button
+          className="btn"
+          disabled={!draft.name.trim() || !draft.app.trim()}
+          onClick={() => {
+            update([
+              ...tools,
+              { ...draft, name: draft.name.trim(), app: draft.app.trim() },
+            ]);
+            setDraft(EMPTY_TOOL);
+          }}
+        >
+          {t("settings.toolAdd")}
+        </button>
+      </div>
+      <div className="settings-note">{t("settings.toolHint")}</div>
     </div>
   );
 }
