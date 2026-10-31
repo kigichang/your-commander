@@ -42,6 +42,8 @@ export function Dialogs() {
       return <PaletteDialog />;
     case "confirmDelete":
       return <ConfirmDeleteDialog d={dialog} />;
+    case "repairVideo":
+      return <RepairVideoDialog d={dialog} />;
     case "compress":
       return <CompressDialog d={dialog} />;
     case "compare":
@@ -300,6 +302,40 @@ function RenameDialog({ d }: { d: Extract<Dialog, { type: "rename" }> }) {
         </button>
         <button className="btn primary" onClick={go}>
           {t("dialog.rename")} ↵
+        </button>
+      </div>
+    </Overlay>
+  );
+}
+
+function RepairVideoDialog({ d }: { d: Extract<Dialog, { type: "repairVideo" }> }) {
+  const { t } = useTranslation();
+  const close = useDialogs((s) => s.close);
+  const finish = (action: "overwrite" | "save" | "discard") => {
+    void ipc
+      .finishRepair(d.tmp, d.original, action)
+      .then((p) => {
+        if (p) useOps.getState().toast(t("quickview.repairSaved", { name: baseName(p) }));
+      })
+      .catch((e) => useOps.getState().toast(String(e), "error"));
+    close();
+  };
+
+  return (
+    <Overlay onClose={() => finish("discard")}>
+      <h2>{t("quickview.repairTitle")}</h2>
+      <div className="body">
+        <p>{t("quickview.repairAsk", { name: baseName(d.original) })}</p>
+      </div>
+      <div className="buttons">
+        <button className="btn" onClick={() => finish("discard")}>
+          {t("dialog.cancel")}
+        </button>
+        <button className="btn" onClick={() => finish("overwrite")}>
+          {t("quickview.repairOverwrite")}
+        </button>
+        <button className="btn primary" onClick={() => finish("save")}>
+          {t("quickview.repairSave")}
         </button>
       </div>
     </Overlay>

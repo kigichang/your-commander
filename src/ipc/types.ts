@@ -96,6 +96,8 @@ export interface Config {
   menu_vscode: boolean;
   menu_zed: boolean;
   external_tools: ExternalTool[];
+  qv_autoplay: boolean;
+  qv_mute: boolean;
   left_cols: number[];
   right_cols: number[];
   window_size: [number, number] | null;

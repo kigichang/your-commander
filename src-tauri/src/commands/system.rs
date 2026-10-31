@@ -155,6 +155,156 @@ pub async fn open_in(tool: String, dir: PathBuf) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+#[derive(serde::Serialize)]
+pub struct VideoTools {
+    /// Installed ffmpeg-based player to hand undecodable files to.
+    pub player: Option<String>,
+    /// Whether ffmpeg is available for the repair (re-encode) action.
+    pub ffmpeg: bool,
+}
+
+/// Which local helpers exist for videos AVFoundation can't decode.
+#[tauri::command]
+pub async fn video_tools() -> VideoTools {
+    tauri::async_runtime::spawn_blocking(|| {
+        let app_exists = |name: &str| {
+            PathBuf::from(format!("/Applications/{name}.app")).exists()
+                || local::home_dir().join(format!("Applications/{name}.app")).exists()
+        };
+        let player = ["VLC", "IINA"].iter().find(|n| app_exists(n)).map(|n| n.to_string());
+        let ffmpeg = find_ffmpeg().is_some();
+        VideoTools { player, ffmpeg }
+    })
+    .await
+    .unwrap_or(VideoTools { player: None, ffmpeg: false })
+}
+
+fn find_ffmpeg() -> Option<PathBuf> {
+    find_cli("ffmpeg", &["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"])
+}
+
+/// Source duration in seconds, parsed from ffmpeg's `-i` banner (the call
+/// exits non-zero without an output file; "Duration:" is on stderr).
+fn probe_duration(ffmpeg: &std::path::Path, src: &std::path::Path) -> Option<f64> {
+    let out = std::process::Command::new(ffmpeg)
+        .arg("-hide_banner")
+        .arg("-i")
+        .arg(src)
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stderr);
+    let rest = &text[text.find("Duration: ")? + 10..];
+    let stamp = rest.split(',').next()?.trim();
+    let mut parts = stamp.split(':');
+    let h: f64 = parts.next()?.parse().ok()?;
+    let m: f64 = parts.next()?.parse().ok()?;
+    let s: f64 = parts.next()?.parse().ok()?;
+    Some(h * 3600.0 + m * 60.0 + s).filter(|d| *d > 0.0)
+}
+
+/// Re-encode a video AVFoundation can't decode into a playable H.264 mp4
+/// (VideoToolbox hardware encode). Writes a hidden work file next to the
+/// original and returns its path; finish_repair decides what to keep.
+/// Progress fractions (0..1) stream over `on_progress` while it encodes.
+#[tauri::command]
+pub async fn repair_video(
+    path: PathBuf,
+    on_progress: tauri::ipc::Channel<f32>,
+) -> Result<PathBuf, String> {
+    let ffmpeg = find_ffmpeg().ok_or("ffmpeg not found")?;
+    let dir = path.parent().ok_or("no parent dir")?.to_path_buf();
+    let stem = path
+        .file_stem()
+        .ok_or("no file name")?
+        .to_string_lossy()
+        .to_string();
+    let tmp = dir.join(format!(".{stem}_fix.part.mp4"));
+    let src = path.clone();
+    let out_path = tmp.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::BufRead;
+        let total = probe_duration(&ffmpeg, &src);
+        let mut child = std::process::Command::new(ffmpeg)
+            .arg("-hide_banner")
+            .args(["-v", "error", "-y", "-progress", "pipe:1", "-nostats", "-i"])
+            .arg(&src)
+            .args(["-c:v", "h264_videotoolbox", "-q:v", "65", "-vf", "setsar=1"])
+            .args(["-c:a", "copy", "-movflags", "+faststart"])
+            .arg(&out_path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        if let (Some(stdout), Some(total)) = (child.stdout.take(), total) {
+            // One key=value block per encoded chunk; out_time_us (and the
+            // misnamed out_time_ms) are both microseconds.
+            let mut last = -1i32;
+            for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+                let us = line
+                    .strip_prefix("out_time_us=")
+                    .or_else(|| line.strip_prefix("out_time_ms="));
+                if let Some(us) = us.and_then(|v| v.trim().parse::<f64>().ok()) {
+                    let pct = ((us / 1_000_000.0) / total * 100.0).clamp(0.0, 99.0) as i32;
+                    if pct > last {
+                        last = pct;
+                        let _ = on_progress.send(pct as f32 / 100.0);
+                    }
+                }
+            }
+        }
+        let out = child.wait_with_output().map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(out_path)
+        } else {
+            let _ = std::fs::remove_file(&out_path);
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            Err(if err.is_empty() { "ffmpeg failed".into() } else { err })
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Resolve a finished repair: overwrite the original, save it next to the
+/// original with a "_fix" suffix, or discard the work file.
+#[tauri::command]
+pub async fn finish_repair(
+    tmp: PathBuf,
+    original: PathBuf,
+    action: String,
+) -> Result<Option<PathBuf>, String> {
+    tauri::async_runtime::spawn_blocking(move || match action.as_str() {
+        "discard" => {
+            let _ = std::fs::remove_file(&tmp);
+            Ok(None)
+        }
+        "overwrite" => {
+            std::fs::rename(&tmp, &original).map_err(|e| e.to_string())?;
+            Ok(Some(original))
+        }
+        "save" => {
+            let dir = original.parent().ok_or("no parent dir")?;
+            let stem = original
+                .file_stem()
+                .ok_or("no file name")?
+                .to_string_lossy()
+                .to_string();
+            let mut target = dir.join(format!("{stem}_fix.mp4"));
+            let mut n = 2;
+            while target.exists() {
+                target = dir.join(format!("{stem}_fix {n}.mp4"));
+                n += 1;
+            }
+            std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+            Ok(Some(target))
+        }
+        other => Err(format!("unknown action: {other}")),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Launch a user-defined external tool: `open -a <app> <paths...>`.
 /// Waits for `open` to exit (it returns right after handing the files to
 /// LaunchServices) so a missing app surfaces as an error instead of nothing.

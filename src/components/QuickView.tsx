@@ -6,7 +6,9 @@ import * as ipc from "../ipc/commands";
 import { formatDate, humanSize } from "../lib/format";
 import { baseName } from "../lib/path";
 import { visibleEntries } from "../lib/selectors";
+import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
+import { useRepair } from "../store/repair";
 import { useSettings } from "../store/settings";
 import { Icon } from "./icons";
 
@@ -80,6 +82,7 @@ export function QuickView() {
     const side = s.quickViewSide ?? 0;
     return s.panels[side].tabs[s.panels[side].active];
   });
+  const config = useSettings((s) => s.config);
   const browseSide = usePanels((s) => s.otherSide(s.quickViewSide ?? 0));
   const tab = usePanels((s) => s.panels[browseSide].tabs[s.panels[browseSide].active]);
   const showHidden = useSettings((s) => s.showHidden);
@@ -95,6 +98,16 @@ export function QuickView() {
   const [dims, setDims] = useState<string | null>(null);
   /** Video duration, already formatted. */
   const [duration, setDuration] = useState<string | null>(null);
+  /** Local helpers for undecodable videos (player app, ffmpeg). */
+  const [tools, setTools] = useState<{ player: string | null; ffmpeg: boolean }>({
+    player: null,
+    ffmpeg: false,
+  });
+  const repairJob = useRepair((s) => s.job);
+
+  useEffect(() => {
+    void ipc.videoTools().then(setTools).catch(() => {});
+  }, []);
 
   useEffect(() => {
     let revoked: string | null = null;
@@ -230,6 +243,8 @@ export function QuickView() {
             src={preview.url}
             controls
             playsInline
+            autoPlay={config?.qv_autoplay ?? false}
+            muted={config?.qv_mute ?? false}
             onLoadedMetadata={(e) => {
               const v = e.currentTarget;
               if (v.videoWidth > 0 && v.videoHeight > 0) {
@@ -241,6 +256,10 @@ export function QuickView() {
             }}
             onError={() => setPreview({ kind: "none" })}
             ref={(v) => {
+              if (!v) return;
+              // React doesn't reliably sync the muted attribute; set the
+              // property directly.
+              v.muted = useSettings.getState().config?.qv_mute ?? false;
               // requestVideoFrameCallback fires only when a frame is really
               // presented — the reliable signal that video (not just audio)
               // is rendering.
@@ -266,7 +285,36 @@ export function QuickView() {
             }}
           />
         ) : preview.kind === "video-failed" ? (
-          <span className="none">{t("quickview.videoUnsupported")}</span>
+          <div className="qv-fail">
+            <span className="none">{t("quickview.videoUnsupported")}</span>
+            <div className="qv-fail-actions">
+              {tools.player && tab.location.kind === "local" && (
+                <button
+                  className="btn"
+                  onClick={() =>
+                    void ipc
+                      .openWith(tools.player!, [entry.path])
+                      .catch((e) => useOps.getState().toast(String(e), "error"))
+                  }
+                >
+                  {t("quickview.openWith", { app: tools.player })}
+                </button>
+              )}
+              {tools.ffmpeg && tab.location.kind === "local" && (
+                <button
+                  className="btn"
+                  disabled={repairJob !== null}
+                  onClick={() => useRepair.getState().start(entry.path)}
+                >
+                  {repairJob?.path === entry.path
+                    ? repairJob.fraction !== null
+                      ? `${t("quickview.repairing")} ${Math.round(repairJob.fraction * 100)}%`
+                      : t("quickview.repairing")
+                    : t("quickview.repair")}
+                </button>
+              )}
+            </div>
+          </div>
         ) : preview.kind === "image" ? (
           <img
             src={preview.url}

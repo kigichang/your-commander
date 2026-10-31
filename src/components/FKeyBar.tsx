@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
 import type { ActionId } from "../keymap/actions";
 import { actions } from "../keymap/actions";
+import { usePanels } from "../store/panels";
+import { useRepair } from "../store/repair";
 
 const KEYS: Array<{ chip: string; label: string; action: ActionId }> = [
   { chip: "F3", label: "fkeys.f3", action: "quickView" },
@@ -15,6 +17,10 @@ const KEYS: Array<{ chip: string; label: string; action: ActionId }> = [
 
 export function FKeyBar() {
   const { t } = useTranslation();
+  const repairJob = useRepair((s) => s.job);
+  // While the Quick View pane is visible its repair button already shows
+  // the progress; the bar takes over once the pane is closed or hidden.
+  const qvVisible = usePanels((s) => s.quickViewSide !== null && s.quickViewShown);
   return (
     <footer className="fkeybar">
       {KEYS.map((k) => (
@@ -24,6 +30,21 @@ export function FKeyBar() {
         </button>
       ))}
       <div className="spacer" data-tauri-drag-region />
+      {repairJob && !qvVisible && (
+        <span className="fkey-repair" title={repairJob.name}>
+          <span className="name">
+            {t("quickview.repairing")} {repairJob.name}
+          </span>
+          {repairJob.fraction !== null && (
+            <>
+              <span className="mini-bar">
+                <i style={{ width: `${Math.round(repairJob.fraction * 100)}%` }} />
+              </span>
+              <span className="pct">{Math.round(repairJob.fraction * 100)}%</span>
+            </>
+          )}
+        </span>
+      )}
     </footer>
   );
 }

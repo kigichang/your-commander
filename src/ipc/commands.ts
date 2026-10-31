@@ -155,6 +155,18 @@ export const mediaInfo = (path: string) =>
   invoke<import("./types").MediaInfo>("media_info", { path });
 export const isNetworkPath = (path: string) =>
   invoke<boolean>("is_network_path", { path });
+export const videoTools = () =>
+  invoke<{ player: string | null; ffmpeg: boolean }>("video_tools");
+export const repairVideo = (path: string, onProgress: (fraction: number) => void) => {
+  const channel = new Channel<number>();
+  channel.onmessage = onProgress;
+  return invoke<string>("repair_video", { path, onProgress: channel });
+};
+export const finishRepair = (
+  tmp: string,
+  original: string,
+  action: "overwrite" | "save" | "discard",
+) => invoke<string | null>("finish_repair", { tmp, original, action });
 export const quitApp = () => invoke<void>("quit_app");
 
 export const watchDir = (watchId: number, path: string) =>

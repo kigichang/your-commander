@@ -111,6 +111,9 @@ pub struct Config {
     pub menu_zed: bool,
     /// User-defined tools shown in the file context menu (`open -a`).
     pub external_tools: Vec<ExternalTool>,
+    /// Quick View video: start playing automatically / without sound.
+    pub qv_autoplay: bool,
+    pub qv_mute: bool,
     /// Column widths [ext, size, date] in px; Name takes the rest.
     pub left_cols: Vec<u32>,
     pub right_cols: Vec<u32>,
@@ -150,6 +153,8 @@ impl Default for Config {
             menu_vscode: false,
             menu_zed: false,
             external_tools: Vec::new(),
+            qv_autoplay: false,
+            qv_mute: false,
             left_cols: Vec::new(),
             right_cols: Vec::new(),
             window_size: None,

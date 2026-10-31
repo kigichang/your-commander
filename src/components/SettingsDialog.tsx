@@ -14,8 +14,8 @@ import { useOps } from "../store/ops";
 import { useSettings } from "../store/settings";
 import { Icon } from "./icons";
 
-const SECTIONS = ["general", "appearance", "favorites", "hotkeys", "panes", "tools", "plugins"] as const;
-const READY = new Set(["general", "appearance", "favorites", "hotkeys", "panes", "tools", "plugins"]);
+const SECTIONS = ["general", "appearance", "favorites", "quickview", "hotkeys", "panes", "tools", "plugins"] as const;
+const READY = new Set(["general", "appearance", "favorites", "quickview", "hotkeys", "panes", "tools", "plugins"]);
 
 export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }> }) {
   const { t } = useTranslation();
@@ -83,6 +83,8 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
             <GeneralPane />
           ) : section === "appearance" ? (
             <AppearancePane />
+          ) : section === "quickview" ? (
+            <QuickViewPane />
           ) : section === "panes" ? (
             <PanesPane />
           ) : section === "tools" ? (
@@ -245,6 +247,33 @@ function PanesPane() {
           onChange={(e) => useSettings.getState().save({ menu_zed: e.target.checked })}
         />
         {t("action.newZedHere")}
+      </label>
+    </div>
+  );
+}
+
+function QuickViewPane() {
+  const { t } = useTranslation();
+  const config = useSettings((s) => s.config);
+
+  return (
+    <div className="settings-pane">
+      <label>{t("settings.qvVideo")}</label>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={config?.qv_autoplay ?? false}
+          onChange={(e) => useSettings.getState().save({ qv_autoplay: e.target.checked })}
+        />
+        {t("settings.qvAutoplay")}
+      </label>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={config?.qv_mute ?? false}
+          onChange={(e) => useSettings.getState().save({ qv_mute: e.target.checked })}
+        />
+        {t("settings.qvMute")}
       </label>
     </div>
   );
