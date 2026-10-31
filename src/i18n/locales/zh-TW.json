@@ -343,6 +343,7 @@
     "copyTarget": "複製目標：{{name}}",
     "kind": "種類",
     "dimensions": "尺寸",
+    "duration": "長度",
     "size": "大小",
     "modified": "修改時間",
     "tags": "標籤",

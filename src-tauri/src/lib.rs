@@ -140,6 +140,7 @@ pub fn run() {
             commands::system::can_browse_archive,
             commands::system::file_tags,
             commands::preview::read_preview,
+            commands::preview::media_info,
             commands::plantuml::render_plantuml,
             commands::sync::sync_compare,
             commands::find::start_find,

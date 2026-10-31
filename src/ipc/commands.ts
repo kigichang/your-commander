@@ -151,6 +151,8 @@ export const openIn = (tool: "terminal" | "vscode" | "zed", dir: string) =>
 export const openWith = (app: string, paths: string[]) =>
   invoke<void>("open_with", { app, paths });
 export const getInfo = (paths: string[]) => invoke<void>("get_info", { paths });
+export const mediaInfo = (path: string) =>
+  invoke<import("./types").MediaInfo>("media_info", { path });
 export const quitApp = () => invoke<void>("quit_app");
 
 export const watchDir = (watchId: number, path: string) =>

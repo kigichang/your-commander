@@ -343,6 +343,7 @@
     "copyTarget": "copy target: {{name}}",
     "kind": "Kind",
     "dimensions": "Dimensions",
+    "duration": "Duration",
     "size": "Size",
     "modified": "Modified",
     "tags": "Tags",

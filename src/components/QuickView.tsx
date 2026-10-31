@@ -23,6 +23,20 @@ const PlantUmlPreview = lazy(() =>
 );
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico"]);
+// ".ts" is left out: here it is far more likely TypeScript than MPEG-TS.
+const VIDEO_EXTS = new Set([
+  "mp4", "mov", "m4v", "avi", "mkv", "webm", "mpg", "mpeg", "wmv", "flv",
+  "3gp", "mts", "m2ts",
+]);
+
+/** 65.4s → "1:05"; 5025s → "1:23:45". */
+function formatDuration(secs: number): string {
+  const s = Math.round(secs);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
 const MD_EXTS = new Set(["md", "markdown"]);
 const PUML_EXTS = new Set(["puml", "plantuml", "pu"]);
 const TEXT_EXTS = new Set([
@@ -64,8 +78,10 @@ export function QuickView() {
   const [preview, setPreview] = useState<Preview>({ kind: "none" });
   const [tags, setTags] = useState<string[]>([]);
   const [pdfPages, setPdfPages] = useState(0);
-  /** Pixel size of the previewed image, from the decoded bitmap. */
+  /** Pixel size of the previewed image or video. */
   const [dims, setDims] = useState<string | null>(null);
+  /** Video duration, already formatted. */
+  const [duration, setDuration] = useState<string | null>(null);
 
   useEffect(() => {
     let revoked: string | null = null;
@@ -74,6 +90,7 @@ export function QuickView() {
     setTags([]);
     setPdfPages(0);
     setDims(null);
+    setDuration(null);
     if (!entry || entry.isDir || !tab) return;
 
     const timer = setTimeout(async () => {
@@ -81,6 +98,16 @@ export function QuickView() {
         void ipc.fileTags(entry.path).then((v) => {
           if (!stale) setTags(v);
         });
+        if (VIDEO_EXTS.has(entry.ext)) {
+          void ipc
+            .mediaInfo(entry.path)
+            .then((info) => {
+              if (stale) return;
+              if (info.duration != null) setDuration(formatDuration(info.duration));
+              if (info.width && info.height) setDims(`${info.width} × ${info.height}`);
+            })
+            .catch(() => {});
+        }
       }
       try {
         if (entry.ext === "pdf" && entry.size <= PDF_MAX) {
@@ -193,10 +220,16 @@ export function QuickView() {
           <dl className="qv-meta">
             <dt>{t("quickview.kind")}</dt>
             <dd>{kindLabel}</dd>
-            {preview.kind === "image" && dims && (
+            {dims && (
               <>
                 <dt>{t("quickview.dimensions")}</dt>
                 <dd>{dims}</dd>
+              </>
+            )}
+            {duration && (
+              <>
+                <dt>{t("quickview.duration")}</dt>
+                <dd>{duration}</dd>
               </>
             )}
             <dt>{t("quickview.size")}</dt>

@@ -102,6 +102,12 @@ export interface Config {
   split_ratio: number;
 }
 
+export interface MediaInfo {
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+}
+
 export interface FindParams {
   mask: string;
   content: string | null;
