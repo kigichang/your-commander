@@ -6041,7 +6041,7 @@ dependencies = [
 
 [[package]]
 name = "your-commander"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "core-foundation",
  "dirs",
