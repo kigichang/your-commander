@@ -153,6 +153,8 @@ export const openWith = (app: string, paths: string[]) =>
 export const getInfo = (paths: string[]) => invoke<void>("get_info", { paths });
 export const mediaInfo = (path: string) =>
   invoke<import("./types").MediaInfo>("media_info", { path });
+export const isNetworkPath = (path: string) =>
+  invoke<boolean>("is_network_path", { path });
 export const quitApp = () => invoke<void>("quit_app");
 
 export const watchDir = (watchId: number, path: string) =>

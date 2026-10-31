@@ -344,6 +344,7 @@
     "kind": "Kind",
     "dimensions": "Dimensions",
     "duration": "Duration",
+    "videoUnsupported": "The system decoder can't render this video — use Open with an external player (e.g. IINA, VLC).",
     "size": "Size",
     "modified": "Modified",
     "tags": "Tags",

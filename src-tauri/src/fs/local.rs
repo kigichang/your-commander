@@ -77,6 +77,25 @@ fn statfs(path: &Path) -> Option<(u64, u64)> {
     Some((stat.f_bavail * block, stat.f_blocks * block))
 }
 
+/// True when the file lives on a network mount (statfs MNT_LOCAL unset).
+/// Same deadline guard as statfs_timeout; an unreachable mount counts as
+/// network, which is the safe answer for the callers.
+pub fn is_network_volume(path: &Path) -> bool {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let p = path.to_path_buf();
+    std::thread::spawn(move || {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        let local = CString::new(p.as_os_str().as_bytes()).ok().is_some_and(|c| {
+            let mut stat: libc::statfs = unsafe { std::mem::zeroed() };
+            let ok = unsafe { libc::statfs(c.as_ptr(), &mut stat) } == 0;
+            ok && (stat.f_flags & libc::MNT_LOCAL as u32) != 0
+        });
+        let _ = tx.send(!local);
+    });
+    rx.recv_timeout(std::time::Duration::from_millis(800)).unwrap_or(true)
+}
+
 /// statfs with a deadline: a sleeping disk or a dead network mount can hang
 /// the syscall for tens of seconds, which must not stall the drives menu.
 /// On timeout the stuck thread finishes (and is discarded) on its own.

@@ -1,3 +1,4 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { Folder, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -50,9 +51,21 @@ const MD_MAX = 2 * 1024 * 1024;
 // pdf.js needs the whole file; past this size show no preview instead of
 // freezing the pane on a huge download.
 const PDF_MAX = 64 * 1024 * 1024;
+// The asset protocol answers ranges in ~1 MB chunks; AVFoundation drops the
+// video track of files that fit in a single chunk (black picture, audio
+// fine) and starves on network-mount latency. Those cases play from a Blob.
+const VIDEO_BLOB_MIN = 2 * 1024 * 1024;
+const VIDEO_BLOB_MAX = 256 * 1024 * 1024;
+const VIDEO_MIME: Record<string, string> = {
+  mov: "video/quicktime",
+  webm: "video/webm",
+  avi: "video/x-msvideo",
+};
 
 type Preview =
   | { kind: "image"; url: string }
+  | { kind: "video"; url: string }
+  | { kind: "video-failed" }
   | { kind: "text"; text: string }
   | { kind: "markdown"; text: string }
   | { kind: "plantuml"; text: string }
@@ -107,6 +120,29 @@ export function QuickView() {
               if (info.width && info.height) setDims(`${info.width} × ${info.height}`);
             })
             .catch(() => {});
+          try {
+            const needsBlob =
+              entry.size < VIDEO_BLOB_MIN ||
+              (entry.size <= VIDEO_BLOB_MAX &&
+                (await ipc.isNetworkPath(entry.path).catch(() => false)));
+            if (stale) return;
+            if (needsBlob) {
+              const buf = await ipc.readPreview(tab.location, entry.path, VIDEO_BLOB_MAX);
+              if (stale) return;
+              const mime = VIDEO_MIME[entry.ext] ?? "video/mp4";
+              const url = URL.createObjectURL(new Blob([buf], { type: mime }));
+              revoked = url;
+              setPreview({ kind: "video", url });
+            } else {
+              // Local disks stream through the asset protocol (range
+              // requests, nothing read into memory). Formats the webview
+              // can't decode fall back to "none" via onError.
+              setPreview({ kind: "video", url: convertFileSrc(entry.path) });
+            }
+          } catch {
+            if (!stale) setPreview({ kind: "none" });
+          }
+          return;
         }
       }
       try {
@@ -189,6 +225,48 @@ export function QuickView() {
           <Suspense fallback={<span className="none">…</span>}>
             <PlantUmlPreview text={preview.text} />
           </Suspense>
+        ) : preview.kind === "video" ? (
+          <video
+            src={preview.url}
+            controls
+            playsInline
+            onLoadedMetadata={(e) => {
+              const v = e.currentTarget;
+              if (v.videoWidth > 0 && v.videoHeight > 0) {
+                setDims((d) => d ?? `${v.videoWidth} × ${v.videoHeight}`);
+              }
+              if (Number.isFinite(v.duration)) {
+                setDuration((d) => d ?? formatDuration(v.duration));
+              }
+            }}
+            onError={() => setPreview({ kind: "none" })}
+            ref={(v) => {
+              // requestVideoFrameCallback fires only when a frame is really
+              // presented — the reliable signal that video (not just audio)
+              // is rendering.
+              if (v && typeof v.requestVideoFrameCallback === "function") {
+                v.requestVideoFrameCallback(() => {
+                  v.dataset.framed = "1";
+                });
+              }
+            }}
+            onTimeUpdate={(e) => {
+              // Some sloppily encoded files decode audio but silently yield
+              // zero video frames (AVFoundation reports no error). After a
+              // second of playback without a single presented frame, swap
+              // the black rectangle for an explanation.
+              const v = e.currentTarget;
+              if (
+                v.currentTime > 1 &&
+                typeof v.requestVideoFrameCallback === "function" &&
+                !v.dataset.framed
+              ) {
+                setPreview({ kind: "video-failed" });
+              }
+            }}
+          />
+        ) : preview.kind === "video-failed" ? (
+          <span className="none">{t("quickview.videoUnsupported")}</span>
         ) : preview.kind === "image" ? (
           <img
             src={preview.url}

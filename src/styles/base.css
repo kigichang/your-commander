@@ -621,11 +621,16 @@ svg.li {
   overflow: auto;
   padding: var(--space-3);
 }
-.qv-body img {
+.qv-body img,
+.qv-body video {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: var(--radius-sm);
+}
+.qv-body video {
+  width: 100%;
+  background: #000;
 }
 .qv-body pre {
   align-self: stretch;

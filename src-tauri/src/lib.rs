@@ -141,6 +141,7 @@ pub fn run() {
             commands::system::file_tags,
             commands::preview::read_preview,
             commands::preview::media_info,
+            commands::preview::is_network_path,
             commands::plantuml::render_plantuml,
             commands::sync::sync_compare,
             commands::find::start_find,
