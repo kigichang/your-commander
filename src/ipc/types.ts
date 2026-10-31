@@ -98,6 +98,7 @@ export interface Config {
   left_cols: number[];
   right_cols: number[];
   window_size: [number, number] | null;
+  split_ratio: number;
 }
 
 export interface FindParams {

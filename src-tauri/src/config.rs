@@ -113,6 +113,8 @@ pub struct Config {
     pub left_cols: Vec<u32>,
     pub right_cols: Vec<u32>,
     pub window_size: Option<(f32, f32)>,
+    /// Left panel's share of the pane area (0.2–0.8); 0.5 = even split.
+    pub split_ratio: f32,
 }
 
 impl Default for Config {
@@ -148,6 +150,7 @@ impl Default for Config {
             left_cols: Vec::new(),
             right_cols: Vec::new(),
             window_size: None,
+            split_ratio: 0.5,
         }
     }
 }
