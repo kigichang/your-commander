@@ -110,6 +110,13 @@ export interface MediaInfo {
   height: number | null;
 }
 
+/** An app LaunchServices offers for a file ("Open With"). */
+export interface OpenApp {
+  name: string;
+  path: string;
+  default: boolean;
+}
+
 export interface FindParams {
   mask: string;
   content: string | null;

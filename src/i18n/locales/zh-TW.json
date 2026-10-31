@@ -275,6 +275,8 @@
   },
   "ctx": {
     "open": "開啟",
+    "openWith": "用其他 App 開啟",
+    "defaultApp": "{{name}}（預設）",
     "openInNewTab": "在新分頁開啟",
     "openOtherPane": "在對側開啟"
   },

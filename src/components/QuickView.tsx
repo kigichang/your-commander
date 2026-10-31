@@ -1,6 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Folder, X } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import { formatDate, humanSize } from "../lib/format";
@@ -92,6 +92,71 @@ type Preview =
   | { kind: "plantuml"; text: string }
   | { kind: "pdf"; data: ArrayBuffer }
   | { kind: "none" };
+
+/** "Open With" + an upward app list from LaunchServices, lazy-loaded on
+ *  first click. */
+function OpenWithButton({ path }: { path: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [apps, setApps] = useState<import("../ipc/types").OpenApp[] | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setOpen(false);
+    setApps(null);
+  }, [path]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown, true);
+    return () => window.removeEventListener("mousedown", onDown, true);
+  }, [open]);
+
+  return (
+    <div className="qv-openwith" ref={ref}>
+      <button
+        className="btn"
+        onClick={() => {
+          setOpen((o) => !o);
+          if (apps === null) {
+            void ipc.appsForPath(path).then(setApps).catch(() => setApps([]));
+          }
+        }}
+      >
+        {t("ctx.openWith")} ▴
+      </button>
+      {open && (
+        <div className="menu qv-openwith-menu">
+          {apps === null ? (
+            <div className="item disabled">…</div>
+          ) : apps.length === 0 ? (
+            <div className="item disabled">—</div>
+          ) : (
+            apps.map((a) => (
+              <button
+                key={a.path}
+                className="item"
+                onClick={() => {
+                  setOpen(false);
+                  void ipc
+                    .openWith(a.path, [path])
+                    .catch((e) => useOps.getState().toast(String(e), "error"));
+                }}
+              >
+                <span className="ctx-label">
+                  {a.default ? t("ctx.defaultApp", { name: a.name }) : a.name}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** The pane this replaces shows the entry under the OTHER panel's cursor. */
 export function QuickView() {
@@ -416,6 +481,7 @@ export function QuickView() {
               <button className="btn primary" onClick={() => void ipc.openPath(entry.path)}>
                 {t("quickview.open")} ↵
               </button>
+              {!entry.isDir && <OpenWithButton path={entry.path} />}
               <button className="btn" onClick={() => void ipc.revealInFinder(entry.path)}>
                 {t("quickview.reveal")}
               </button>

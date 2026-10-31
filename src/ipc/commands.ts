@@ -150,6 +150,8 @@ export const openIn = (tool: "terminal" | "vscode" | "zed", dir: string) =>
   invoke<void>("open_in", { tool, dir });
 export const openWith = (app: string, paths: string[]) =>
   invoke<void>("open_with", { app, paths });
+export const appsForPath = (path: string) =>
+  invoke<import("./types").OpenApp[]>("apps_for_path", { path });
 export const getInfo = (paths: string[]) => invoke<void>("get_info", { paths });
 export const mediaInfo = (path: string) =>
   invoke<import("./types").MediaInfo>("media_info", { path });

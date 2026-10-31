@@ -275,6 +275,8 @@
   },
   "ctx": {
     "open": "Open",
+    "openWith": "Open With",
+    "defaultApp": "{{name}} (default)",
     "openInNewTab": "Open in New Tab",
     "openOtherPane": "Open in Other Pane"
   },

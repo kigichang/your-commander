@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { create } from "zustand";
 import * as ipc from "../ipc/commands";
@@ -6,7 +6,7 @@ import type { ActionId } from "../keymap/actions";
 import { actions, ARCHIVE_RE } from "../keymap/actions";
 import { prettyChord } from "../keymap/keymap";
 import { targetEntries, visibleEntries } from "../lib/selectors";
-import type { ExternalTool } from "../ipc/types";
+import type { ExternalTool, OpenApp } from "../ipc/types";
 import { useClipboard } from "../store/clipboard";
 import { useOps } from "../store/ops";
 import type { Side } from "../store/panels";
@@ -26,7 +26,13 @@ export const useCtxMenu = create<CtxState>((set) => ({
   close: () => set({ menu: null }),
 }));
 
-type Item = { label: string; chord?: string; run: () => void };
+type Item = {
+  label: string;
+  chord?: string;
+  run?: () => void;
+  /** Flyout submenu; `run` is ignored when present. */
+  sub?: Array<{ label: string; run: () => void }>;
+};
 type Section = Item[];
 
 /** Every selected entry must match the tool's filter, so the tool receives
@@ -63,6 +69,26 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
 
   // The cursor/marks were already placed by the right-click handler.
   const tab = usePanels((s) => s.panels[side].tabs[s.panels[side].active]);
+
+  // "Open With" candidates for the file under the cursor (local files only).
+  const [apps, setApps] = useState<OpenApp[]>([]);
+  useEffect(() => {
+    if (kind !== "row" || tab.location.kind !== "local") return;
+    const entry = visibleEntries(tab, showHidden)[tab.cursor];
+    if (!entry || entry.isDir) return;
+    let stale = false;
+    void ipc
+      .appsForPath(entry.path)
+      .then((v) => {
+        if (!stale) setApps(v);
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+    // The menu remounts per open (keyed on x,y), so once is enough.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const sections = useMemo<Section[]>(() => {
     const chordOf = (id: ActionId) => {
@@ -117,6 +143,20 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
 
     const open: Section = [
       act("enter", t("ctx.open")),
+      ...(loc === "local" && !entry.isDir && apps.length > 0
+        ? [
+            {
+              label: t("ctx.openWith"),
+              sub: apps.map((a) => ({
+                label: a.default ? t("ctx.defaultApp", { name: a.name }) : a.name,
+                run: () =>
+                  void ipc
+                    .openWith(a.path, targets.filter((e) => !e.isDir).map((e) => e.path))
+                    .catch((err) => useOps.getState().toast(String(err), "error")),
+              })),
+            },
+          ]
+        : []),
       ...(entry.isDir
         ? [
             {
@@ -191,7 +231,7 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
     ];
 
     return [open, work, tools, clipboard, danger].filter((sec) => sec.length > 0);
-  }, [tab, side, kind, keymap, showHidden, config, t]);
+  }, [tab, side, kind, keymap, showHidden, config, apps, t]);
 
   // Keep the menu inside the window.
   useLayoutEffect(() => {
@@ -240,19 +280,40 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
       {sections.map((section, i) => (
         <Fragment key={i}>
           {i > 0 && <div className="sep" />}
-          {section.map((item, j) => (
-            <button
-              key={`${j}-${item.label}`}
-              className="item"
-              onClick={() => {
-                close();
-                item.run();
-              }}
-            >
-              <span className="ctx-label">{item.label}</span>
-              {item.chord && <span className="ctx-chord">{item.chord}</span>}
-            </button>
-          ))}
+          {section.map((item, j) =>
+            item.sub ? (
+              <div key={`${j}-${item.label}`} className="item has-sub">
+                <span className="ctx-label">{item.label}</span>
+                <span className="ctx-chord">▸</span>
+                <div className="menu submenu">
+                  {item.sub.map((si, k) => (
+                    <button
+                      key={`${k}-${si.label}`}
+                      className="item"
+                      onClick={() => {
+                        close();
+                        si.run();
+                      }}
+                    >
+                      <span className="ctx-label">{si.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <button
+                key={`${j}-${item.label}`}
+                className="item"
+                onClick={() => {
+                  close();
+                  item.run?.();
+                }}
+              >
+                <span className="ctx-label">{item.label}</span>
+                {item.chord && <span className="ctx-chord">{item.chord}</span>}
+              </button>
+            ),
+          )}
         </Fragment>
       ))}
     </div>

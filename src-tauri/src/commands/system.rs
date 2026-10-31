@@ -305,6 +305,80 @@ pub async fn finish_repair(
     .map_err(|e| e.to_string())?
 }
 
+#[derive(serde::Serialize)]
+pub struct OpenApp {
+    pub name: String,
+    pub path: String,
+    /// LaunchServices' default handler for this file.
+    pub default: bool,
+}
+
+/// Apps LaunchServices knows can open this file, default handler first,
+/// the rest alphabetical. Empty on any failure.
+#[tauri::command]
+pub async fn apps_for_path(path: PathBuf) -> Vec<OpenApp> {
+    tauri::async_runtime::spawn_blocking(move || apps_for(&path))
+        .await
+        .unwrap_or_default()
+}
+
+fn apps_for(path: &std::path::Path) -> Vec<OpenApp> {
+    use core_foundation::array::{CFArray, CFArrayRef};
+    use core_foundation::base::TCFType;
+    use core_foundation::url::{CFURL, CFURLRef};
+
+    #[link(name = "CoreServices", kind = "framework")]
+    unsafe extern "C" {
+        fn LSCopyApplicationURLsForURL(in_url: CFURLRef, roles: u32) -> CFArrayRef;
+        fn LSCopyDefaultApplicationURLForURL(
+            in_url: CFURLRef,
+            roles: u32,
+            out_error: *mut std::ffi::c_void,
+        ) -> CFURLRef;
+    }
+    const ROLES_ALL: u32 = 0xFFFF_FFFF;
+
+    let Some(url) = CFURL::from_path(path, false) else {
+        return vec![];
+    };
+    let default_path = unsafe {
+        let r = LSCopyDefaultApplicationURLForURL(
+            url.as_concrete_TypeRef(),
+            ROLES_ALL,
+            std::ptr::null_mut(),
+        );
+        if r.is_null() {
+            None
+        } else {
+            CFURL::wrap_under_create_rule(r).to_path()
+        }
+    };
+    let mut out: Vec<OpenApp> = vec![];
+    unsafe {
+        let arr = LSCopyApplicationURLsForURL(url.as_concrete_TypeRef(), ROLES_ALL);
+        if arr.is_null() {
+            return vec![];
+        }
+        let arr: CFArray<CFURL> = CFArray::wrap_under_create_rule(arr);
+        for app_url in arr.iter() {
+            let Some(p) = app_url.to_path() else { continue };
+            let path_str = p.to_string_lossy().to_string();
+            if out.iter().any(|a| a.path == path_str) {
+                continue;
+            }
+            let Some(name) = p.file_stem().map(|s| s.to_string_lossy().to_string()) else {
+                continue;
+            };
+            let default = default_path.as_deref() == Some(p.as_path());
+            out.push(OpenApp { name, path: path_str, default });
+        }
+    }
+    out.sort_by(|a, b| {
+        (!a.default, a.name.to_lowercase()).cmp(&(!b.default, b.name.to_lowercase()))
+    });
+    out
+}
+
 /// Launch a user-defined external tool: `open -a <app> <paths...>`.
 /// Waits for `open` to exit (it returns right after handing the files to
 /// LaunchServices) so a missing app surfaces as an error instead of nothing.

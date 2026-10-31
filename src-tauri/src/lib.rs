@@ -134,6 +134,7 @@ pub fn run() {
             commands::system::open_path,
             commands::system::open_in,
             commands::system::open_with,
+            commands::system::apps_for_path,
             commands::system::video_tools,
             commands::system::repair_video,
             commands::system::finish_repair,
