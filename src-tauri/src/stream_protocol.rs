@@ -22,7 +22,8 @@ pub fn handle(request: Request<Vec<u8>>, responder: UriSchemeResponder) {
 
 /// Content-Type from the file extension. AVFoundation picks a demuxer by
 /// MIME type before it sees any bytes, so misreporting breaks playback.
-fn mime_for(path: &std::path::Path) -> &'static str {
+/// (Shared with the Linux media server, which replaces this scheme there.)
+pub(crate) fn mime_for(path: &std::path::Path) -> &'static str {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -54,7 +55,7 @@ fn mime_for(path: &std::path::Path) -> &'static str {
 /// First range of a `bytes=` header against a file of `len` bytes, as an
 /// inclusive pair. None means unsatisfiable (→ 416). WebKit only ever
 /// sends single ranges, so further ranges are ignored.
-fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
+pub(crate) fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
     let spec = header.strip_prefix("bytes=")?.split(',').next()?.trim();
     let (a, b) = spec.split_once('-')?;
     if a.is_empty() {

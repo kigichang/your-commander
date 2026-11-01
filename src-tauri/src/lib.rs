@@ -5,6 +5,7 @@ mod fnkeys;
 mod fs;
 mod icons;
 mod keychain;
+mod media_server;
 mod ops;
 mod platform;
 mod state;
@@ -151,6 +152,7 @@ pub fn run() {
             commands::preview::read_preview,
             commands::preview::media_info,
             commands::preview::is_network_path,
+            media_server::media_url,
             commands::plantuml::render_plantuml,
             commands::sync::sync_compare,
             commands::find::start_find,

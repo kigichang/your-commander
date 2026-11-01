@@ -66,11 +66,6 @@ const PDF_MAX = 64 * 1024 * 1024;
 // AVFoundation drops the video track of files served in a single range
 // response (black picture, audio fine).
 const VIDEO_BLOB_MIN = 2 * 1024 * 1024;
-// WebKitGTK (Linux) never issues media range requests against custom URI
-// schemes, so stream:// videos error out there. Linux plays from a Blob
-// instead, capped; anything bigger goes straight to the external-player
-// fallback.
-const VIDEO_BLOB_MAX_LINUX = 256 * 1024 * 1024;
 // Waveform/spectrogram need the whole file in memory; cap that.
 const AUDIO_BLOB_MAX = 256 * 1024 * 1024;
 const VIDEO_MIME: Record<string, string> = {
@@ -246,21 +241,17 @@ export function QuickView() {
                 const url = URL.createObjectURL(new Blob([buf], { type: mime }));
                 revoked = url;
                 setPreview({ kind: "audio", url, data: buf });
-              } else if (isMac) {
-                setPreview({
-                  kind: "audio",
-                  url: convertFileSrc(entry.path, "stream"),
-                  data: null,
-                });
               } else {
-                // No custom-scheme streaming on WebKitGTK (see above).
-                setPreview({ kind: "none" });
+                const url = isMac
+                  ? convertFileSrc(entry.path, "stream")
+                  : await ipc.mediaUrl(entry.path);
+                if (stale) return;
+                setPreview({ kind: "audio", url, data: null });
               }
               return;
             }
-            const blobCap = isMac ? VIDEO_BLOB_MIN : VIDEO_BLOB_MAX_LINUX;
-            if (entry.size < blobCap) {
-              const buf = await ipc.readPreview(tab.location, entry.path, blobCap);
+            if (entry.size < VIDEO_BLOB_MIN) {
+              const buf = await ipc.readPreview(tab.location, entry.path, VIDEO_BLOB_MIN);
               if (stale) return;
               const mime = VIDEO_MIME[entry.ext] ?? "video/mp4";
               const url = URL.createObjectURL(new Blob([buf], { type: mime }));
@@ -273,9 +264,11 @@ export function QuickView() {
               // onError.
               setPreview({ kind: "video", url: convertFileSrc(entry.path, "stream") });
             } else {
-              // Too big for a Blob and no streaming on WebKitGTK: offer the
-              // external player / repair actions instead of a black pane.
-              setPreview({ kind: "video-failed" });
+              // WebKitGTK won't range through custom schemes; a localhost
+              // HTTP server stands in for stream:// there.
+              const url = await ipc.mediaUrl(entry.path);
+              if (stale) return;
+              setPreview({ kind: "video", url });
             }
           } catch {
             if (!stale) setPreview({ kind: "none" });
