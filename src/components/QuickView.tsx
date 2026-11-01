@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import { formatDate, humanSize } from "../lib/format";
 import { baseName } from "../lib/path";
+import { isMac } from "../lib/platform";
 import { visibleEntries } from "../lib/selectors";
 import { AudioPreview } from "./AudioPreview";
 import { useOps } from "../store/ops";
@@ -65,6 +66,11 @@ const PDF_MAX = 64 * 1024 * 1024;
 // AVFoundation drops the video track of files served in a single range
 // response (black picture, audio fine).
 const VIDEO_BLOB_MIN = 2 * 1024 * 1024;
+// WebKitGTK (Linux) never issues media range requests against custom URI
+// schemes, so stream:// videos error out there. Linux plays from a Blob
+// instead, capped; anything bigger goes straight to the external-player
+// fallback.
+const VIDEO_BLOB_MAX_LINUX = 256 * 1024 * 1024;
 // Waveform/spectrogram need the whole file in memory; cap that.
 const AUDIO_BLOB_MAX = 256 * 1024 * 1024;
 const VIDEO_MIME: Record<string, string> = {
@@ -233,28 +239,36 @@ export function QuickView() {
                 const url = URL.createObjectURL(new Blob([buf], { type: mime }));
                 revoked = url;
                 setPreview({ kind: "audio", url, data: buf });
-              } else {
+              } else if (isMac) {
                 setPreview({
                   kind: "audio",
                   url: convertFileSrc(entry.path, "stream"),
                   data: null,
                 });
+              } else {
+                // No custom-scheme streaming on WebKitGTK (see above).
+                setPreview({ kind: "none" });
               }
               return;
             }
-            if (entry.size < VIDEO_BLOB_MIN) {
-              const buf = await ipc.readPreview(tab.location, entry.path, VIDEO_BLOB_MIN);
+            const blobCap = isMac ? VIDEO_BLOB_MIN : VIDEO_BLOB_MAX_LINUX;
+            if (entry.size < blobCap) {
+              const buf = await ipc.readPreview(tab.location, entry.path, blobCap);
               if (stale) return;
               const mime = VIDEO_MIME[entry.ext] ?? "video/mp4";
               const url = URL.createObjectURL(new Blob([buf], { type: mime }));
               revoked = url;
               setPreview({ kind: "video", url });
-            } else {
+            } else if (isMac) {
               // Local disks and network mounts alike stream through
               // stream:// (range requests, nothing read into memory).
               // Formats the webview can't decode fall back to "none" via
               // onError.
               setPreview({ kind: "video", url: convertFileSrc(entry.path, "stream") });
+            } else {
+              // Too big for a Blob and no streaming on WebKitGTK: offer the
+              // external player / repair actions instead of a black pane.
+              setPreview({ kind: "video-failed" });
             }
           } catch {
             if (!stale) setPreview({ kind: "none" });
