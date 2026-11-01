@@ -101,6 +101,8 @@ type Preview =
   | { kind: "markdown"; text: string }
   | { kind: "plantuml"; text: string }
   | { kind: "pdf"; data: ArrayBuffer }
+  /** Still reading the file — show nothing, not "no preview". */
+  | { kind: "loading" }
   | { kind: "none" };
 
 /** "Open With" + an upward app list from LaunchServices, lazy-loaded on
@@ -206,12 +208,17 @@ export function QuickView() {
   useEffect(() => {
     let revoked: string | null = null;
     let stale = false;
-    setPreview({ kind: "none" });
     setTags([]);
     setPdfPages(0);
     setDims(null);
     setDuration(null);
-    if (!entry || entry.isDir || !tab) return;
+    if (!entry || entry.isDir || !tab) {
+      setPreview({ kind: "none" });
+      return;
+    }
+    // "none" (and its "no preview" caption) waits until a load actually
+    // comes up empty; until then the pane stays quiet.
+    setPreview({ kind: "loading" });
 
     const timer = setTimeout(async () => {
       if (tab.location.kind === "local") {
@@ -304,6 +311,9 @@ export function QuickView() {
           const probe = bytes.subarray(0, 8192);
           if (probe.includes(0)) return setPreview({ kind: "none" });
           setPreview({ kind: "text", text: new TextDecoder().decode(bytes) });
+        } else {
+          // Nothing knows how to preview this type.
+          setPreview({ kind: "none" });
         }
       } catch {
         if (!stale) setPreview({ kind: "none" });
@@ -453,6 +463,8 @@ export function QuickView() {
           />
         ) : preview.kind === "text" ? (
           <pre>{preview.text}</pre>
+        ) : preview.kind === "loading" ? (
+          <span className="none">…</span>
         ) : (
           <span className="none">
             {entry.isDir ? (
