@@ -98,6 +98,7 @@ export interface Config {
   external_tools: ExternalTool[];
   qv_autoplay: boolean;
   qv_mute: boolean;
+  qv_ffmpeg_poster: boolean;
   left_cols: number[];
   right_cols: number[];
   window_size: [number, number] | null;

@@ -187,6 +187,7 @@
     "qvVideo": "Video",
     "qvAutoplay": "Auto Play",
     "qvMute": "Mute",
+    "qvFfmpegPoster": "Static preview via ffmpeg when the decoder can't render the video",
     "toolName": "Name",
     "toolApp": "Application",
     "toolExts": "Extensions",

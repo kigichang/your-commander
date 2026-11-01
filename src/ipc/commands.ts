@@ -44,6 +44,10 @@ export const readPreview = async (
 ): Promise<ArrayBuffer> =>
   invoke("read_preview", { location, path, maxBytes });
 
+/** JPEG frame extracted with ffmpeg: the static video-preview fallback. */
+export const videoPoster = async (path: string): Promise<ArrayBuffer> =>
+  invoke("video_poster", { path });
+
 export const startOp = (
   request: OpRequest,
   onEvent: (event: OpEvent) => void,

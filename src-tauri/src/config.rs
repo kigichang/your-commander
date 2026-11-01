@@ -114,6 +114,9 @@ pub struct Config {
     /// Quick View video: start playing automatically / without sound.
     pub qv_autoplay: bool,
     pub qv_mute: bool,
+    /// When the webview's decoder can't render a video, show a still frame
+    /// extracted with ffmpeg instead of just the failure message.
+    pub qv_ffmpeg_poster: bool,
     /// Column widths [ext, size, date] in px; Name takes the rest.
     pub left_cols: Vec<u32>,
     pub right_cols: Vec<u32>,
@@ -155,6 +158,7 @@ impl Default for Config {
             external_tools: Vec::new(),
             qv_autoplay: false,
             qv_mute: false,
+            qv_ffmpeg_poster: false,
             left_cols: Vec::new(),
             right_cols: Vec::new(),
             window_size: None,

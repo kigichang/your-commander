@@ -187,6 +187,7 @@
     "qvVideo": "影片",
     "qvAutoplay": "自動播放",
     "qvMute": "靜音",
+    "qvFfmpegPoster": "解碼器無法顯示影片時，使用 ffmpeg 做靜態預覽",
     "toolName": "名稱",
     "toolApp": "應用程式",
     "toolExts": "副檔名",

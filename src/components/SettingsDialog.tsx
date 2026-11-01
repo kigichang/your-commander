@@ -276,6 +276,16 @@ function QuickViewPane() {
         />
         {t("settings.qvMute")}
       </label>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={config?.qv_ffmpeg_poster ?? false}
+          onChange={(e) =>
+            useSettings.getState().save({ qv_ffmpeg_poster: e.target.checked })
+          }
+        />
+        {t("settings.qvFfmpegPoster")}
+      </label>
     </div>
   );
 }

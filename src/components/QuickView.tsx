@@ -96,6 +96,8 @@ type Preview =
   | { kind: "markdown"; text: string }
   | { kind: "plantuml"; text: string }
   | { kind: "pdf"; data: ArrayBuffer }
+  /** ffmpeg-extracted still frame for videos the decoder can't render. */
+  | { kind: "video-poster"; url: string }
   /** Still reading the file — show nothing, not "no preview". */
   | { kind: "loading" }
   | { kind: "none" };
@@ -195,10 +197,39 @@ export function QuickView() {
     ffmpeg: false,
   });
   const repairJob = useRepair((s) => s.job);
+  /** Path under the cursor right now — guards async results that outlive it. */
+  const entryRef = useRef<string | null>(null);
+  entryRef.current = entry?.path ?? null;
 
   useEffect(() => {
     void ipc.videoTools().then(setTools).catch(() => {});
   }, []);
+
+  /** The decoder gave up: show `fallback` now and, with the opt-in ffmpeg
+   *  setting on, upgrade to a still frame once one is extracted. */
+  const failVideo = (fallback: Preview) => {
+    setPreview(fallback);
+    const path = entry?.path;
+    if (
+      !path ||
+      tab?.location.kind !== "local" ||
+      !(useSettings.getState().config?.qv_ffmpeg_poster ?? false)
+    ) {
+      return;
+    }
+    void ipc
+      .videoPoster(path)
+      .then((buf) => {
+        if (entryRef.current !== path) return; // cursor moved on
+        const bytes = new Uint8Array(buf);
+        let bin = "";
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+          bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        }
+        setPreview({ kind: "video-poster", url: `data:image/jpeg;base64,${btoa(bin)}` });
+      })
+      .catch(() => {});
+  };
 
   useEffect(() => {
     let revoked: string | null = null;
@@ -375,7 +406,7 @@ export function QuickView() {
                 setDuration((d) => d ?? formatDuration(v.duration));
               }
             }}
-            onError={() => setPreview({ kind: "none" })}
+            onError={() => failVideo({ kind: "none" })}
             ref={(v) => {
               if (!v) return;
               // React doesn't reliably sync the muted attribute; set the
@@ -401,12 +432,15 @@ export function QuickView() {
                 typeof v.requestVideoFrameCallback === "function" &&
                 !v.dataset.framed
               ) {
-                setPreview({ kind: "video-failed" });
+                failVideo({ kind: "video-failed" });
               }
             }}
           />
-        ) : preview.kind === "video-failed" ? (
+        ) : preview.kind === "video-failed" || preview.kind === "video-poster" ? (
           <div className="qv-fail">
+            {preview.kind === "video-poster" ? (
+              <img className="qv-poster" src={preview.url} alt={entry.name} />
+            ) : null}
             <span className="none">{t("quickview.videoUnsupported")}</span>
             <div className="qv-fail-actions">
               {tools.player && tab.location.kind === "local" && (

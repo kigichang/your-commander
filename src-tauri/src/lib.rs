@@ -152,6 +152,7 @@ pub fn run() {
             commands::preview::read_preview,
             commands::preview::media_info,
             commands::preview::is_network_path,
+            commands::preview::video_poster,
             media_server::media_url,
             commands::plantuml::render_plantuml,
             commands::sync::sync_compare,
