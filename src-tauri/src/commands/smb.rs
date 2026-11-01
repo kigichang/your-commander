@@ -1,5 +1,5 @@
-use crate::fs::smb;
 use crate::keychain;
+use crate::platform::smb;
 use std::path::PathBuf;
 
 /// The dialog's Test button: is anything listening on the SMB port?

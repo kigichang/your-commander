@@ -1,4 +1,4 @@
-use crate::fs::smb;
+use crate::platform::smb;
 use crate::ops::queue::{
     ConflictChoice, CopyOptions, OpCtx, OpId, OpSink, CANCELLED,
 };

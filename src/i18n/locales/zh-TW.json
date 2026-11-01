@@ -10,7 +10,7 @@
     "sync": "同步",
     "connect": "連線",
     "fnHint": "App 聚焦時 F 鍵免按 fn（點擊切換）",
-    "fnUnavailable": "此系統無法切換 F 鍵模式——請使用 ⌘ 快捷鍵"
+    "fnUnavailable": "此系統無法切換 F 鍵模式——請使用 {{mod}} 快捷鍵"
   },
   "panel": {
     "home": "家目錄",
@@ -57,8 +57,8 @@
     "folderCreated": "已建立資料夾",
     "renamed": "已重新命名",
     "pathCopied": "已複製 {{count}} 個路徑",
-    "clipCopied": "已複製 {{count}} 個項目——⌘V 貼上",
-    "clipCut": "已剪下 {{count}} 個項目——⌘V 貼上時移動",
+    "clipCopied": "已複製 {{count}} 個項目——{{paste}} 貼上",
+    "clipCut": "已剪下 {{count}} 個項目——{{paste}} 貼上時移動",
     "clipEmpty": "剪貼簿是空的",
     "clipCancelled": "已取消複製／剪下",
     "nothingSelected": "未選取任何項目",
@@ -114,6 +114,7 @@
     "username": "帳號",
     "password": "密碼",
     "remember": "記住（儲存設定，密碼存入鑰匙圈）",
+    "remember_linux": "記住（儲存設定，密碼存入系統金鑰環）",
     "host": "主機",
     "port": "埠",
     "auth": "認證",
@@ -197,6 +198,7 @@
     "toolRemove": "移除",
     "toolNone": "尚未設定外部工具。",
     "toolHint": "當所選項目全部符合條件時，會顯示在檔案的右鍵選單中。副檔名以逗號分隔，留空表示所有檔案。應用程式欄填入 \"open -a\" 使用的名稱或路徑（例如 Keka）。",
+    "toolHint_linux": "當所選項目全部符合條件時，會顯示在檔案的右鍵選單中。副檔名以逗號分隔，留空表示所有檔案。應用程式欄填入指令名稱或 .desktop 檔（例如 vlc）。",
     "language": "語言",
     "theme": "主題",
     "theme_system": "跟隨系統",
@@ -243,6 +245,7 @@
     "clearMarks": "清除標記／過濾",
     "quickView": "快速預覽",
     "getInfo": "取得資訊",
+    "getInfo_linux": "內容",
     "edit": "編輯",
     "copy": "複製到對側",
     "move": "移動到對側",
@@ -287,7 +290,7 @@
     "diffs": "{{count}} 行差異"
   },
   "preview": {
-    "plantumlOff": "PlantUML 渲染未啟用——到設定（⌘,）› 外掛 開啟"
+    "plantumlOff": "PlantUML 渲染未啟用——到設定（{{settingsChord}}）› 外掛 開啟"
   },
   "palette": {
     "hint": "動作或資料夾…",
@@ -297,7 +300,8 @@
     "tag_recent": "最近",
     "tag_favorite": "★",
     "tag_home": "家目錄",
-    "foot": "↵ 執行 · ⌥↵ 開在對側 · esc 關閉"
+    "foot": "↵ 執行 · ⌥↵ 開在對側 · esc 關閉",
+    "foot_linux": "↵ 執行 · alt+↵ 開在對側 · esc 關閉"
   },
   "find": {
     "title": "搜尋檔案",
@@ -354,6 +358,7 @@
     "spectrogram": "頻譜圖",
     "noAnalysis": "此格式無法分析",
     "videoUnsupported": "系統解碼器無法顯示此影片畫面，請以 Open 用外部播放器（如 IINA、VLC）開啟。",
+    "videoUnsupported_linux": "系統解碼器無法顯示此影片畫面，請以 Open 用外部播放器（如 VLC、mpv）開啟。",
     "openWith": "用 {{app}} 開啟",
     "repair": "修復影片",
     "repairing": "修復中…",
@@ -367,6 +372,7 @@
     "tags": "標籤",
     "open": "開啟",
     "reveal": "顯示於 Finder",
+    "reveal_linux": "在檔案管理員中顯示",
     "folder": "資料夾",
     "file": "檔案",
     "pdfPages": "PDF · {{count}} 頁",

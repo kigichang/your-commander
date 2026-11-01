@@ -10,7 +10,7 @@
     "sync": "Sync",
     "connect": "Connect",
     "fnHint": "F-keys work without fn while the app is focused (click to toggle)",
-    "fnUnavailable": "F-key switching unavailable on this system — use the ⌘ shortcuts"
+    "fnUnavailable": "F-key switching unavailable on this system — use the {{mod}} shortcuts"
   },
   "panel": {
     "home": "Home",
@@ -57,8 +57,8 @@
     "folderCreated": "Folder created",
     "renamed": "Renamed",
     "pathCopied": "Copied {{count}} path(s)",
-    "clipCopied": "Copied {{count}} item(s) — paste with ⌘V",
-    "clipCut": "Cut {{count}} item(s) — ⌘V moves them",
+    "clipCopied": "Copied {{count}} item(s) — paste with {{paste}}",
+    "clipCut": "Cut {{count}} item(s) — {{paste}} moves them",
     "clipEmpty": "The clipboard is empty",
     "clipCancelled": "Cut/copy cancelled",
     "nothingSelected": "Nothing selected",
@@ -114,6 +114,7 @@
     "username": "User",
     "password": "Password",
     "remember": "Remember (settings saved, password in Keychain)",
+    "remember_linux": "Remember (settings saved, password in the system keyring)",
     "host": "Host",
     "port": "Port",
     "auth": "Auth",
@@ -197,6 +198,7 @@
     "toolRemove": "Remove",
     "toolNone": "No external tools yet.",
     "toolHint": "Shown in the file context menu when every selected item matches. Extensions comma-separated; empty = all files. Application is the name or path passed to \"open -a\" (e.g. Keka).",
+    "toolHint_linux": "Shown in the file context menu when every selected item matches. Extensions comma-separated; empty = all files. Application is a command name or .desktop file (e.g. vlc).",
     "language": "Language",
     "theme": "Theme",
     "theme_system": "System",
@@ -243,6 +245,7 @@
     "clearMarks": "Clear marks / filter",
     "quickView": "Quick View",
     "getInfo": "Get Info",
+    "getInfo_linux": "Properties",
     "edit": "Edit",
     "copy": "Copy to other panel",
     "move": "Move to other panel",
@@ -287,7 +290,7 @@
     "diffs": "{{count}} changed lines"
   },
   "preview": {
-    "plantumlOff": "PlantUML rendering is off — enable it in Settings (⌘,) › Plugins"
+    "plantumlOff": "PlantUML rendering is off — enable it in Settings ({{settingsChord}}) › Plugins"
   },
   "palette": {
     "hint": "action or folder…",
@@ -297,7 +300,8 @@
     "tag_recent": "recent",
     "tag_favorite": "★",
     "tag_home": "home",
-    "foot": "↵ run · ⌥↵ in other pane · esc close"
+    "foot": "↵ run · ⌥↵ in other pane · esc close",
+    "foot_linux": "↵ run · alt+↵ in other pane · esc close"
   },
   "find": {
     "title": "Find files",
@@ -354,6 +358,7 @@
     "spectrogram": "Spectrogram",
     "noAnalysis": "No analysis available for this format",
     "videoUnsupported": "The system decoder can't render this video — use Open with an external player (e.g. IINA, VLC).",
+    "videoUnsupported_linux": "The system decoder can't render this video — use Open with an external player (e.g. VLC, mpv).",
     "openWith": "Open with {{app}}",
     "repair": "Repair video",
     "repairing": "Repairing…",

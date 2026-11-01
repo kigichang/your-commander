@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { actions } from "../keymap/actions";
+import { prettyChord } from "../keymap/keymap";
+import { dragRegion } from "../lib/platform";
 import { useDialogs } from "../store/dialogs";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
@@ -26,7 +28,7 @@ export function Toolbar() {
   const fkeysAvailable = useSettings((s) => s.fkeysAvailable);
 
   return (
-    <div className="toolbar" data-tauri-drag-region>
+    <div className="toolbar" {...dragRegion}>
       <button className="tbtn" title="F2" onClick={() => actions.refresh.run()}>
         <Icon of={RefreshCw} />
       </button>
@@ -47,10 +49,10 @@ export function Toolbar() {
       <button className="tbtn" onClick={() => actions.swap.run()}>
         <Icon of={ArrowLeftRight} /> {t("toolbar.swap")}
       </button>
-      <div className="spacer" data-tauri-drag-region />
+      <div className="spacer" {...dragRegion} />
       <button
         className="tbtn"
-        title="⌘,"
+        title={prettyChord("mod+,")}
         onClick={() => actions.openSettings.run()}
       >
         <Icon of={Settings} />
@@ -66,13 +68,17 @@ export function Toolbar() {
       <button className="tbtn" onClick={() => actions.compareFiles.run()}>
         <Icon of={GitCompare} /> {t("toolbar.compare")}
       </button>
-      <button className="tbtn" title="⌃M" onClick={() => actions.multiRename.run()}>
+      <button
+        className="tbtn"
+        title={prettyChord("ctrl+m")}
+        onClick={() => actions.multiRename.run()}
+      >
         <Icon of={PencilLine} /> {t("toolbar.rename")}
       </button>
-      <button className="tbtn" title="⌘F" onClick={() => actions.findFiles.run()}>
+      <button className="tbtn" title={prettyChord("mod+f")} onClick={() => actions.findFiles.run()}>
         <Icon of={Search} /> {t("toolbar.find")}
       </button>
-      <button className="tbtn" title="⌘=" onClick={() => actions.syncFolders.run()}>
+      <button className="tbtn" title={prettyChord("mod+=")} onClick={() => actions.syncFolders.run()}>
         <Icon of={FolderSync} /> {t("toolbar.sync")}
       </button>
       <button

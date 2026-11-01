@@ -8,6 +8,7 @@ import { useOps } from "../store/ops";
 import type { VolumeInfo } from "../ipc/types";
 import { humanSize } from "../lib/format";
 import { baseName, displayPath, expandHome, parentPath } from "../lib/path";
+import { isMac } from "../lib/platform";
 import { isMask } from "../lib/wildcard";
 import { targetEntries, visibleEntries } from "../lib/selectors";
 import type { Side, TabState } from "../store/panels";
@@ -141,7 +142,14 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
     return () => window.removeEventListener("mousedown", close);
   }, [menuOpen]);
 
-  const currentVol = vols.find((v) => tab.path.startsWith(v.path));
+  // Longest matching mount wins ("/" would otherwise swallow every path on
+  // Linux), and the match must end on a path-separator boundary.
+  const currentVol = vols
+    .filter((v) => {
+      const p = v.path.endsWith("/") ? v.path.slice(0, -1) : v.path;
+      return tab.path === p || tab.path.startsWith(p + "/");
+    })
+    .sort((a, b) => b.path.length - a.path.length)[0];
   const isFav = config?.favorites.some((f) => f.path === tab.path) ?? false;
 
   const toggleFavorite = () => {
@@ -158,7 +166,7 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
         <button onClick={() => setMenuOpen((v) => !v)}>
           <span className="name">
             <Icon of={HardDrive} size={14} />{" "}
-            {tab.remoteLabel ?? currentVol?.name ?? "Macintosh HD"}{" "}
+            {tab.remoteLabel ?? currentVol?.name ?? (isMac ? "Macintosh HD" : "/")}{" "}
             <Icon of={ChevronDown} size={12} />
           </span>
           {currentVol && !tab.remoteLabel && currentVol.total > 0 && (

@@ -1,23 +1,29 @@
-use security_framework::passwords;
+//! Saved connection passwords in the platform credential store: the macOS
+//! Keychain (generic passwords, same service/account layout as the old
+//! security-framework code, so existing entries keep working) or the
+//! Secret Service (GNOME Keyring / KWallet) on Linux.
+
+use keyring::Entry;
 
 const SERVICE: &str = "your-commander";
 
 pub fn store(account: &str, password: &str) -> Result<(), String> {
-    passwords::set_generic_password(SERVICE, account, password.as_bytes())
+    Entry::new(SERVICE, account)
+        .and_then(|e| e.set_password(password))
         .map_err(|e| e.to_string())
 }
 
 pub fn load(account: &str) -> Option<String> {
-    passwords::get_generic_password(SERVICE, account)
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
+    Entry::new(SERVICE, account).ok()?.get_password().ok()
 }
 
 pub fn remove(account: &str) {
-    let _ = passwords::delete_generic_password(SERVICE, account);
+    if let Ok(entry) = Entry::new(SERVICE, account) {
+        let _ = entry.delete_credential();
+    }
 }
 
-/// Keychain account key for an SMB share.
+/// Credential-store account key for an SMB share.
 pub fn smb_account(username: &str, server: &str, share: &str) -> String {
     format!("smb://{username}@{server}/{share}")
 }

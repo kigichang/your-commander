@@ -7,6 +7,7 @@ import { OpsUI } from "./components/OpsUI";
 import { Panel } from "./components/Panel";
 import { Toolbar } from "./components/Toolbar";
 import { useKeyboard } from "./keymap/useKeyboard";
+import { dragRegion } from "./lib/platform";
 import { useKeymap } from "./store/keymapStore";
 import type { Side } from "./store/panels";
 import { usePanels } from "./store/panels";
@@ -74,7 +75,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="titlebar" data-tauri-drag-region>
+      <header className="titlebar" {...dragRegion}>
         <Toolbar />
       </header>
       <main

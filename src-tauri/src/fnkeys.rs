@@ -5,19 +5,44 @@
 //! future OS lockdown), everything degrades to the ⌘-equivalents.
 
 use crate::state::AppState;
-use core_foundation::base::{CFTypeRef, TCFType};
-use core_foundation::number::CFNumber;
-use core_foundation::string::{CFString, CFStringRef};
-use std::os::raw::{c_char, c_void};
-use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 
+#[cfg(target_os = "macos")]
+use core_foundation::base::{CFTypeRef, TCFType};
+#[cfg(target_os = "macos")]
+use core_foundation::number::CFNumber;
+#[cfg(target_os = "macos")]
+use core_foundation::string::{CFString, CFStringRef};
+#[cfg(target_os = "macos")]
+use std::os::raw::{c_char, c_void};
+#[cfg(target_os = "macos")]
+use std::sync::Mutex;
+
+/// No IOKit anywhere else: `open()` says the switch is unavailable and the
+/// UI grays the toggle out.
+#[cfg(not(target_os = "macos"))]
+pub struct FnKeys;
+
+#[cfg(not(target_os = "macos"))]
+impl FnKeys {
+    pub fn open() -> Option<Self> {
+        None
+    }
+    pub fn acquire(&self) {}
+    pub fn release(&self) {}
+}
+
+#[cfg(target_os = "macos")]
 type IoObject = u32;
+#[cfg(target_os = "macos")]
 type IoConnect = u32;
 
+#[cfg(target_os = "macos")]
 const KIOHID_PARAM_CONNECT_TYPE: u32 = 1;
+#[cfg(target_os = "macos")]
 const FKEY_MODE_KEY: &str = "HIDFKeyMode";
 
+#[cfg(target_os = "macos")]
 #[link(name = "IOKit", kind = "framework")]
 unsafe extern "C" {
     fn IOServiceMatching(name: *const c_char) -> *mut c_void;
@@ -38,6 +63,7 @@ unsafe extern "C" {
     ) -> i32;
 }
 
+#[cfg(target_os = "macos")]
 pub struct FnKeys {
     connect: IoConnect,
     /// The user's own fn mode, remembered while we hold ours.
@@ -45,9 +71,12 @@ pub struct FnKeys {
 }
 
 // The io_connect_t handle is just a mach port name; calls are thread-safe.
+#[cfg(target_os = "macos")]
 unsafe impl Send for FnKeys {}
+#[cfg(target_os = "macos")]
 unsafe impl Sync for FnKeys {}
 
+#[cfg(target_os = "macos")]
 impl FnKeys {
     pub fn open() -> Option<Self> {
         unsafe {
@@ -124,6 +153,7 @@ impl FnKeys {
     }
 }
 
+#[cfg(target_os = "macos")]
 impl Drop for FnKeys {
     fn drop(&mut self) {
         self.release();

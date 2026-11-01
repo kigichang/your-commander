@@ -7,6 +7,7 @@ import type { FsEntry, Location } from "../ipc/types";
 import { useClipboard } from "../store/clipboard";
 import { formatDate, humanSize } from "../lib/format";
 import { parentPath } from "../lib/path";
+import { isModKey } from "../lib/platform";
 import { visibleEntries } from "../lib/selectors";
 import { actions } from "../keymap/actions";
 import type { ColKey, ColWidths, Side, SortKey, TabState, ViewMode } from "../store/panels";
@@ -222,7 +223,7 @@ const Row = memo(function Row({
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button === 2) return; // handled by onContextMenu
     const s = usePanels.getState();
-    if (e.metaKey) {
+    if (isModKey(e)) {
       s.toggleMark(side, index, false);
     } else if (e.shiftKey) {
       s.markRange(side, index);

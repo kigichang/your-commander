@@ -218,61 +218,15 @@ fn verify_copy(ctx: &OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
 }
 
 /// Best-effort copy of extended attributes (Finder tags, quarantine, …).
+/// Attributes the destination refuses (e.g. anything outside `user.*` for
+/// unprivileged processes on Linux) are silently skipped.
 fn copy_xattrs(src: &Path, dest: &Path) {
-    use std::os::unix::ffi::OsStrExt;
-    let c_src = match std::ffi::CString::new(src.as_os_str().as_bytes()) {
-        Ok(c) => c,
-        Err(_) => return,
+    let Ok(names) = xattr::list(src) else {
+        return;
     };
-    let c_dest = match std::ffi::CString::new(dest.as_os_str().as_bytes()) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-    unsafe {
-        let len = libc::listxattr(c_src.as_ptr(), std::ptr::null_mut(), 0, 0);
-        if len <= 0 {
-            return;
-        }
-        let mut names = vec![0u8; len as usize];
-        let len = libc::listxattr(c_src.as_ptr(), names.as_mut_ptr() as *mut _, names.len(), 0);
-        if len <= 0 {
-            return;
-        }
-        for name in names[..len as usize].split(|b| *b == 0).filter(|n| !n.is_empty()) {
-            let Ok(c_name) = std::ffi::CString::new(name) else {
-                continue;
-            };
-            let size = libc::getxattr(
-                c_src.as_ptr(),
-                c_name.as_ptr(),
-                std::ptr::null_mut(),
-                0,
-                0,
-                0,
-            );
-            if size < 0 {
-                continue;
-            }
-            let mut value = vec![0u8; size as usize];
-            let size = libc::getxattr(
-                c_src.as_ptr(),
-                c_name.as_ptr(),
-                value.as_mut_ptr() as *mut _,
-                value.len(),
-                0,
-                0,
-            );
-            if size < 0 {
-                continue;
-            }
-            let _ = libc::setxattr(
-                c_dest.as_ptr(),
-                c_name.as_ptr(),
-                value.as_ptr() as *const _,
-                size as usize,
-                0,
-                0,
-            );
+    for name in names {
+        if let Ok(Some(value)) = xattr::get(src, &name) {
+            let _ = xattr::set(dest, &name, &value);
         }
     }
 }

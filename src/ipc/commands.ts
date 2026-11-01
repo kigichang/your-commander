@@ -157,6 +157,8 @@ export const mediaInfo = (path: string) =>
   invoke<import("./types").MediaInfo>("media_info", { path });
 export const isNetworkPath = (path: string) =>
   invoke<boolean>("is_network_path", { path });
+/** Localhost URL streaming the file with Range support (Linux media). */
+export const mediaUrl = (path: string) => invoke<string>("media_url", { path });
 export const videoTools = () =>
   invoke<{ player: string | null; ffmpeg: boolean }>("video_tools");
 export const repairVideo = (path: string, onProgress: (fraction: number) => void) => {

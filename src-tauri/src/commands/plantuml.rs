@@ -88,7 +88,15 @@ fn find_java(override_path: &str) -> Option<std::path::PathBuf> {
         let p = PathBuf::from(override_path.trim());
         return p.is_file().then_some(p);
     }
+    // JAVA_HOME, when the environment carries one.
+    if let Some(home) = std::env::var_os("JAVA_HOME") {
+        let p = PathBuf::from(home).join("bin/java");
+        if p.is_file() {
+            return Some(p);
+        }
+    }
     // Registered JDKs (never pops the "install Java" dialog; just fails).
+    #[cfg(target_os = "macos")]
     if let Ok(out) = std::process::Command::new("/usr/libexec/java_home").output()
         && out.status.success()
     {
@@ -100,6 +108,7 @@ fn find_java(override_path: &str) -> Option<std::path::PathBuf> {
     }
     // Homebrew keg-only openjdk (Apple Silicon and Intel prefixes), the
     // plain keg first, then versioned ones like openjdk@21.
+    #[cfg(target_os = "macos")]
     for prefix in ["/opt/homebrew/opt", "/usr/local/opt"] {
         let direct = PathBuf::from(prefix).join("openjdk/bin/java");
         if direct.is_file() {
@@ -116,6 +125,19 @@ fn find_java(override_path: &str) -> Option<std::path::PathBuf> {
             if let Some(p) = kegs.pop() {
                 return Some(p);
             }
+        }
+    }
+    // Distro JVMs (Ubuntu: openjdk-NN-jre-headless), newest first.
+    #[cfg(target_os = "linux")]
+    if let Ok(read) = std::fs::read_dir("/usr/lib/jvm") {
+        let mut jvms: Vec<PathBuf> = read
+            .flatten()
+            .map(|e| e.path().join("bin/java"))
+            .filter(|p| p.is_file())
+            .collect();
+        jvms.sort();
+        if let Some(p) = jvms.pop() {
+            return Some(p);
         }
     }
     // Whatever PATH has (works when launched from a terminal).

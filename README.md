@@ -1,11 +1,12 @@
 # Your Commander
 
-A dual-pane file manager for macOS in the spirit of Total Commander, built with
-Tauri 2 (Rust) and React. Two independent panels, keyboard-first workflow,
+A dual-pane file manager for macOS and Linux in the spirit of Total Commander,
+built with Tauri 2 (Rust) and React. Two independent panels, keyboard-first workflow,
 remote filesystems, and a fast Quick View for the files you actually work with.
 
-> Status: personal project under active development. Apple Silicon build,
-> ad-hoc signed.
+> Status: personal project under active development. macOS: Apple Silicon
+> build, ad-hoc signed. Linux: Ubuntu 24.04 (GNOME) is the reference target,
+> packaged as a .deb.
 
 ## Features
 
@@ -53,12 +54,23 @@ remote filesystems, and a fast Quick View for the files you actually work with.
 
 ## Install / Build
 
-Requirements: macOS 11+, [Rust](https://rustup.rs), Node.js 20+.
+Requirements: macOS 11+ or Ubuntu 24.04+, [Rust](https://rustup.rs),
+Node.js 20+. On Ubuntu also: `libwebkit2gtk-4.1-dev libgtk-3-dev
+libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev build-essential
+pkg-config`.
 
 ```bash
 npm install
 npm run tauri dev     # development (Vite + Tauri)
-npm run tauri build   # release: .app + .dmg under src-tauri/target/release/bundle/
+npm run tauri build   # macOS: .app + .dmg; Linux: .deb — under src-tauri/target/release/bundle/
+```
+
+Cross-checking the Linux build from macOS (Docker/OrbStack):
+
+```bash
+docker build -t yc-linux-dev -f docker/linux-dev.Dockerfile .
+docker run --rm -v "$PWD":/app -v yc-target:/build/target \
+  -e CARGO_TARGET_DIR=/build/target -w /app/src-tauri yc-linux-dev cargo test
 ```
 
 Tests and checks:
@@ -81,12 +93,19 @@ npx tsc -b                   # frontend type check
 | `⌘F` | Find files |
 | `⌘,` | Settings (hotkeys are fully rebindable) |
 
+On Linux the `⌘` bindings map to `Ctrl` (`Ctrl+K`, `Ctrl+F`, `Ctrl+,`, and
+`Ctrl+Q` to quit). Linux differences: file tags are read-only empty, the
+fn-key toggle is macOS-only, and SMB mounts go through GVfs (shared with
+GNOME Files; `smbclient` recommended for share listing).
+
 ## Architecture
 
 - `src-tauri/` — Rust backend: filesystem providers (local, SFTP via
   russh/russh-sftp, archive), operation queue with cancellation/pause and
-  conflict channels, NetFS SMB mounting, NSWorkspace file icons, Keychain,
-  directory watcher
+  conflict channels, directory watcher, and a `platform/` module pairing the
+  macOS integrations (NetFS SMB, NSWorkspace icons, LaunchServices, Keychain)
+  with Linux ones (GVfs SMB, freedesktop icon theme, GIO app lookup,
+  Secret Service)
 - `src/` — React 18 + TypeScript frontend: Zustand stores, TanStack Virtual
   lists, i18next, lucide icons
 - Design document: `File Manager Screens.html`; implementation notes: `PLAN.md`
