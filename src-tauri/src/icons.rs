@@ -1,9 +1,7 @@
-//! System file icons: NSWorkspace's icon for a file type, encoded as PNG.
-//! One icon per extension (plus "folder"/"generic"), cached for the app's
-//! lifetime. AppKit image calls run on the main thread.
-//!
-//! On Linux this returns an error for now and the frontend falls back to
-//! its built-in (lucide) icons; a freedesktop icon-theme lookup is planned.
+//! System file icons as PNG, one per extension (plus "folder"/"generic"),
+//! cached for the app's lifetime. macOS asks NSWorkspace (AppKit calls run
+//! on the main thread); Linux looks the MIME type up in the freedesktop
+//! icon theme. Any miss sends the frontend to its built-in (lucide) icons.
 
 use tauri::AppHandle;
 
@@ -121,8 +119,27 @@ pub async fn file_icon(app: AppHandle, key: String) -> Result<tauri::ipc::Respon
     Ok(tauri::ipc::Response::new(bytes.as_ref().clone()))
 }
 
+/// Theme lookup is plain file I/O — no main-thread hop needed.
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
-pub async fn file_icon(_app: AppHandle, key: String) -> Result<tauri::ipc::Response, String> {
-    Err(format!("no system icon for {key}"))
+pub async fn file_icon(app: AppHandle, key: String) -> Result<tauri::ipc::Response, String> {
+    use crate::state::AppState;
+    use std::sync::Arc;
+    use tauri::Manager;
+
+    if let Some(bytes) = app.state::<AppState>().icons.lock().unwrap().get(&key) {
+        return Ok(tauri::ipc::Response::new(bytes.as_ref().clone()));
+    }
+    let k = key.clone();
+    let bytes = tauri::async_runtime::spawn_blocking(move || crate::platform::icon_png(&k))
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("no icon for {key}"))?;
+    let bytes = Arc::new(bytes);
+    app.state::<AppState>()
+        .icons
+        .lock()
+        .unwrap()
+        .insert(key, bytes.clone());
+    Ok(tauri::ipc::Response::new(bytes.as_ref().clone()))
 }

@@ -1,6 +1,6 @@
 # Your-Commander
 
-開發一個支援 macOS 的檔案管理工具。類似 Windows 的 Total Commander，有左/右兩邊的 Panel，可以同時管理兩個不同的目錄。
+開發一個支援 macOS 與 Linux（Ubuntu 為主）的檔案管理工具。類似 Windows 的 Total Commander，有左/右兩邊的 Panel，可以同時管理兩個不同的目錄。
 
 UI 設計稿：`File Manager Screens.html`（Nocturne 深色設計系統）。實作計畫與架構說明見 `PLAN.md`。
 
@@ -8,14 +8,14 @@ UI 設計稿：`File Manager Screens.html`（Nocturne 深色設計系統）。�
 
 - **Tauri 2**：Rust 後端（`src-tauri/`）＋ React 18 + TypeScript 前端（`src/`，Vite）
 - 前端狀態：Zustand；虛擬列表：TanStack Virtual；i18n：i18next（en 預設、zh-TW）
-- 後端：russh/russh-sftp（SFTP）、zip/tar/flate2/sevenz-rust2（壓縮）、trash、notify、security-framework（Keychain）
+- 後端：russh/russh-sftp（SFTP）、zip/tar/flate2/sevenz-rust2（壓縮）、trash、notify、keyring（macOS Keychain / Linux Secret Service）；平台整合集中在 `src-tauri/src/platform/`（macos/linux 各一份實作）
 
 ## 開發
 
 ```bash
 npm install          # 首次
 npm run tauri dev    # 開發模式（Vite + Tauri）
-npm run tauri build  # 打包 .app（ad-hoc 簽章）
+npm run tauri build  # 打包：macOS .app/.dmg（ad-hoc 簽章）、Linux .deb
 cargo test           # 後端單元測試（在 src-tauri/ 下執行）
 npx tsc -b           # 前端型別檢查
 ```
@@ -36,7 +36,7 @@ npx tsc -b           # 前端型別檢查
 
 ## 網路磁碟
 
-1. 支援 SMB (Samba)，可儲存/修改設定，供下次自動連線。連線後，與 macOS Finder 共享（掛載於 /Volumes）。
+1. 支援 SMB (Samba)，可儲存/修改設定，供下次自動連線。連線後與系統檔案管理員共享：macOS 經 NetFS 掛載於 /Volumes（Finder 可見）；Linux 經 GVfs（`gio mount`，GNOME Files 可見）。
 1. 支援 SSH (SFTP)，可儲存/修改設定，可使用 $HOME/.ssh 設定與公鑰，供下次自動連線。
 
 ## UI 顯示
