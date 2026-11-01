@@ -168,7 +168,9 @@ fn parse_share_list(text: &str) -> Vec<String> {
                 return None;
             }
             let name = parts.next()?.trim();
-            (!name.is_empty()).then(|| name.to_string())
+            // Trailing '$' marks administrative shares (print$, C$) that
+            // Windows hides; smbclient lists them anyway.
+            (!name.is_empty() && !name.ends_with('$')).then(|| name.to_string())
         })
         .collect()
 }
@@ -218,6 +220,7 @@ mod tests {
         let text = "\
 Disk|homes|user home directories
 Disk|My Photos|
+Disk|print$|Printer Drivers
 IPC|IPC$|IPC Service
 Printer|LaserJet|office
 ";
