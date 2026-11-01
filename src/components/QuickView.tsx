@@ -205,6 +205,23 @@ export function QuickView() {
     void ipc.videoTools().then(setTools).catch(() => {});
   }, []);
 
+  /** Repair (re-encode) button, shared by the failure pane and — so a tall
+   *  poster can never push it out of sight — the action row next to Reveal. */
+  const repairButton =
+    entry && !entry.isDir && tab?.location.kind === "local" && tools.ffmpeg ? (
+      <button
+        className="btn"
+        disabled={repairJob !== null}
+        onClick={() => useRepair.getState().start(entry.path)}
+      >
+        {repairJob?.path === entry.path
+          ? repairJob.fraction !== null
+            ? `${t("quickview.repairing")} ${Math.round(repairJob.fraction * 100)}%`
+            : t("quickview.repairing")
+          : t("quickview.repair")}
+      </button>
+    ) : null;
+
   /** The decoder gave up: show `fallback` now and, with the opt-in ffmpeg
    *  setting on, upgrade to a still frame once one is extracted. */
   const failVideo = (fallback: Preview) => {
@@ -455,19 +472,7 @@ export function QuickView() {
                   {t("quickview.openWith", { app: tools.player })}
                 </button>
               )}
-              {tools.ffmpeg && tab.location.kind === "local" && (
-                <button
-                  className="btn"
-                  disabled={repairJob !== null}
-                  onClick={() => useRepair.getState().start(entry.path)}
-                >
-                  {repairJob?.path === entry.path
-                    ? repairJob.fraction !== null
-                      ? `${t("quickview.repairing")} ${Math.round(repairJob.fraction * 100)}%`
-                      : t("quickview.repairing")
-                    : t("quickview.repair")}
-                </button>
-              )}
+              {repairButton}
             </div>
           </div>
         ) : preview.kind === "audio" ? (
@@ -541,6 +546,8 @@ export function QuickView() {
               <button className="btn" onClick={() => void ipc.revealInFinder(entry.path)}>
                 {t("quickview.reveal")}
               </button>
+              {(preview.kind === "video-failed" || preview.kind === "video-poster") &&
+                repairButton}
             </div>
           )}
         </>
