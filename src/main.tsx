@@ -3,8 +3,10 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { initI18n } from "./i18n";
 import { getConfig } from "./ipc/commands";
+import { applyPlatformDataset } from "./lib/platform";
 import "./styles/base.css";
 
+applyPlatformDataset();
 getConfig()
   .catch(() => null)
   .then((config) => {

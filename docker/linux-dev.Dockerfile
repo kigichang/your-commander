@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libayatana-appindicator3-dev \
     librsvg2-dev \
     libssl-dev \
+    libdbus-1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Node 20 (NodeSource)
