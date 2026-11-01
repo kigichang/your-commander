@@ -58,11 +58,15 @@ const MD_MAX = 2 * 1024 * 1024;
 // pdf.js needs the whole file; past this size show no preview instead of
 // freezing the pane on a huge download.
 const PDF_MAX = 64 * 1024 * 1024;
-// The asset protocol answers ranges in ~1 MB chunks; AVFoundation drops the
-// video track of files that fit in a single chunk (black picture, audio
-// fine) and starves on network-mount latency. Those cases play from a Blob.
+// Video streams through the app's stream:// protocol, which serves the
+// requested range in 16 MB chunks — unlike the built-in asset protocol's
+// ~1 MB cap, which starves AVFoundation on network mounts and left large
+// SMB videos with no preview. Sub-chunk files still play from a Blob:
+// AVFoundation drops the video track of files served in a single range
+// response (black picture, audio fine).
 const VIDEO_BLOB_MIN = 2 * 1024 * 1024;
-const VIDEO_BLOB_MAX = 256 * 1024 * 1024;
+// Waveform/spectrogram need the whole file in memory; cap that.
+const AUDIO_BLOB_MAX = 256 * 1024 * 1024;
 const VIDEO_MIME: Record<string, string> = {
   mov: "video/quicktime",
   webm: "video/webm",
@@ -221,37 +225,36 @@ export function QuickView() {
           try {
             if (!isVideo) {
               // Waveform/spectrogram need the whole file, so audio loads
-              // into memory (capped); bigger files play from the asset
-              // protocol without analysis.
-              if (entry.size <= VIDEO_BLOB_MAX) {
-                const buf = await ipc.readPreview(tab.location, entry.path, VIDEO_BLOB_MAX);
+              // into memory (capped); bigger files stream without analysis.
+              if (entry.size <= AUDIO_BLOB_MAX) {
+                const buf = await ipc.readPreview(tab.location, entry.path, AUDIO_BLOB_MAX);
                 if (stale) return;
                 const mime = AUDIO_MIME[entry.ext] ?? "audio/mpeg";
                 const url = URL.createObjectURL(new Blob([buf], { type: mime }));
                 revoked = url;
                 setPreview({ kind: "audio", url, data: buf });
               } else {
-                setPreview({ kind: "audio", url: convertFileSrc(entry.path), data: null });
+                setPreview({
+                  kind: "audio",
+                  url: convertFileSrc(entry.path, "stream"),
+                  data: null,
+                });
               }
               return;
             }
-            const needsBlob =
-              entry.size < VIDEO_BLOB_MIN ||
-              (entry.size <= VIDEO_BLOB_MAX &&
-                (await ipc.isNetworkPath(entry.path).catch(() => false)));
-            if (stale) return;
-            if (needsBlob) {
-              const buf = await ipc.readPreview(tab.location, entry.path, VIDEO_BLOB_MAX);
+            if (entry.size < VIDEO_BLOB_MIN) {
+              const buf = await ipc.readPreview(tab.location, entry.path, VIDEO_BLOB_MIN);
               if (stale) return;
               const mime = VIDEO_MIME[entry.ext] ?? "video/mp4";
               const url = URL.createObjectURL(new Blob([buf], { type: mime }));
               revoked = url;
               setPreview({ kind: "video", url });
             } else {
-              // Local disks stream through the asset protocol (range
-              // requests, nothing read into memory). Formats the webview
-              // can't decode fall back to "none" via onError.
-              setPreview({ kind: "video", url: convertFileSrc(entry.path) });
+              // Local disks and network mounts alike stream through
+              // stream:// (range requests, nothing read into memory).
+              // Formats the webview can't decode fall back to "none" via
+              // onError.
+              setPreview({ kind: "video", url: convertFileSrc(entry.path, "stream") });
             }
           } catch {
             if (!stale) setPreview({ kind: "none" });
