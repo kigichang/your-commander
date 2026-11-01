@@ -266,3 +266,34 @@ mod tests {
         assert_eq!(parse_range("bytes=0-1, 30-40", 100), Some((0, 1)));
     }
 }
+
+#[cfg(test)]
+mod large_file_tests {
+    use super::build_response;
+    use tauri::http::{header, Request, StatusCode};
+
+    #[test]
+    fn serves_ranges_beyond_2gb() {
+        // Sparse file: 2.2 GB logical size, no disk cost on APFS.
+        let path = std::env::temp_dir().join("stream_proto_2gb.bin");
+        let f = std::fs::File::create(&path).unwrap();
+        f.set_len(2_300_000_000).unwrap();
+        let uri = format!(
+            "stream://localhost/{}",
+            urlencoding::encode(path.to_str().unwrap())
+        );
+        let req = Request::builder()
+            .uri(&uri)
+            .header(header::RANGE, "bytes=2147483648-2147483657")
+            .body(Vec::new())
+            .unwrap();
+        let resp = build_response(&req);
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            resp.headers()[header::CONTENT_RANGE],
+            "bytes 2147483648-2147483657/2300000000"
+        );
+        assert_eq!(resp.body().len(), 10);
+        let _ = std::fs::remove_file(&path);
+    }
+}
