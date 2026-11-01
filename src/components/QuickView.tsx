@@ -205,8 +205,7 @@ export function QuickView() {
     void ipc.videoTools().then(setTools).catch(() => {});
   }, []);
 
-  /** Repair (re-encode) button, shared by the failure pane and — so a tall
-   *  poster can never push it out of sight — the action row next to Reveal. */
+  /** Repair (re-encode) button in the failure pane. */
   const repairButton =
     entry && !entry.isDir && tab?.location.kind === "local" && tools.ffmpeg ? (
       <button
@@ -546,8 +545,6 @@ export function QuickView() {
               <button className="btn" onClick={() => void ipc.revealInFinder(entry.path)}>
                 {t("quickview.reveal")}
               </button>
-              {(preview.kind === "video-failed" || preview.kind === "video-poster") &&
-                repairButton}
             </div>
           )}
         </>
