@@ -6,6 +6,7 @@ mod fs;
 mod icons;
 mod keychain;
 mod ops;
+mod platform;
 mod state;
 mod stream_protocol;
 mod watch;
