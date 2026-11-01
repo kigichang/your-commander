@@ -7,6 +7,7 @@ mod icons;
 mod keychain;
 mod ops;
 mod state;
+mod stream_protocol;
 mod watch;
 
 use fnkeys::FnKeysState;
@@ -66,6 +67,9 @@ pub fn run() {
     *app_state.config.lock().unwrap() = config::Config::load();
 
     let app = tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol("stream", |_ctx, request, responder| {
+            stream_protocol::handle(request, responder)
+        })
         .manage(app_state)
         .manage(FnKeysState(fnkeys::FnKeys::open()))
         .setup(|app| {
