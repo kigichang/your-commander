@@ -2,6 +2,7 @@ import clsx from "clsx";
 import { ChevronDown, ChevronUp, GripVertical, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isMac } from "../lib/platform";
 import type { ActionId } from "../keymap/actions";
 import { actions } from "../keymap/actions";
 import type { PresetName } from "../keymap/keymap";
@@ -351,7 +352,7 @@ function ToolsPane() {
       <input
         className="wide-in"
         value={cur.name}
-        placeholder="Extract with Keka"
+        placeholder={isMac ? "Extract with Keka" : "Extract with Xarchiver"}
         spellCheck={false}
         onChange={(e) => set({ name: e.target.value })}
       />
@@ -359,7 +360,7 @@ function ToolsPane() {
       <input
         className="wide-in"
         value={cur.app}
-        placeholder="Keka"
+        placeholder={isMac ? "Keka" : "xarchiver"}
         spellCheck={false}
         onChange={(e) => set({ app: e.target.value })}
       />

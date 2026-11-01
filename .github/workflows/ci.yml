@@ -28,8 +28,6 @@ jobs:
 
   linux:
     runs-on: ubuntu-24.04
-    # Remove once Phase 1 (Linux compiles) lands.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
