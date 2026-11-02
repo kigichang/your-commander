@@ -25,8 +25,13 @@ function iconUrl(key: string): Promise<string | null> {
   return inFlight;
 }
 
+/** The system-icon key for an entry (also the native drag image). */
+export function iconKey(isDir: boolean, ext: string): string {
+  return isDir ? "folder" : ext || "generic";
+}
+
 export function FileIcon({ isDir, ext }: { isDir: boolean; ext: string }) {
-  const key = isDir ? "folder" : ext || "generic";
+  const key = iconKey(isDir, ext);
   const [url, setUrl] = useState<string | null>(urls.get(key) ?? null);
 
   useEffect(() => {

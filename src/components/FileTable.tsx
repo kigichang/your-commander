@@ -8,13 +8,14 @@ import { useClipboard } from "../store/clipboard";
 import { formatDate, humanSize } from "../lib/format";
 import { parentPath } from "../lib/path";
 import { isModKey } from "../lib/platform";
-import { visibleEntries } from "../lib/selectors";
+import { targetEntries, visibleEntries } from "../lib/selectors";
+import { startDrag } from "../ipc/commands";
 import { actions } from "../keymap/actions";
 import type { ColKey, ColWidths, Side, SortKey, TabState, ViewMode } from "../store/panels";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
 import { useCtxMenu } from "./ContextMenu";
-import { FileIcon } from "./FileIcon";
+import { FileIcon, iconKey } from "./FileIcon";
 import { Icon } from "./icons";
 
 const ROW_HEIGHT = 26;
@@ -197,6 +198,42 @@ export function FileTable({
   );
 }
 
+/** Pointer travel (px) before a press on a row turns into a drag-out. */
+const DRAG_THRESHOLD = 4;
+
+/** Finder-style drag-out: once a press on a row moves past the threshold,
+ *  hand the files to a native drag session so they can be dropped on other
+ *  apps. Dragging a marked row carries the whole mark set; any other row
+ *  goes alone. Local files only — SFTP and archive entries have no path
+ *  another app could open. */
+function armDragOut(e: React.MouseEvent, side: Side, entry: FsEntry) {
+  if (usePanels.getState().activeTab(side).location.kind !== "local") return;
+  const x0 = e.clientX;
+  const y0 = e.clientY;
+  const disarm = () => {
+    window.removeEventListener("mousemove", move);
+    window.removeEventListener("mouseup", disarm);
+  };
+  const move = (ev: MouseEvent) => {
+    if (Math.abs(ev.clientX - x0) < DRAG_THRESHOLD && Math.abs(ev.clientY - y0) < DRAG_THRESHOLD)
+      return;
+    // The native session owns the pointer from here: no mouseup will
+    // reach the webview, so stop listening now.
+    disarm();
+    const tab = usePanels.getState().activeTab(side);
+    const items = tab.marked.has(entry.name)
+      ? targetEntries(tab, visibleEntries(tab, useSettings.getState().showHidden))
+      : [entry];
+    if (items.length === 0) return;
+    startDrag(
+      items.map((i) => i.path),
+      iconKey(entry.isDir, entry.ext),
+    ).catch((err) => console.error("drag-out failed:", err));
+  };
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", disarm);
+}
+
 /** Memoized with scalar props only: scrolling re-renders just the rows
  *  entering the viewport, a cursor move just the two rows that changed. */
 const Row = memo(function Row({
@@ -229,6 +266,7 @@ const Row = memo(function Row({
       s.markRange(side, index);
     } else {
       s.setCursor(side, index);
+      if (e.button === 0) armDragOut(e, side, entry);
     }
   };
 

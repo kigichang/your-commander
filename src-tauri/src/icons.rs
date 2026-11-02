@@ -143,3 +143,12 @@ pub async fn file_icon(app: AppHandle, key: String) -> Result<tauri::ipc::Respon
         .insert(key, bytes.clone());
     Ok(tauri::ipc::Response::new(bytes.as_ref().clone()))
 }
+
+/// Uncached icon lookup for callers already on the main thread (the drag
+/// image when the frontend has not fetched that icon yet).
+pub(crate) fn icon_png_on_main_thread(key: &str) -> Option<Vec<u8>> {
+    #[cfg(target_os = "macos")]
+    return unsafe { imp::icon_png(key) };
+    #[cfg(not(target_os = "macos"))]
+    return crate::platform::icon_png(key);
+}

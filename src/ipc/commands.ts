@@ -36,6 +36,10 @@ export const isArchiveName = (name: string) =>
   invoke<boolean>("is_archive", { name });
 export const fileTags = (path: string) =>
   invoke<string[]>("file_tags", { path });
+/** Hand local files to a native drag session (drop on Finder, Mail, …).
+ *  Call while the mouse button is still down. */
+export const startDrag = (paths: string[], iconKey: string) =>
+  invoke<void>("start_drag", { paths, iconKey });
 
 export const readPreview = async (
   location: Location,
