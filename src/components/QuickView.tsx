@@ -89,7 +89,8 @@ const AUDIO_MIME: Record<string, string> = {
 
 type Preview =
   | { kind: "image"; url: string }
-  | { kind: "video"; url: string }
+  /** `isStale` turns true once the cursor has moved on from this load. */
+  | { kind: "video"; url: string; isStale: () => boolean }
   | { kind: "video-failed" }
   | { kind: "audio"; url: string; data: ArrayBuffer | null }
   | { kind: "text"; text: string }
@@ -167,6 +168,85 @@ function OpenWithButton({ path }: { path: string }) {
   );
 }
 
+/** One <video> per URL (render with `key={url}`). A detached media element
+ *  keeps its player, decoder and stream:// loads alive until GC, so rapid
+ *  switching piled them up; this one releases them on unmount. */
+function VideoPreview({
+  url,
+  autoPlay,
+  isStale,
+  onMeta,
+  onFail,
+}: {
+  url: string;
+  autoPlay: boolean;
+  isStale: () => boolean;
+  onMeta: (v: HTMLVideoElement) => void;
+  onFail: (fallback: Preview) => void;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const framed = useRef(false);
+  const failed = useRef(false);
+
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    // React doesn't reliably sync the muted attribute; set the property
+    // directly. src is set here (not as a prop) so the release below can
+    // clear it and a StrictMode re-run restores it.
+    v.muted = useSettings.getState().config?.qv_mute ?? false;
+    v.src = url;
+    // requestVideoFrameCallback fires only when a frame is really
+    // presented — the reliable signal that video (not just audio) is
+    // rendering.
+    if (typeof v.requestVideoFrameCallback === "function") {
+      v.requestVideoFrameCallback(() => {
+        framed.current = true;
+      });
+    }
+    return () => {
+      v.pause();
+      v.removeAttribute("src");
+      v.load();
+    };
+  }, [url]);
+
+  // At most once, and never for a load the cursor already left (e.g. the
+  // error a revoked Blob URL raises while this element is still mounted).
+  const fail = (fallback: Preview) => {
+    if (failed.current || isStale()) return;
+    failed.current = true;
+    onFail(fallback);
+  };
+
+  return (
+    <video
+      ref={ref}
+      controls
+      playsInline
+      autoPlay={autoPlay}
+      onLoadedMetadata={(e) => {
+        if (!isStale()) onMeta(e.currentTarget);
+      }}
+      onError={() => fail({ kind: "none" })}
+      onTimeUpdate={(e) => {
+        // Some sloppily encoded files decode audio but silently yield zero
+        // video frames (AVFoundation reports no error). After a second of
+        // playback without a single presented frame, swap the black
+        // rectangle for an explanation.
+        const v = e.currentTarget;
+        if (
+          v.currentTime > 1 &&
+          typeof v.requestVideoFrameCallback === "function" &&
+          !framed.current
+        ) {
+          fail({ kind: "video-failed" });
+        }
+      }}
+    />
+  );
+}
+
 /** The pane this replaces shows the entry under the OTHER panel's cursor. */
 export function QuickView() {
   const { t } = useTranslation();
@@ -223,7 +303,8 @@ export function QuickView() {
 
   /** The decoder gave up: show `fallback` now and, with the opt-in ffmpeg
    *  setting on, upgrade to a still frame once one is extracted. */
-  const failVideo = (fallback: Preview) => {
+  const failVideo = (fallback: Preview, isStale: () => boolean) => {
+    if (isStale()) return;
     setPreview(fallback);
     const path = entry?.path;
     if (
@@ -236,7 +317,7 @@ export function QuickView() {
     void ipc
       .videoPoster(path)
       .then((buf) => {
-        if (entryRef.current !== path) return; // cursor moved on
+        if (isStale() || entryRef.current !== path) return; // cursor moved on
         const bytes = new Uint8Array(buf);
         let bin = "";
         for (let i = 0; i < bytes.length; i += 0x8000) {
@@ -250,6 +331,7 @@ export function QuickView() {
   useEffect(() => {
     let revoked: string | null = null;
     let stale = false;
+    const isStale = () => stale;
     setTags([]);
     setPdfPages(0);
     setDims(null);
@@ -303,19 +385,23 @@ export function QuickView() {
               const mime = VIDEO_MIME[entry.ext] ?? "video/mp4";
               const url = URL.createObjectURL(new Blob([buf], { type: mime }));
               revoked = url;
-              setPreview({ kind: "video", url });
+              setPreview({ kind: "video", url, isStale });
             } else if (isMac) {
               // Local disks and network mounts alike stream through
               // stream:// (range requests, nothing read into memory).
               // Formats the webview can't decode fall back to "none" via
               // onError.
-              setPreview({ kind: "video", url: convertFileSrc(entry.path, "stream") });
+              setPreview({
+                kind: "video",
+                url: convertFileSrc(entry.path, "stream"),
+                isStale,
+              });
             } else {
               // WebKitGTK won't range through custom schemes; a localhost
               // HTTP server stands in for stream:// there.
               const url = await ipc.mediaUrl(entry.path);
               if (stale) return;
-              setPreview({ kind: "video", url });
+              setPreview({ kind: "video", url, isStale });
             }
           } catch {
             if (!stale) setPreview({ kind: "none" });
@@ -407,14 +493,12 @@ export function QuickView() {
             <PlantUmlPreview text={preview.text} />
           </Suspense>
         ) : preview.kind === "video" ? (
-          <video
-            src={preview.url}
-            controls
-            playsInline
+          <VideoPreview
+            key={preview.url}
+            url={preview.url}
             autoPlay={config?.qv_autoplay ?? false}
-            muted={config?.qv_mute ?? false}
-            onLoadedMetadata={(e) => {
-              const v = e.currentTarget;
+            isStale={preview.isStale}
+            onMeta={(v) => {
               if (v.videoWidth > 0 && v.videoHeight > 0) {
                 setDims((d) => d ?? `${v.videoWidth} × ${v.videoHeight}`);
               }
@@ -422,35 +506,7 @@ export function QuickView() {
                 setDuration((d) => d ?? formatDuration(v.duration));
               }
             }}
-            onError={() => failVideo({ kind: "none" })}
-            ref={(v) => {
-              if (!v) return;
-              // React doesn't reliably sync the muted attribute; set the
-              // property directly.
-              v.muted = useSettings.getState().config?.qv_mute ?? false;
-              // requestVideoFrameCallback fires only when a frame is really
-              // presented — the reliable signal that video (not just audio)
-              // is rendering.
-              if (v && typeof v.requestVideoFrameCallback === "function") {
-                v.requestVideoFrameCallback(() => {
-                  v.dataset.framed = "1";
-                });
-              }
-            }}
-            onTimeUpdate={(e) => {
-              // Some sloppily encoded files decode audio but silently yield
-              // zero video frames (AVFoundation reports no error). After a
-              // second of playback without a single presented frame, swap
-              // the black rectangle for an explanation.
-              const v = e.currentTarget;
-              if (
-                v.currentTime > 1 &&
-                typeof v.requestVideoFrameCallback === "function" &&
-                !v.dataset.framed
-              ) {
-                failVideo({ kind: "video-failed" });
-              }
-            }}
+            onFail={(fallback) => failVideo(fallback, preview.isStale)}
           />
         ) : preview.kind === "video-failed" || preview.kind === "video-poster" ? (
           <div className="qv-fail">

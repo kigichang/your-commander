@@ -209,6 +209,20 @@ export function AudioPreview({
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  // A detached <audio> keeps its player and stream:// loads alive until
+  // GC; release them when Quick View moves on. src is set here (not as a
+  // prop) so a StrictMode re-run restores what the release cleared.
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    a.src = url;
+    return () => {
+      a.pause();
+      a.removeAttribute("src");
+      a.load();
+    };
+  }, [url]);
+
   const seek = (e: MouseEvent<HTMLDivElement>) => {
     const a = audioRef.current;
     if (!a || !Number.isFinite(a.duration)) return;
@@ -224,7 +238,6 @@ export function AudioPreview({
     <div className="qv-audio">
       <audio
         ref={audioRef}
-        src={url}
         controls
         onLoadedMetadata={(e) => {
           const a = e.currentTarget;
