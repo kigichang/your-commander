@@ -6913,7 +6913,7 @@ dependencies = [
 
 [[package]]
 name = "your-commander"
-version = "0.12.4"
+version = "0.12.5"
 dependencies = [
  "core-foundation 0.10.1",
  "dirs 7.0.0",
