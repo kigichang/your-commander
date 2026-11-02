@@ -279,6 +279,7 @@
   },
   "ctx": {
     "open": "開啟",
+    "execute": "執行",
     "openWith": "用其他 App 開啟",
     "defaultApp": "{{name}}（預設）",
     "openInNewTab": "在新分頁開啟",

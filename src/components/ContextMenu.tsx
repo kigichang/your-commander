@@ -5,6 +5,7 @@ import * as ipc from "../ipc/commands";
 import type { ActionId } from "../keymap/actions";
 import { actions, ARCHIVE_RE } from "../keymap/actions";
 import { prettyChord } from "../keymap/keymap";
+import { isMac } from "../lib/platform";
 import { targetEntries, visibleEntries } from "../lib/selectors";
 import type { ExternalTool, OpenApp } from "../ipc/types";
 import { useClipboard } from "../store/clipboard";
@@ -139,10 +140,31 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
     const n = targets.length;
     const archives = targets.filter((e) => !e.isDir && ARCHIVE_RE.test(e.name)).length;
     const many = (label: string) => (n > 1 ? `${label} (${n})` : label);
+    // App bundles list as folders ("Open" browses inside); "Execute"
+    // launches them the way Finder's Open does.
+    const isApp = (e: { name: string; isDir: boolean }) => e.isDir && /\.app$/i.test(e.name);
+    const bundles = isMac && loc === "local" && isApp(entry) ? targets.filter(isApp) : [];
     const s = usePanels.getState();
 
     const open: Section = [
       act("enter", t("ctx.open")),
+      ...(bundles.length > 0
+        ? [
+            {
+              label:
+                bundles.length > 1
+                  ? `${t("ctx.execute")} (${bundles.length})`
+                  : t("ctx.execute"),
+              run: () => {
+                for (const a of bundles) {
+                  void ipc
+                    .openPath(a.path)
+                    .catch((err) => useOps.getState().toast(String(err), "error"));
+                }
+              },
+            },
+          ]
+        : []),
       ...(loc === "local" && !entry.isDir && apps.length > 0
         ? [
             {
