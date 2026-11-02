@@ -43,6 +43,7 @@ export type ActionId =
   | "closeTab"
   | "newWindow"
   | "newTerminalHere"
+  | "newHerdrHere"
   | "newVscodeHere"
   | "newZedHere"
   | "swap"
@@ -85,7 +86,7 @@ function copyText(text: string) {
 }
 
 /** "New … Here": launch a terminal/editor in the active panel's folder. */
-function openHere(tool: "terminal" | "vscode" | "zed") {
+function openHere(tool: "terminal" | "herdr" | "vscode" | "zed") {
   const s = panels();
   const tab = s.activeTab(s.activeSide);
   if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
@@ -430,6 +431,7 @@ export const actions: Record<ActionId, Action> = {
   },
 
   newTerminalHere: { id: "newTerminalHere", run: () => openHere("terminal") },
+  newHerdrHere: { id: "newHerdrHere", run: () => openHere("herdr") },
   newVscodeHere: { id: "newVscodeHere", run: () => openHere("vscode") },
   newZedHere: { id: "newZedHere", run: () => openHere("zed") },
 

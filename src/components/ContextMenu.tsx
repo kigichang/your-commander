@@ -124,6 +124,7 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
           ? [
               [
                 act("newTerminalHere"),
+                ...(config?.menu_herdr ? [act("newHerdrHere")] : []),
                 ...(config?.menu_vscode ? [act("newVscodeHere")] : []),
                 ...(config?.menu_zed ? [act("newZedHere")] : []),
               ],

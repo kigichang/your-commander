@@ -93,6 +93,7 @@ export interface Config {
   plantuml_server: string;
   plantuml_jar: string;
   plantuml_java: string;
+  menu_herdr: boolean;
   menu_vscode: boolean;
   menu_zed: boolean;
   external_tools: ExternalTool[];

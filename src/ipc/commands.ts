@@ -150,7 +150,7 @@ export const renderPlantuml = (code: string) =>
 export const fkeysSet = (enabled: boolean) => invoke<void>("fkeys_set", { enabled });
 export const fkeysAvailable = () => invoke<boolean>("fkeys_available");
 export const newWindow = () => invoke<void>("new_window");
-export const openIn = (tool: "terminal" | "vscode" | "zed", dir: string) =>
+export const openIn = (tool: "terminal" | "herdr" | "vscode" | "zed", dir: string) =>
   invoke<void>("open_in", { tool, dir });
 export const openWith = (app: string, paths: string[]) =>
   invoke<void>("open_with", { app, paths });

@@ -236,6 +236,14 @@ function PanesPane() {
       <label className="check">
         <input
           type="checkbox"
+          checked={config?.menu_herdr ?? false}
+          onChange={(e) => useSettings.getState().save({ menu_herdr: e.target.checked })}
+        />
+        {t("action.newHerdrHere")}
+      </label>
+      <label className="check">
+        <input
+          type="checkbox"
           checked={config?.menu_vscode ?? false}
           onChange={(e) => useSettings.getState().save({ menu_vscode: e.target.checked })}
         />

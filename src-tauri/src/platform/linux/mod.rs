@@ -21,7 +21,8 @@ pub(crate) fn file_uri(path: &Path) -> String {
 }
 
 /// "New … Here" in the blank-space context menu: open a terminal or editor
-/// in `dir`. `tool` is "terminal", "vscode", or "zed".
+/// in `dir`. `tool` is "terminal", "herdr", "vscode", or
+/// "zed".
 pub fn open_in(tool: &str, dir: &Path) -> Result<(), String> {
     let spawn =
         |mut cmd: Command| cmd.spawn().map(|_| ()).map_err(|e| e.to_string());
@@ -52,6 +53,16 @@ pub fn open_in(tool: &str, dir: &Path) -> Result<(), String> {
                 return spawn(cmd);
             }
             Err("no terminal emulator found".to_string())
+        }
+        "herdr" => {
+            super::herdr_shell(dir)?;
+            // The shell lives in herdr-core either way; bring up the app
+            // when it's installed.
+            let local = crate::fs::local::home_dir().join(".local/bin/herdr-app");
+            match find_cli("herdr-app", &[local.to_str().unwrap_or_default()]) {
+                Some(app) => spawn(Command::new(app)),
+                None => Ok(()),
+            }
         }
         "vscode" => {
             let cli = find_cli("code", &["/usr/bin/code", "/snap/bin/code", "/usr/local/bin/code"])

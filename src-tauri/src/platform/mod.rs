@@ -41,6 +41,33 @@ pub(crate) fn find_cli(name: &str, candidates: &[&str]) -> Option<PathBuf> {
     (!path.is_empty()).then(|| PathBuf::from(path))
 }
 
+/// "New Herdr Here": a new shell terminal in `dir`, kept alive by herdr-core
+/// (the Herdr app shows it). Waits for `--bg` to return so a failure
+/// reaches the toast.
+fn herdr_shell(dir: &std::path::Path) -> Result<(), String> {
+    let local = crate::fs::local::home_dir().join(".local/bin/herdr-core");
+    let core = find_cli(
+        "herdr-core",
+        &[
+            local.to_str().unwrap_or_default(),
+            "/opt/homebrew/bin/herdr-core",
+            "/usr/local/bin/herdr-core",
+        ],
+    )
+    .ok_or("herdr-core not found")?;
+    let out = std::process::Command::new(core)
+        .args(["run", "--bg", "--no-parent", "--cwd"])
+        .arg(dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if err.is_empty() { "herdr-core run failed".to_string() } else { err });
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]

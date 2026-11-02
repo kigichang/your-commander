@@ -80,7 +80,8 @@ pub fn home_dir() -> PathBuf {
 }
 
 /// "New … Here" in the blank-space context menu: open a terminal or editor
-/// in `dir`. `tool` is "terminal", "vscode", or "zed".
+/// in `dir`. `tool` is "terminal", "herdr", "vscode", or
+/// "zed".
 #[tauri::command]
 pub async fn open_in(tool: String, dir: PathBuf) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || platform::open_in(&tool, &dir))

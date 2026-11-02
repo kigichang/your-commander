@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 pub mod smb;
 
 /// "New … Here" in the blank-space context menu: open a terminal or editor
-/// in `dir`. `tool` is "terminal", "vscode", or "zed".
+/// in `dir`. `tool` is "terminal", "herdr", "vscode", or
+/// "zed".
 pub fn open_in(tool: &str, dir: &Path) -> Result<(), String> {
     let spawn =
         |mut cmd: std::process::Command| cmd.spawn().map(|_| ()).map_err(|e| e.to_string());
@@ -16,6 +17,12 @@ pub fn open_in(tool: &str, dir: &Path) -> Result<(), String> {
         "terminal" => {
             let mut cmd = std::process::Command::new("/usr/bin/open");
             cmd.arg("-a").arg("Terminal").arg(dir);
+            spawn(cmd)
+        }
+        "herdr" => {
+            super::herdr_shell(dir)?;
+            let mut cmd = std::process::Command::new("/usr/bin/open");
+            cmd.arg("-a").arg("Herdr");
             spawn(cmd)
         }
         "vscode" => {
