@@ -106,9 +106,7 @@ pub struct Config {
     pub plantuml_jar: String,
     /// Explicit java binary; empty = auto-detect (java_home, Homebrew, PATH).
     pub plantuml_java: String,
-    /// Show "New Herdr Here" / "New VSCode Here" / "New Zed Here" in the
-    /// context menu.
-    pub menu_herdr: bool,
+    /// Show "New VSCode Here" / "New Zed Here" in the context menu.
     pub menu_vscode: bool,
     pub menu_zed: bool,
     /// User-defined tools shown in the file context menu (`open -a`).
@@ -155,7 +153,6 @@ impl Default for Config {
             plantuml_server: "https://www.plantuml.com/plantuml".to_string(),
             plantuml_jar: String::new(),
             plantuml_java: String::new(),
-            menu_herdr: false,
             menu_vscode: false,
             menu_zed: false,
             external_tools: Vec::new(),
