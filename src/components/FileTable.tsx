@@ -5,6 +5,7 @@ import { memo, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { FsEntry, Location } from "../ipc/types";
 import { useClipboard } from "../store/clipboard";
+import { useFileDrop } from "../store/fileDrop";
 import { formatDate, humanSize } from "../lib/format";
 import { parentPath } from "../lib/path";
 import { isModKey } from "../lib/platform";
@@ -108,6 +109,8 @@ export function FileTable({
 
   // Items pending ⌘X show greyed, pending ⌘C show bold, until pasted or Esc.
   const clip = useClipboard((s) => s.clip);
+  // Folder row a file drag is hovering (it would drop into that folder).
+  const dropRow = useFileDrop((s) => (s.target?.side === side ? s.target.rowPath : null));
   const clipPaths = useMemo(
     () =>
       clip && sameLocation(clip.location, tab.location)
@@ -182,6 +185,7 @@ export function FileTable({
                 cols={cols}
                 isCursor={item.index === tab.cursor}
                 isMarked={tab.marked.has(visible[item.index].name)}
+                isDropTarget={dropRow === visible[item.index].path}
                 clipKind={
                   clipPaths?.has(visible[item.index].path)
                     ? clip!.move
@@ -245,6 +249,7 @@ const Row = memo(function Row({
   cols,
   isCursor,
   isMarked,
+  isDropTarget,
   clipKind,
 }: {
   entry: FsEntry;
@@ -255,6 +260,7 @@ const Row = memo(function Row({
   cols: string;
   isCursor: boolean;
   isMarked: boolean;
+  isDropTarget: boolean;
   clipKind: "cut" | "copy" | null;
 }) {
   const onMouseDown = (e: React.MouseEvent) => {
@@ -293,7 +299,9 @@ const Row = memo(function Row({
         isMarked && "marked",
         clipKind === "cut" && "clip-cut",
         clipKind === "copy" && "clip-copy",
+        isDropTarget && "drop-target",
       )}
+      data-dir-path={entry.isDir ? entry.path : undefined}
       style={{ top, gridTemplateColumns: brief ? "1fr" : cols }}
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}

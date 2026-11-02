@@ -133,6 +133,7 @@ pub fn run() {
             commands::fs::rename,
             commands::fs::batch_rename,
             commands::fs::exists,
+            commands::fs::stat_paths,
             commands::system::new_window,
             commands::system::quit_app,
             commands::system::volumes,

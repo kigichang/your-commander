@@ -8,6 +8,7 @@ import type {
   Location,
   OpEvent,
   OpRequest,
+  SourceItem,
   SshConfigHost,
   SyncRow,
   VolumeInfo,
@@ -40,6 +41,9 @@ export const fileTags = (path: string) =>
  *  Call while the mouse button is still down. */
 export const startDrag = (paths: string[], iconKey: string) =>
   invoke<void>("start_drag", { paths, iconKey });
+/** Local paths dropped in from another app, as copy-op sources. */
+export const statPaths = (paths: string[]) =>
+  invoke<SourceItem[]>("stat_paths", { paths });
 
 export const readPreview = async (
   location: Location,

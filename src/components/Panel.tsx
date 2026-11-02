@@ -12,6 +12,7 @@ import { isMac } from "../lib/platform";
 import { isMask } from "../lib/wildcard";
 import { targetEntries, visibleEntries } from "../lib/selectors";
 import type { Side, TabState } from "../store/panels";
+import { useFileDrop } from "../store/fileDrop";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
 import { FileTable } from "./FileTable";
@@ -38,13 +39,20 @@ export function Panel({ side }: { side: Side }) {
   const isActive = usePanels((s) => s.activeSide === side);
   const quickViewSide = usePanels((s) => s.quickViewSide);
   const quickViewShown = usePanels((s) => s.quickViewShown);
+  // A file drag hovers this panel's folder (not a folder row inside it).
+  const dropHere = useFileDrop((s) => s.target?.side === side && s.target.rowPath === null);
   const tab = panel.tabs[panel.active];
   if (!tab) return <section className="panel" />;
 
   const isQuickView = quickViewSide === side && quickViewShown;
   return (
     <section
-      className={clsx("panel", isActive && !isQuickView && "active")}
+      data-side={side}
+      className={clsx(
+        "panel",
+        isActive && !isQuickView && "active",
+        dropHere && "drop-target",
+      )}
       onMouseDownCapture={() => {
         if (isQuickView) return;
         // Drop any Quick View text selection so ⌘C copies files again.

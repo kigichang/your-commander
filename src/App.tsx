@@ -8,6 +8,7 @@ import { Panel } from "./components/Panel";
 import { Toolbar } from "./components/Toolbar";
 import { useKeyboard } from "./keymap/useKeyboard";
 import { dragRegion } from "./lib/platform";
+import { initFileDrop } from "./store/fileDrop";
 import { useKeymap } from "./store/keymapStore";
 import type { Side } from "./store/panels";
 import { usePanels } from "./store/panels";
@@ -71,6 +72,17 @@ export default function App() {
       });
     })();
     return () => unlisten?.();
+  }, []);
+
+  // Files dragged in from Finder (or between panels) copy into a panel.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let gone = false;
+    void initFileDrop().then((fn) => (gone ? fn() : (unlisten = fn)));
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
   }, []);
 
   return (

@@ -205,6 +205,11 @@ svg.li {
 .panel.active {
   border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
 }
+/* Files dragged from another app would land in this panel's folder. */
+.panel.drop-target {
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
 
 .tabstrip {
   display: flex;
@@ -531,6 +536,13 @@ svg.li {
 .row.cursor {
   background: var(--cursor-tint);
   border-left-color: var(--color-accent);
+}
+.row.drop-target,
+.panel:not(.active) .row.drop-target {
+  /* Files dragged from another app would drop into this folder. */
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
 }
 .panel:not(.active) .row.cursor {
   background: color-mix(in srgb, var(--color-text) 5%, transparent);

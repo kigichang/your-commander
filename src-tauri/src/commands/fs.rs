@@ -177,3 +177,30 @@ pub async fn exists(
     })
     .await
 }
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DroppedItem {
+    path: PathBuf,
+    is_dir: bool,
+    is_symlink: bool,
+}
+
+/// Stat local paths dropped in from another app (Finder, the desktop…)
+/// into the shape a copy op takes. Paths that vanished are skipped.
+#[tauri::command]
+pub async fn stat_paths(paths: Vec<PathBuf>) -> Result<Vec<DroppedItem>, String> {
+    blocking(move || {
+        Ok(paths
+            .into_iter()
+            .filter_map(|path| {
+                let link = std::fs::symlink_metadata(&path).ok()?;
+                let is_symlink = link.file_type().is_symlink();
+                // A link to a folder copies as the link, but reads as a folder.
+                let is_dir = std::fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false);
+                Some(DroppedItem { path, is_dir, is_symlink })
+            })
+            .collect())
+    })
+    .await
+}
