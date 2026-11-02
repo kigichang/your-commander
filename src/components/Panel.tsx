@@ -46,7 +46,10 @@ export function Panel({ side }: { side: Side }) {
     <section
       className={clsx("panel", isActive && !isQuickView && "active")}
       onMouseDownCapture={() => {
-        if (!isQuickView) usePanels.getState().setActiveSide(side);
+        if (isQuickView) return;
+        // Drop any Quick View text selection so ⌘C copies files again.
+        window.getSelection()?.removeAllRanges();
+        usePanels.getState().setActiveSide(side);
       }}
     >
       <TabStrip side={side} />
