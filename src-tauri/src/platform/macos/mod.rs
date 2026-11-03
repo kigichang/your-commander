@@ -212,6 +212,75 @@ pub fn reveal(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Double-click on a `.dmg`, Finder style: DiskImageMounter attaches it
+/// (and handles verification, licence and password prompts itself), then
+/// the mounted volume opens in a frontmost Finder window so the app inside
+/// can be dragged to Applications. A plain `open` mounts the image but
+/// leaves Finder in the background, so nothing visible seems to happen.
+pub fn open_disk_image(path: &Path) -> Result<(), String> {
+    let image = path.canonicalize().map_err(|e| e.to_string())?;
+    let status = std::process::Command::new("/usr/bin/open")
+        .arg("--")
+        .arg(&image)
+        .status()
+        .map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!("Cannot open {}", path.display()));
+    }
+    // Mounting (and any prompt the user must answer) happens asynchronously
+    // in DiskImageMounter; wait for the volume in the background.
+    std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while std::time::Instant::now() < deadline {
+            if let Some(mount) = disk_image_mount_point(&image) {
+                let _ = std::process::Command::new("/usr/bin/open")
+                    .arg("-a")
+                    .arg("Finder")
+                    .arg(&mount)
+                    .status();
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+    });
+    Ok(())
+}
+
+/// Where `image` is mounted, from `hdiutil info` (None while not attached).
+fn disk_image_mount_point(image: &Path) -> Option<PathBuf> {
+    let out = std::process::Command::new("/usr/bin/hdiutil")
+        .arg("info")
+        .output()
+        .ok()?;
+    parse_hdiutil_mount(&String::from_utf8_lossy(&out.stdout), image)
+}
+
+/// `hdiutil info` prints one `====`-separated block per attached image: an
+/// `image-path : …` line, then tab-separated `dev  hint  mount-point` rows.
+fn parse_hdiutil_mount(info: &str, image: &Path) -> Option<PathBuf> {
+    let same = |p: &str| {
+        let p = Path::new(p);
+        p == image || p.canonicalize().is_ok_and(|c| c == image)
+    };
+    for block in info.split("\n====") {
+        let mut lines = block.lines();
+        let matches = lines.clone().any(|l| {
+            l.split_once(':').is_some_and(|(k, v)| k.trim() == "image-path" && same(v.trim()))
+        });
+        if !matches {
+            continue;
+        }
+        let mount = lines.find_map(|l| {
+            let mount = l.split('\t').nth(2)?.trim();
+            mount.starts_with('/').then(|| PathBuf::from(mount))
+        });
+        if mount.is_some() {
+            return mount;
+        }
+    }
+    None
+}
+
 /// Finder tags of a file, via `mdls` (best effort; empty on failure).
 pub fn file_tags(path: &Path) -> Vec<String> {
     let parse = || -> Option<Vec<String>> {
@@ -264,4 +333,36 @@ pub fn media_info(path: &Path) -> Result<MediaInfo, String> {
         width: num("kMDItemPixelWidth").map(|v| v as u32),
         height: num("kMDItemPixelHeight").map(|v| v as u32),
     })
+}
+
+#[cfg(test)]
+mod disk_image_tests {
+    use super::parse_hdiutil_mount;
+    use std::path::{Path, PathBuf};
+
+    const INFO: &str = "framework       : 710\n\
+driver          : 710\n\
+================================================\n\
+image-path      : /Users/me/Downloads/Other.dmg\n\
+image-type      : read-only disk image\n\
+/dev/disk4\tGUID_partition_scheme\t\n\
+/dev/disk4s1\t48465300-0000-11AA-AA11-00306543ECAC\t/Volumes/Other\n\
+================================================\n\
+image-path      : /Users/me/Downloads/My App 1.0.dmg\n\
+image-type      : read-only disk image\n\
+/dev/disk5\tGUID_partition_scheme\t\n\
+/dev/disk5s1\t48465300-0000-11AA-AA11-00306543ECAC\t/Volumes/My App\n";
+
+    #[test]
+    fn finds_mount_point_of_matching_image() {
+        assert_eq!(
+            parse_hdiutil_mount(INFO, Path::new("/Users/me/Downloads/My App 1.0.dmg")),
+            Some(PathBuf::from("/Volumes/My App"))
+        );
+    }
+
+    #[test]
+    fn none_when_image_not_attached() {
+        assert_eq!(parse_hdiutil_mount(INFO, Path::new("/Users/me/Missing.dmg")), None);
+    }
 }

@@ -262,6 +262,16 @@ pub async fn get_info(paths: Vec<PathBuf>) -> Result<(), String> {
 /// Open a local file or folder with its default app.
 #[tauri::command]
 pub async fn open_path(path: PathBuf) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("dmg"))
+        && path.is_file()
+    {
+        return tauri::async_runtime::spawn_blocking(move || platform::open_disk_image(&path))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     tauri::async_runtime::spawn_blocking(move || open::that(&path).map_err(|e| e.to_string()))
         .await
         .map_err(|e| e.to_string())?
