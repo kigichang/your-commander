@@ -8,7 +8,7 @@ import { useOps } from "../store/ops";
 import type { VolumeInfo } from "../ipc/types";
 import { humanSize } from "../lib/format";
 import { baseName, displayPath, expandHome, parentPath } from "../lib/path";
-import { isMac } from "../lib/platform";
+import { dragRegion, isMac } from "../lib/platform";
 import { isMask } from "../lib/wildcard";
 import { targetEntries, visibleEntries } from "../lib/selectors";
 import type { Side, TabState } from "../store/panels";
@@ -80,8 +80,10 @@ function TabStrip({ side }: { side: Side }) {
   const hasQuickView = usePanels((s) => s.quickViewSide === side);
   const quickViewShown = usePanels((s) => s.quickViewShown);
   const { setActiveTab, closeTab, openTab } = usePanels.getState();
+  // The strip's blank space moves the window, as in Safari's tab bar; the
+  // tabs themselves stay buttons (Tauri ignores mousedowns on children).
   return (
-    <div className="tabstrip">
+    <div className="tabstrip" {...dragRegion}>
       {panel.tabs.map((tab, i) => (
         <button
           key={tab.id}

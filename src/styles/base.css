@@ -15,7 +15,7 @@ body,
 }
 
 body {
-  background: var(--color-bg);
+  background: var(--color-chrome);
   color: var(--color-text);
   font-family: var(--font-body);
   font-size: 13px;
@@ -197,7 +197,7 @@ svg.li {
   flex-direction: column;
   flex: 1 1 0;
   min-width: 0;
-  background: var(--color-surface);
+  background: var(--color-chrome);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-divider);
   overflow: hidden;
@@ -402,6 +402,7 @@ svg.li {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  background: var(--color-well);
 }
 .ftable .thead {
   display: grid;
@@ -685,6 +686,7 @@ svg.li {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  background: var(--color-well);
 }
 .qv-head {
   display: flex;
