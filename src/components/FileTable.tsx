@@ -125,6 +125,9 @@ export function FileTable({
   }, [tab.cursor]);
 
   const brief = viewMode !== "full";
+  // Selection = what an operation would act on (see targetEntries): the
+  // marked set, or the cursor entry when nothing is marked.
+  const hasMarks = tab.marked.size > 0;
   const colWidths = usePanels((s) => s.panels[side].colWidths);
   const cols = gridColumns(colWidths);
 
@@ -141,7 +144,7 @@ export function FileTable({
   );
 
   return (
-    <div className="ftable">
+    <div className={clsx("ftable", hasMarks && "has-marks")}>
       {!brief && (
         <div className="thead" style={{ gridTemplateColumns: cols }}>
           {COLUMNS.map((c) => (
@@ -212,6 +215,7 @@ export function FileTable({
                         cols={gridCols}
                         isCursor={index === tab.cursor}
                         isMarked={tab.marked.has(entry.name)}
+                        hasMarks={hasMarks}
                         isDropTarget={dropRow === entry.path}
                         clipKind={
                           clipPaths?.has(entry.path) ? (clip!.move ? "cut" : "copy") : null
@@ -232,6 +236,7 @@ export function FileTable({
                 cols={cols}
                 isCursor={item.index === tab.cursor}
                 isMarked={tab.marked.has(visible[item.index].name)}
+                hasMarks={hasMarks}
                 isDropTarget={dropRow === visible[item.index].path}
                 clipKind={
                   clipPaths?.has(visible[item.index].path)
@@ -323,6 +328,7 @@ function stateClasses(
   entry: FsEntry,
   isCursor: boolean,
   isMarked: boolean,
+  hasMarks: boolean,
   isDropTarget: boolean,
   clipKind: "cut" | "copy" | null,
 ) {
@@ -332,6 +338,7 @@ function stateClasses(
     entry.isHidden && "hidden-entry",
     isCursor && "cursor",
     isMarked && "marked",
+    (isMarked || (isCursor && !hasMarks)) && "sel",
     clipKind === "cut" && "clip-cut",
     clipKind === "copy" && "clip-copy",
     isDropTarget && "drop-target",
@@ -349,6 +356,7 @@ const Row = memo(function Row({
   cols,
   isCursor,
   isMarked,
+  hasMarks,
   isDropTarget,
   clipKind,
 }: {
@@ -360,6 +368,7 @@ const Row = memo(function Row({
   cols: string;
   isCursor: boolean;
   isMarked: boolean;
+  hasMarks: boolean;
   isDropTarget: boolean;
   clipKind: "cut" | "copy" | null;
 }) {
@@ -367,7 +376,7 @@ const Row = memo(function Row({
 
   return (
     <div
-      className={clsx("row", stateClasses(entry, isCursor, isMarked, isDropTarget, clipKind))}
+      className={clsx("row", stateClasses(entry, isCursor, isMarked, hasMarks, isDropTarget, clipKind))}
       data-dir-path={entry.isDir ? entry.path : undefined}
       style={{ top, gridTemplateColumns: brief ? "1fr" : cols }}
       onMouseDown={onMouseDown}
@@ -397,6 +406,7 @@ const Tile = memo(function Tile({
   cols,
   isCursor,
   isMarked,
+  hasMarks,
   isDropTarget,
   clipKind,
 }: {
@@ -408,13 +418,14 @@ const Tile = memo(function Tile({
   cols: number;
   isCursor: boolean;
   isMarked: boolean;
+  hasMarks: boolean;
   isDropTarget: boolean;
   clipKind: "cut" | "copy" | null;
 }) {
   const { onMouseDown, onContextMenu, onDoubleClick } = entryHandlers(side, index, entry);
   return (
     <div
-      className={clsx("tile", stateClasses(entry, isCursor, isMarked, isDropTarget, clipKind))}
+      className={clsx("tile", stateClasses(entry, isCursor, isMarked, hasMarks, isDropTarget, clipKind))}
       data-dir-path={entry.isDir ? entry.path : undefined}
       title={entry.name}
       style={{

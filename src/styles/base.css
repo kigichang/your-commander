@@ -477,13 +477,17 @@ svg.li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 64px 84px 118px;
   align-items: center;
-  padding: 0 var(--space-3);
+  /* Inset so a selection reads as a rounded block, as in Finder; the
+     padding gives the inset back so columns still line up with the header. */
+  padding: 0 calc(var(--space-3) - var(--row-inset));
   position: absolute;
-  left: 0;
-  right: 0;
+  left: var(--row-inset);
+  right: var(--row-inset);
   height: 26px;
   font-size: 12.5px;
   border-left: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  --row-inset: 4px;
 }
 .row:hover {
   background: var(--hover-tint);
@@ -524,6 +528,7 @@ svg.li {
   color: var(--text-muted);
 }
 .row.parent {
+  --row-inset: 0px;
   position: static;
   grid-template-columns: 1fr;
   flex: none;
@@ -534,9 +539,34 @@ svg.li {
 .row.parent .icon {
   color: var(--color-accent-2);
 }
-.row.cursor {
-  background: var(--cursor-tint);
-  border-left-color: var(--color-accent);
+/* Selection (marked rows, or the cursor row when nothing is marked):
+   blue in the active panel. Runs of selected rows merge into one block
+   with hairlines between, like Finder's list. */
+.row.sel {
+  background: var(--color-select);
+  color: var(--color-select-text);
+}
+.row.sel .icon,
+.row.sel .num,
+.row.sel .date,
+.row.sel .ext {
+  color: color-mix(in srgb, var(--color-select-text) 82%, transparent);
+}
+.row.sel + .row.sel {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-select-text) 14%, transparent);
+}
+.row.sel:has(+ .row.sel) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+/* With marks, the cursor is only a focus ring (operations act on marks). */
+.row.cursor:not(.sel) {
+  box-shadow: inset 0 0 0 1px var(--color-select);
+}
+.has-marks .row.cursor.sel {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-select-text) 70%, transparent);
 }
 .row.drop-target,
 .panel:not(.active) .row.drop-target {
@@ -545,15 +575,23 @@ svg.li {
   outline: 1px solid var(--color-accent);
   outline-offset: -1px;
 }
-.panel:not(.active) .row.cursor {
-  background: color-mix(in srgb, var(--color-text) 5%, transparent);
-  border-left-color: var(--color-neutral-600);
+/* Inactive panel: selection turns grey, as in an unfocused Finder window. */
+.panel:not(.active) .row.sel {
+  background: var(--color-select-inactive);
+  color: var(--color-text);
 }
-.row.marked .name,
-.row.marked .ext {
-  /* Monochrome accent: bold carries the mark where hue no longer can. */
-  color: var(--color-accent);
-  font-weight: 600;
+.panel:not(.active) .row.sel .icon,
+.panel:not(.active) .row.sel .num,
+.panel:not(.active) .row.sel .date,
+.panel:not(.active) .row.sel .ext {
+  color: var(--text-muted);
+}
+.panel:not(.active) .row.sel + .row.sel {
+  box-shadow: inset 0 1px 0 var(--color-divider);
+}
+.panel:not(.active) .row.cursor:not(.sel),
+.panel:not(.active) .has-marks .row.cursor.sel {
+  box-shadow: inset 0 0 0 1px var(--color-neutral-600);
 }
 /* Pending ⌘X: greyed until pasted or cancelled with Esc. */
 .row.clip-cut {
@@ -620,22 +658,36 @@ svg.li {
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
-.tile.cursor {
-  background: var(--cursor-tint);
-  box-shadow: inset 0 0 0 1px var(--color-accent);
+.tile .name {
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
 }
-.panel:not(.active) .tile.cursor {
-  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+/* Finder icon view: a soft box behind the icon, the name in a blue pill. */
+.tile.sel {
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+}
+.tile.sel .name {
+  background: var(--color-select);
+  color: var(--color-select-text);
+}
+.tile.cursor:not(.sel) {
+  box-shadow: inset 0 0 0 1px var(--color-select);
+}
+.has-marks .tile.cursor.sel {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+.panel:not(.active) .tile.sel .name {
+  background: var(--color-select-inactive);
+  color: var(--color-text);
+}
+.panel:not(.active) .tile.cursor:not(.sel),
+.panel:not(.active) .has-marks .tile.cursor.sel {
   box-shadow: inset 0 0 0 1px var(--color-neutral-600);
 }
 .tile.drop-target,
 .panel:not(.active) .tile.drop-target {
   background: color-mix(in srgb, var(--color-accent) 22%, transparent);
   box-shadow: inset 0 0 0 1px var(--color-accent);
-}
-.tile.marked .name {
-  color: var(--color-accent);
-  font-weight: 600;
 }
 .tile.clip-cut {
   opacity: 0.45;
