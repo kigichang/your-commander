@@ -103,6 +103,9 @@ export interface Config {
   right_cols: number[];
   window_size: [number, number] | null;
   split_ratio: number;
+  font_family: string;
+  font_mono: string;
+  font_scale: number;
 }
 
 export interface MediaInfo {

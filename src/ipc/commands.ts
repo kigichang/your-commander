@@ -152,6 +152,8 @@ export const setConfig = (config: Config) =>
 export const fileIcon = async (key: string): Promise<ArrayBuffer> =>
   invoke("file_icon", { key });
 
+export const listFontFamilies = () => invoke<string[]>("list_font_families");
+
 export const renderPlantuml = (code: string) =>
   invoke<string>("render_plantuml", { code });
 

@@ -3,6 +3,7 @@ import clsx from "clsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
+import { useScaled } from "../lib/fontScale";
 import { humanSize } from "../lib/format";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
@@ -184,10 +185,11 @@ export function CompareDialog({ d }: { d: Extract<Dialog, { type: "compare" }> }
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const rowHeight = useScaled(ROW_HEIGHT);
   const virtualizer = useVirtualizer({
     count: visible.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 20,
   });
 
@@ -235,7 +237,7 @@ export function CompareDialog({ d }: { d: Extract<Dialog, { type: "compare" }> }
                     <div
                       key={item.key}
                       className={clsx("cmp-row", r.kind)}
-                      style={{ top: item.start }}
+                      style={{ top: item.start, height: rowHeight, lineHeight: `${rowHeight}px` }}
                     >
                       <span className="num">{r.ln ?? ""}</span>
                       <span className={clsx("txt", "l", r.lt === undefined && "void")}>{r.lt}</span>

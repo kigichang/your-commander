@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import type { FsEntry, Location } from "../ipc/types";
 import { useClipboard } from "../store/clipboard";
 import { useFileDrop } from "../store/fileDrop";
+import { useScaled } from "../lib/fontScale";
 import { formatDate, humanSize } from "../lib/format";
 import { iconGridCols } from "../lib/iconGrid";
 import { parentPath } from "../lib/path";
@@ -20,11 +21,14 @@ import { useCtxMenu } from "./ContextMenu";
 import { FileIcon, iconKey } from "./FileIcon";
 import { Icon } from "./icons";
 
+/** Designed sizes at font scale 1; the font-size setting scales them. */
 const ROW_HEIGHT = 26;
 /** Icon view tiles: narrowest tile width (the row stretches them to fill)
- *  and height (48 px icon + two lines of name). */
+ *  and height: a fixed part (48 px icon, gap, padding) plus two lines of
+ *  name, which grow with the font. */
 const TILE_MIN_WIDTH = 96;
-const TILE_HEIGHT = 92;
+const TILE_FIXED_HEIGHT = 62;
+const TILE_TEXT_HEIGHT = 30;
 const TILE_GAP = 4;
 
 const COLUMNS: Array<{
@@ -106,17 +110,20 @@ export function FileTable({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const gridCols = iconView ? Math.max(1, Math.floor(width / TILE_MIN_WIDTH)) : 1;
+  const rowHeight = useScaled(ROW_HEIGHT);
+  const tileHeight = TILE_FIXED_HEIGHT + useScaled(TILE_TEXT_HEIGHT);
+  const tileMinWidth = useScaled(TILE_MIN_WIDTH);
+  const gridCols = iconView ? Math.max(1, Math.floor(width / tileMinWidth)) : 1;
   iconGridCols[side] = gridCols;
 
   // In the Icon view each virtual item is a row of tiles.
   const virtualizer = useVirtualizer({
     count: Math.ceil(visible.length / gridCols),
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => (iconView ? TILE_HEIGHT : ROW_HEIGHT),
+    estimateSize: () => (iconView ? tileHeight : rowHeight),
     overscan: iconView ? 4 : 12,
   });
-  useEffect(() => virtualizer.measure(), [iconView, virtualizer]);
+  useEffect(() => virtualizer.measure(), [iconView, rowHeight, tileHeight, virtualizer]);
 
   // Keep the cursor row in view when it moves by keyboard.
   useEffect(() => {
@@ -211,6 +218,7 @@ export function FileTable({
                         index={index}
                         side={side}
                         top={item.start}
+                        height={item.size}
                         col={col}
                         cols={gridCols}
                         isCursor={index === tab.cursor}
@@ -233,6 +241,7 @@ export function FileTable({
                 side={side}
                 brief={brief}
                 top={item.start}
+                height={item.size}
                 cols={cols}
                 isCursor={item.index === tab.cursor}
                 isMarked={tab.marked.has(visible[item.index].name)}
@@ -353,6 +362,7 @@ const Row = memo(function Row({
   side,
   brief,
   top,
+  height,
   cols,
   isCursor,
   isMarked,
@@ -365,6 +375,7 @@ const Row = memo(function Row({
   side: Side;
   brief: boolean;
   top: number;
+  height: number;
   cols: string;
   isCursor: boolean;
   isMarked: boolean;
@@ -378,7 +389,7 @@ const Row = memo(function Row({
     <div
       className={clsx("row", stateClasses(entry, isCursor, isMarked, hasMarks, isDropTarget, clipKind))}
       data-dir-path={entry.isDir ? entry.path : undefined}
-      style={{ top, gridTemplateColumns: brief ? "1fr" : cols }}
+      style={{ top, height, gridTemplateColumns: brief ? "1fr" : cols }}
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}
@@ -402,6 +413,7 @@ const Tile = memo(function Tile({
   index,
   side,
   top,
+  height,
   col,
   cols,
   isCursor,
@@ -414,6 +426,7 @@ const Tile = memo(function Tile({
   index: number;
   side: Side;
   top: number;
+  height: number;
   col: number;
   cols: number;
   isCursor: boolean;
@@ -432,7 +445,7 @@ const Tile = memo(function Tile({
         top: top + TILE_GAP / 2,
         left: `calc(${(col * 100) / cols}% + ${TILE_GAP / 2}px)`,
         width: `calc(${100 / cols}% - ${TILE_GAP}px)`,
-        height: TILE_HEIGHT - TILE_GAP,
+        height: height - TILE_GAP,
       }}
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}

@@ -123,6 +123,12 @@ pub struct Config {
     pub window_size: Option<(f32, f32)>,
     /// Left panel's share of the pane area (0.2–0.8); 0.5 = even split.
     pub split_ratio: f32,
+    /// UI font family; empty = the bundled Inter.
+    pub font_family: String,
+    /// Monospace font family (columns, paths, code); empty = JetBrains Mono.
+    pub font_mono: String,
+    /// Multiplier on every UI font size (and the list row heights).
+    pub font_scale: f32,
 }
 
 impl Default for Config {
@@ -163,6 +169,9 @@ impl Default for Config {
             right_cols: Vec::new(),
             window_size: None,
             split_ratio: 0.5,
+            font_family: String::new(),
+            font_mono: String::new(),
+            font_scale: 1.0,
         }
     }
 }

@@ -76,6 +76,8 @@
   --font-heading: "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-heading-weight: 500;
+  /* Multiplier on every font size; Settings → Appearance sets it. */
+  --font-scale: 1;
 
   --space-1: 2.8px;
   --space-2: 5.6px;

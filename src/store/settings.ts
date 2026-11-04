@@ -21,6 +21,24 @@ function applyTheme(theme: string) {
     .catch(() => {});
 }
 
+/** CSS string literal for a font family name. */
+const quoted = (family: string) => `"${family.replace(/["\\]/g, "\\$&")}"`;
+
+/** Point the font tokens at the chosen families (falling back to the
+ *  bundled ones) and set the global font-size multiplier. */
+function applyFonts(c: Pick<Config, "font_family" | "font_mono" | "font_scale">) {
+  const root = document.documentElement.style;
+  const body = c.font_family ? `${quoted(c.font_family)}, ` : "";
+  const mono = c.font_mono ? `${quoted(c.font_mono)}, ` : "";
+  root.setProperty("--font-body", `${body}"Inter", system-ui, sans-serif`);
+  root.setProperty("--font-heading", `${body}"Inter", system-ui, sans-serif`);
+  root.setProperty(
+    "--font-mono",
+    `${mono}"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace`,
+  );
+  root.setProperty("--font-scale", String(c.font_scale || 1));
+}
+
 darkMedia.addEventListener("change", () => {
   const theme = useSettings.getState().config?.theme ?? "system";
   if (theme !== "light" && theme !== "dark") applyTheme(theme);
@@ -32,11 +50,14 @@ interface SettingsStore {
   showHidden: boolean;
   fkeysWithoutFn: boolean;
   fkeysAvailable: boolean;
+  /** UI font-size multiplier (Settings → Appearance); 1 = as designed. */
+  fontScale: number;
   load: () => Promise<void>;
   toggleShowHidden: () => void;
   toggleFkeys: () => void;
   setLanguage: (lng: string) => void;
   setTheme: (theme: string) => void;
+  setFonts: (patch: Partial<Pick<Config, "font_family" | "font_mono" | "font_scale">>) => void;
   /** Merge a patch into the config and persist it. */
   save: (patch: Partial<Config>) => void;
 }
@@ -47,6 +68,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
   showHidden: false,
   fkeysWithoutFn: true,
   fkeysAvailable: false,
+  fontScale: 1,
 
   load: async () => {
     const [config, home, fkeysAvailable] = await Promise.all([
@@ -60,9 +82,11 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       showHidden: config.show_hidden,
       fkeysWithoutFn: config.fkeys_without_fn,
       fkeysAvailable,
+      fontScale: config.font_scale || 1,
     });
     if (config.language) i18n.changeLanguage(config.language);
     applyTheme(config.theme ?? "system");
+    applyFonts(config);
   },
 
   toggleShowHidden: () => {
@@ -90,6 +114,13 @@ export const useSettings = create<SettingsStore>((set, get) => ({
   setTheme: (theme) => {
     applyTheme(theme);
     get().save({ theme });
+  },
+
+  setFonts: (patch) => {
+    const config = { ...(get().config as Config), ...patch };
+    applyFonts(config);
+    set({ fontScale: config.font_scale || 1 });
+    get().save(patch);
   },
 
   save: (patch) => {
