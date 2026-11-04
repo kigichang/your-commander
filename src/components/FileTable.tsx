@@ -231,7 +231,7 @@ function armDragOut(e: React.MouseEvent, side: Side, entry: FsEntry) {
     if (items.length === 0) return;
     startDrag(
       items.map((i) => i.path),
-      iconKey(entry.isDir, entry.ext),
+      iconKey(entry.isDir, entry.ext, entry.path),
     ).catch((err) => console.error("drag-out failed:", err));
   };
   window.addEventListener("mousemove", move);
@@ -311,7 +311,7 @@ const Row = memo(function Row({
       }}
     >
       <span className="name">
-        <FileIcon isDir={entry.isDir} ext={entry.ext} />
+        <FileIcon isDir={entry.isDir} ext={entry.ext} path={entry.path} />
         {entry.name}
       </span>
       {!brief && <span className="ext">{entry.ext}</span>}

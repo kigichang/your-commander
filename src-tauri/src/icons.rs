@@ -18,17 +18,30 @@ mod imp {
         unsafe { msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()] }
     }
 
-    /// PNG bytes of the Finder icon for `key`: "folder", "generic", or a
-    /// lower-cased file extension. Must run on the main thread.
+    /// PNG bytes of the Finder icon for `key`: "folder", "generic", a
+    /// lower-cased file extension, or "path:<abs path>" for an item's own
+    /// icon (app bundles). Must run on the main thread.
     pub unsafe fn icon_png(key: &str) -> Option<Vec<u8>> {
         unsafe {
-            let file_type = match key {
-                "folder" => nsstring("public.folder"),
-                "generic" | "" => nsstring("public.data"),
-                ext => nsstring(ext),
-            };
             let workspace: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
-            let image: *mut AnyObject = msg_send![workspace, iconForFileType: file_type];
+            let image: *mut AnyObject = match key.strip_prefix("path:") {
+                Some(path) if std::path::Path::new(path).exists() => {
+                    msg_send![workspace, iconForFile: nsstring(path)]
+                }
+                // Not on the local disk (SFTP, archive): the generic app icon.
+                Some(_) => msg_send![
+                    workspace,
+                    iconForFileType: nsstring("com.apple.application-bundle")
+                ],
+                None => {
+                    let file_type = match key {
+                        "folder" => nsstring("public.folder"),
+                        "generic" | "" => nsstring("public.data"),
+                        ext => nsstring(ext),
+                    };
+                    msg_send![workspace, iconForFileType: file_type]
+                }
+            };
             if image.is_null() {
                 return None;
             }

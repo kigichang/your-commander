@@ -1,6 +1,7 @@
 import { File, Folder } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fileIcon } from "../ipc/commands";
+import { isMac } from "../lib/platform";
 import { Icon } from "./icons";
 
 /** Finder icons as blob URLs, one fetch per key for the app's lifetime. */
@@ -25,13 +26,23 @@ function iconUrl(key: string): Promise<string | null> {
   return inFlight;
 }
 
-/** The system-icon key for an entry (also the native drag image). */
-export function iconKey(isDir: boolean, ext: string): string {
+/** The system-icon key for an entry (also the native drag image). macOS
+ *  app bundles are keyed by path so each shows its own icon. */
+export function iconKey(isDir: boolean, ext: string, path: string): string {
+  if (isMac && isDir && /\.app$/i.test(path)) return `path:${path}`;
   return isDir ? "folder" : ext || "generic";
 }
 
-export function FileIcon({ isDir, ext }: { isDir: boolean; ext: string }) {
-  const key = iconKey(isDir, ext);
+export function FileIcon({
+  isDir,
+  ext,
+  path,
+}: {
+  isDir: boolean;
+  ext: string;
+  path: string;
+}) {
+  const key = iconKey(isDir, ext, path);
   const [url, setUrl] = useState<string | null>(urls.get(key) ?? null);
 
   useEffect(() => {
