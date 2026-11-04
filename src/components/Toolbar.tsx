@@ -7,6 +7,7 @@ import {
   Network,
   PencilLine,
   RefreshCw,
+  Rows3,
   Search,
   Settings,
 } from "lucide-react";
@@ -34,10 +35,16 @@ export function Toolbar() {
       </button>
       <div className="seg">
         <button
+          className={viewMode === "icon" ? "on" : ""}
+          onClick={() => setViewMode(activeSide, "icon")}
+        >
+          <Icon of={LayoutGrid} size={14} /> {t("toolbar.icon")}
+        </button>
+        <button
           className={viewMode === "brief" ? "on" : ""}
           onClick={() => setViewMode(activeSide, "brief")}
         >
-          <Icon of={LayoutGrid} size={14} /> {t("toolbar.brief")}
+          <Icon of={Rows3} size={14} /> {t("toolbar.brief")}
         </button>
         <button
           className={viewMode === "full" ? "on" : ""}

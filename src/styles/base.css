@@ -576,6 +576,79 @@ svg.li {
   font-style: normal;
 }
 
+/* ── Icon view tiles ───────────────────────────────────────────────── */
+
+.tile {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px 4px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  text-align: center;
+}
+.tile:hover {
+  background: var(--hover-tint);
+}
+.tile .icon,
+.tile .icon-img {
+  flex: none;
+  width: 48px;
+  height: 48px;
+}
+.tile .icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+.tile.dir .icon {
+  color: var(--color-accent-2);
+}
+.tile .icon-img {
+  object-fit: contain;
+}
+.tile .name {
+  max-width: 100%;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.tile.cursor {
+  background: var(--cursor-tint);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+.panel:not(.active) .tile.cursor {
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-neutral-600);
+}
+.tile.drop-target,
+.panel:not(.active) .tile.drop-target {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+.tile.marked .name {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.tile.clip-cut {
+  opacity: 0.45;
+}
+.tile.hidden-entry {
+  opacity: 0.5;
+}
+.tile.clip-copy .name {
+  font-weight: 600;
+}
+.tile.symlink .name {
+  font-style: italic;
+}
+
 .tbody .empty,
 .tbody .error {
   position: absolute;

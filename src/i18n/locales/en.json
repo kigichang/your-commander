@@ -1,6 +1,7 @@
 {
   "toolbar": {
     "refresh": "Refresh",
+    "icon": "Icon",
     "brief": "Brief",
     "full": "Full",
     "swap": "Swap",
@@ -239,6 +240,8 @@
     "up": "Go to parent folder",
     "cursorUp": "Cursor up",
     "cursorDown": "Cursor down",
+    "cursorLeft": "Cursor left (Icon view)",
+    "cursorRight": "Cursor right (Icon view)",
     "cursorHome": "Cursor to top",
     "cursorEnd": "Cursor to bottom",
     "markToggle": "Toggle mark",

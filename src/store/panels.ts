@@ -7,7 +7,7 @@ import { useSettings } from "./settings";
 
 export type Side = 0 | 1;
 export type SortKey = "name" | "ext" | "size" | "modified";
-export type ViewMode = "full" | "brief";
+export type ViewMode = "full" | "brief" | "icon";
 
 export interface TabState {
   id: number;
@@ -219,7 +219,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       return {
         tabs,
         active: Math.min(active ?? 0, tabs.length - 1),
-        viewMode: view === "brief" ? "brief" : "full",
+        viewMode: view === "brief" || view === "icon" ? view : "full",
         colWidths,
       };
     };

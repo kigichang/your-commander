@@ -20,8 +20,11 @@ mod imp {
 
     /// PNG bytes of the Finder icon for `key`: "folder", "generic", a
     /// lower-cased file extension, or "path:<abs path>" for an item's own
-    /// icon (app bundles). Must run on the main thread.
+    /// icon (app bundles), optionally suffixed "#<px>" for a larger size.
+    /// Must run on the main thread.
     pub unsafe fn icon_png(key: &str) -> Option<Vec<u8>> {
+        let (key, min_width) = super::split_size(key);
+        let min_width = min_width as isize;
         unsafe {
             let workspace: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
             let image: *mut AnyObject = match key.strip_prefix("path:") {
@@ -46,7 +49,7 @@ mod imp {
                 return None;
             }
             // The icon carries several representations (16/32/128/…); pick the
-            // smallest one that still looks crisp at 16 pt on a retina display.
+            // smallest one that still looks crisp at the requested size.
             let tiff: *mut AnyObject = msg_send![image, TIFFRepresentation];
             if tiff.is_null() {
                 return None;
@@ -62,13 +65,13 @@ mod imp {
             for i in 0..count {
                 let rep: *mut AnyObject = msg_send![reps, objectAtIndex: i];
                 let width: isize = msg_send![rep, pixelsWide];
-                if width >= 32 && width < best_width {
+                if width >= min_width && width < best_width {
                     best = rep;
                     best_width = width;
                 }
             }
             if best.is_null() && count > 0 {
-                // Nothing at 32px or above: take the largest there is.
+                // Nothing that large: take the largest there is.
                 let mut largest: isize = -1;
                 for i in 0..count {
                     let rep: *mut AnyObject = msg_send![reps, objectAtIndex: i];
@@ -99,6 +102,14 @@ mod imp {
             Some(std::slice::from_raw_parts(bytes, len).to_vec())
         }
     }
+}
+
+/// Splits an optional "#<px>" size suffix off an icon key; the default is
+/// 32 px (16 pt on a retina display, the list rows' size).
+pub(crate) fn split_size(key: &str) -> (&str, u16) {
+    key.rsplit_once('#')
+        .and_then(|(k, px)| px.parse().ok().map(|px| (k, px)))
+        .unwrap_or((key, 32))
 }
 
 #[cfg(target_os = "macos")]
@@ -164,4 +175,17 @@ pub(crate) fn icon_png_on_main_thread(key: &str) -> Option<Vec<u8>> {
     return unsafe { imp::icon_png(key) };
     #[cfg(not(target_os = "macos"))]
     return crate::platform::icon_png(key);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_size;
+
+    #[test]
+    fn splits_size_suffix() {
+        assert_eq!(split_size("txt"), ("txt", 32));
+        assert_eq!(split_size("folder#128"), ("folder", 128));
+        assert_eq!(split_size("path:/Applications/A.app#128"), ("path:/Applications/A.app", 128));
+        assert_eq!(split_size("path:/x/#y.app"), ("path:/x/#y.app", 32));
+    }
 }

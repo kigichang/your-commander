@@ -34,8 +34,10 @@ export function useKeyboard() {
       // Shift+<chord> falls back to the bare chord with mark semantics
       // only where the keymap registered it explicitly, so no extra logic.
       if (!actionId) return;
+      const action = actions[actionId];
+      if (action.enabled && !action.enabled()) return;
       e.preventDefault();
-      actions[actionId].run({ mark: e.shiftKey });
+      action.run({ mark: e.shiftKey });
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

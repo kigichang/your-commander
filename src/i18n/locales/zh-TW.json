@@ -1,6 +1,7 @@
 {
   "toolbar": {
     "refresh": "重新整理",
+    "icon": "圖示",
     "brief": "簡潔",
     "full": "完整",
     "swap": "左右互換",
@@ -239,6 +240,8 @@
     "up": "回上層資料夾",
     "cursorUp": "游標上移",
     "cursorDown": "游標下移",
+    "cursorLeft": "游標左移（圖示檢視）",
+    "cursorRight": "游標右移（圖示檢視）",
     "cursorHome": "游標到頂",
     "cursorEnd": "游標到底",
     "markToggle": "切換標記",

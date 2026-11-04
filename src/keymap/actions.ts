@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import i18n from "../i18n";
 import * as ipc from "../ipc/commands";
+import { iconGridCols } from "../lib/iconGrid";
 import { targetEntries } from "../lib/selectors";
 import { useClipboard } from "../store/clipboard";
 import { useDialogs } from "../store/dialogs";
@@ -14,6 +15,8 @@ export type ActionId =
   | "up"
   | "cursorUp"
   | "cursorDown"
+  | "cursorLeft"
+  | "cursorRight"
   | "cursorHome"
   | "cursorEnd"
   | "markToggle"
@@ -56,6 +59,8 @@ type Modded = { mark?: boolean };
 export interface Action {
   id: ActionId;
   run: (mods?: Modded) => void;
+  /** When false, the key is left to the browser (not consumed). */
+  enabled?: () => boolean;
 }
 
 /** Keep in sync with the backend's is_archive (ops/archive.rs). */
@@ -63,6 +68,14 @@ export const ARCHIVE_RE = /\.(zip|7z|tar|tgz|gz)$/i;
 
 const panels = () => usePanels.getState();
 const ops = () => useOps.getState();
+
+const inIconView = () => {
+  const s = panels();
+  return s.panels[s.activeSide].viewMode === "icon";
+};
+
+/** ↑/↓ step: one row, which in the Icon view is a whole line of tiles. */
+const rowStep = () => (inIconView() ? iconGridCols[panels().activeSide] : 1);
 const dialogs = () => useDialogs.getState();
 
 function activeTargets() {
@@ -149,10 +162,23 @@ export const actions: Record<ActionId, Action> = {
 
   cursorUp: {
     id: "cursorUp",
-    run: (mods) => panels().moveCursor(panels().activeSide, -1, { mark: mods?.mark }),
+    run: (mods) =>
+      panels().moveCursor(panels().activeSide, -rowStep(), { mark: mods?.mark }),
   },
   cursorDown: {
     id: "cursorDown",
+    run: (mods) =>
+      panels().moveCursor(panels().activeSide, rowStep(), { mark: mods?.mark }),
+  },
+  // ←/→ only mean something in the Icon view's grid.
+  cursorLeft: {
+    id: "cursorLeft",
+    enabled: inIconView,
+    run: (mods) => panels().moveCursor(panels().activeSide, -1, { mark: mods?.mark }),
+  },
+  cursorRight: {
+    id: "cursorRight",
+    enabled: inIconView,
     run: (mods) => panels().moveCursor(panels().activeSide, 1, { mark: mods?.mark }),
   },
   cursorHome: {

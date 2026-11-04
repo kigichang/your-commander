@@ -377,12 +377,13 @@ fn icon_theme() -> String {
 /// PNG bytes of the theme icon for `key`; None sends the frontend to its
 /// built-in icons. SVG results are skipped (the frontend wants raster).
 pub fn icon_png(key: &str) -> Option<Vec<u8>> {
+    let (key, size) = crate::icons::split_size(key);
     let theme = icon_theme();
     for name in icon_names(key) {
         for t in [theme.as_str(), "Adwaita", "hicolor"] {
             let Some(p) = freedesktop_icons::lookup(&name)
                 .with_theme(t)
-                .with_size(32)
+                .with_size(size)
                 .with_cache()
                 .find()
             else {

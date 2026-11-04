@@ -37,12 +37,15 @@ export function FileIcon({
   isDir,
   ext,
   path,
+  large = false,
 }: {
   isDir: boolean;
   ext: string;
   path: string;
+  /** Icon view's tile size: asks the backend for a 128 px rendition. */
+  large?: boolean;
 }) {
-  const key = iconKey(isDir, ext, path);
+  const key = iconKey(isDir, ext, path) + (large ? "#128" : "");
   const [url, setUrl] = useState<string | null>(urls.get(key) ?? null);
 
   useEffect(() => {
@@ -65,7 +68,7 @@ export function FileIcon({
     <img className="icon icon-img" src={url} alt="" draggable={false} />
   ) : (
     <span className="icon">
-      <Icon of={isDir ? Folder : File} size={14} />
+      <Icon of={isDir ? Folder : File} size={large ? 40 : 14} />
     </span>
   );
 }

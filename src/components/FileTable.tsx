@@ -1,12 +1,13 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
 import { ChevronDown, ChevronUp, CornerLeftUp } from "lucide-react";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FsEntry, Location } from "../ipc/types";
 import { useClipboard } from "../store/clipboard";
 import { useFileDrop } from "../store/fileDrop";
 import { formatDate, humanSize } from "../lib/format";
+import { iconGridCols } from "../lib/iconGrid";
 import { parentPath } from "../lib/path";
 import { isModKey } from "../lib/platform";
 import { targetEntries, visibleEntries } from "../lib/selectors";
@@ -20,6 +21,11 @@ import { FileIcon, iconKey } from "./FileIcon";
 import { Icon } from "./icons";
 
 const ROW_HEIGHT = 26;
+/** Icon view tiles: narrowest tile width (the row stretches them to fill)
+ *  and height (48 px icon + two lines of name). */
+const TILE_MIN_WIDTH = 96;
+const TILE_HEIGHT = 92;
+const TILE_GAP = 4;
 
 const COLUMNS: Array<{
   key: SortKey;
@@ -89,21 +95,36 @@ export function FileTable({
   const showHidden = useSettings((s) => s.showHidden);
   const visible = useMemo(() => visibleEntries(tab, showHidden), [tab, showHidden]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const iconView = viewMode === "icon";
 
+  // Icon view lays tiles out in rows as wide as the panel allows.
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const gridCols = iconView ? Math.max(1, Math.floor(width / TILE_MIN_WIDTH)) : 1;
+  iconGridCols[side] = gridCols;
+
+  // In the Icon view each virtual item is a row of tiles.
   const virtualizer = useVirtualizer({
-    count: visible.length,
+    count: Math.ceil(visible.length / gridCols),
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 12,
+    estimateSize: () => (iconView ? TILE_HEIGHT : ROW_HEIGHT),
+    overscan: iconView ? 4 : 12,
   });
+  useEffect(() => virtualizer.measure(), [iconView, virtualizer]);
 
   // Keep the cursor row in view when it moves by keyboard.
   useEffect(() => {
-    if (visible.length > 0) virtualizer.scrollToIndex(tab.cursor);
+    if (visible.length > 0) virtualizer.scrollToIndex(Math.floor(tab.cursor / gridCols));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.cursor]);
 
-  const brief = viewMode === "brief";
+  const brief = viewMode !== "full";
   const colWidths = usePanels((s) => s.panels[side].colWidths);
   const cols = gridColumns(colWidths);
 
@@ -161,7 +182,7 @@ export function FileTable({
         ref={scrollRef}
         onContextMenu={(e) => {
           // Rows handle their own menu; this is the blank space below them.
-          if ((e.target as HTMLElement).closest(".row")) return;
+          if ((e.target as HTMLElement).closest(".row, .tile")) return;
           e.preventDefault();
           e.stopPropagation();
           usePanels.getState().setActiveSide(side);
@@ -174,7 +195,33 @@ export function FileTable({
           <div className="empty">{t("list.empty")}</div>
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-            {virtualizer.getVirtualItems().map((item) => (
+            {iconView &&
+              virtualizer.getVirtualItems().map((item) =>
+                visible
+                  .slice(item.index * gridCols, (item.index + 1) * gridCols)
+                  .map((entry, col) => {
+                    const index = item.index * gridCols + col;
+                    return (
+                      <Tile
+                        key={entry.path}
+                        entry={entry}
+                        index={index}
+                        side={side}
+                        top={item.start}
+                        col={col}
+                        cols={gridCols}
+                        isCursor={index === tab.cursor}
+                        isMarked={tab.marked.has(entry.name)}
+                        isDropTarget={dropRow === entry.path}
+                        clipKind={
+                          clipPaths?.has(entry.path) ? (clip!.move ? "cut" : "copy") : null
+                        }
+                      />
+                    );
+                  }),
+              )}
+            {!iconView &&
+              virtualizer.getVirtualItems().map((item) => (
               <Row
                 key={item.key}
                 entry={visible[item.index]}
@@ -238,31 +285,8 @@ function armDragOut(e: React.MouseEvent, side: Side, entry: FsEntry) {
   window.addEventListener("mouseup", disarm);
 }
 
-/** Memoized with scalar props only: scrolling re-renders just the rows
- *  entering the viewport, a cursor move just the two rows that changed. */
-const Row = memo(function Row({
-  entry,
-  index,
-  side,
-  brief,
-  top,
-  cols,
-  isCursor,
-  isMarked,
-  isDropTarget,
-  clipKind,
-}: {
-  entry: FsEntry;
-  index: number;
-  side: Side;
-  brief: boolean;
-  top: number;
-  cols: string;
-  isCursor: boolean;
-  isMarked: boolean;
-  isDropTarget: boolean;
-  clipKind: "cut" | "copy" | null;
-}) {
+/** Mouse behavior shared by list rows and icon tiles. */
+function entryHandlers(side: Side, index: number, entry: FsEntry) {
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button === 2) return; // handled by onContextMenu
     const s = usePanels.getState();
@@ -288,27 +312,67 @@ const Row = memo(function Row({
     useCtxMenu.getState().open(e.clientX, e.clientY, side, "row");
   };
 
+  const onDoubleClick = () => {
+    usePanels.getState().setActiveSide(side);
+    actions.enter.run();
+  };
+  return { onMouseDown, onContextMenu, onDoubleClick };
+}
+
+function stateClasses(
+  entry: FsEntry,
+  isCursor: boolean,
+  isMarked: boolean,
+  isDropTarget: boolean,
+  clipKind: "cut" | "copy" | null,
+) {
+  return clsx(
+    entry.isDir && "dir",
+    entry.isSymlink && "symlink",
+    entry.isHidden && "hidden-entry",
+    isCursor && "cursor",
+    isMarked && "marked",
+    clipKind === "cut" && "clip-cut",
+    clipKind === "copy" && "clip-copy",
+    isDropTarget && "drop-target",
+  );
+}
+
+/** Memoized with scalar props only: scrolling re-renders just the rows
+ *  entering the viewport, a cursor move just the two rows that changed. */
+const Row = memo(function Row({
+  entry,
+  index,
+  side,
+  brief,
+  top,
+  cols,
+  isCursor,
+  isMarked,
+  isDropTarget,
+  clipKind,
+}: {
+  entry: FsEntry;
+  index: number;
+  side: Side;
+  brief: boolean;
+  top: number;
+  cols: string;
+  isCursor: boolean;
+  isMarked: boolean;
+  isDropTarget: boolean;
+  clipKind: "cut" | "copy" | null;
+}) {
+  const { onMouseDown, onContextMenu, onDoubleClick } = entryHandlers(side, index, entry);
+
   return (
     <div
-      className={clsx(
-        "row",
-        entry.isDir && "dir",
-        entry.isSymlink && "symlink",
-        entry.isHidden && "hidden-entry",
-        isCursor && "cursor",
-        isMarked && "marked",
-        clipKind === "cut" && "clip-cut",
-        clipKind === "copy" && "clip-copy",
-        isDropTarget && "drop-target",
-      )}
+      className={clsx("row", stateClasses(entry, isCursor, isMarked, isDropTarget, clipKind))}
       data-dir-path={entry.isDir ? entry.path : undefined}
       style={{ top, gridTemplateColumns: brief ? "1fr" : cols }}
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}
-      onDoubleClick={() => {
-        usePanels.getState().setActiveSide(side);
-        actions.enter.run();
-      }}
+      onDoubleClick={onDoubleClick}
     >
       <span className="name">
         <FileIcon isDir={entry.isDir} ext={entry.ext} path={entry.path} />
@@ -319,6 +383,52 @@ const Row = memo(function Row({
         <span className="num">{entry.isDir ? "—" : humanSize(entry.size)}</span>
       )}
       {!brief && <span className="num date">{formatDate(entry.modified)}</span>}
+    </div>
+  );
+});
+
+/** Icon view cell: a large icon over a name of up to two lines. */
+const Tile = memo(function Tile({
+  entry,
+  index,
+  side,
+  top,
+  col,
+  cols,
+  isCursor,
+  isMarked,
+  isDropTarget,
+  clipKind,
+}: {
+  entry: FsEntry;
+  index: number;
+  side: Side;
+  top: number;
+  col: number;
+  cols: number;
+  isCursor: boolean;
+  isMarked: boolean;
+  isDropTarget: boolean;
+  clipKind: "cut" | "copy" | null;
+}) {
+  const { onMouseDown, onContextMenu, onDoubleClick } = entryHandlers(side, index, entry);
+  return (
+    <div
+      className={clsx("tile", stateClasses(entry, isCursor, isMarked, isDropTarget, clipKind))}
+      data-dir-path={entry.isDir ? entry.path : undefined}
+      title={entry.name}
+      style={{
+        top: top + TILE_GAP / 2,
+        left: `calc(${(col * 100) / cols}% + ${TILE_GAP / 2}px)`,
+        width: `calc(${100 / cols}% - ${TILE_GAP}px)`,
+        height: TILE_HEIGHT - TILE_GAP,
+      }}
+      onMouseDown={onMouseDown}
+      onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
+    >
+      <FileIcon isDir={entry.isDir} ext={entry.ext} path={entry.path} large />
+      <span className="name">{entry.name}</span>
     </div>
   );
 });
