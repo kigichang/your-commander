@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { FsEntry } from "../ipc/types";
+import { useScaled } from "../lib/fontScale";
 import { humanSize } from "../lib/format";
 import { parentPath } from "../lib/path";
 import type { Dialog } from "../store/dialogs";
@@ -138,10 +139,11 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
       .revealEntry(usePanels.getState().activeSide, dir, entry.name, d.location);
   };
 
+  const rowHeight = useScaled(24);
   const virtualizer = useVirtualizer({
     count: results.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 24,
+    estimateSize: () => rowHeight,
     overscan: 10,
   });
 
@@ -224,7 +226,7 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
                   <div
                     key={entry.path}
                     className={clsx("find-row", item.index === selected && "on")}
-                    style={{ top: item.start }}
+                    style={{ top: item.start, height: rowHeight }}
                     onMouseDown={() => setSelected(item.index)}
                     onDoubleClick={() => goTo(entry)}
                   >

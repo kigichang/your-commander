@@ -15,10 +15,10 @@ body,
 }
 
 body {
-  background: var(--color-bg);
+  background: var(--color-chrome);
   color: var(--color-text);
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   user-select: none;
@@ -104,7 +104,7 @@ input:focus {
   border-radius: var(--radius-md);
   border: 1px solid transparent;
   color: var(--text-muted);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   white-space: nowrap;
 }
 .tbtn:hover {
@@ -140,7 +140,7 @@ svg.li {
   align-items: center;
   gap: 5px;
   padding: 3px 10px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   color: var(--text-muted);
 }
 .seg button + button {
@@ -197,7 +197,7 @@ svg.li {
   flex-direction: column;
   flex: 1 1 0;
   min-width: 0;
-  background: var(--color-surface);
+  background: var(--color-chrome);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-divider);
   overflow: hidden;
@@ -225,7 +225,7 @@ svg.li {
   max-width: 180px;
   padding: 3px 10px;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--text-muted);
   white-space: nowrap;
 }
@@ -295,14 +295,14 @@ svg.li {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
 }
 .drive .free {
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   color: var(--text-faint);
   white-space: nowrap;
 }
@@ -336,6 +336,16 @@ svg.li {
 .menu .item:hover {
   background: var(--cursor-tint);
 }
+/* System icons (favorites): the same 16 px as the list rows. */
+.menu .item .icon {
+  display: inline-flex;
+  color: var(--color-accent-2);
+}
+.menu .item .icon-img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
 .menu .item:disabled {
   opacity: 0.45;
   cursor: default;
@@ -344,7 +354,7 @@ svg.li {
   background: none;
 }
 .menu .item .sub {
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   color: var(--text-faint);
 }
 .menu .sep {
@@ -353,7 +363,7 @@ svg.li {
   margin: var(--space-1) var(--space-2);
 }
 .menu .headline {
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -369,7 +379,7 @@ svg.li {
 .pathbar input {
   width: 100%;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   background: transparent;
   border-color: transparent;
 }
@@ -383,7 +393,7 @@ svg.li {
 
 .star {
   flex: none;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   color: var(--text-faint);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
@@ -402,6 +412,7 @@ svg.li {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  background: var(--color-well);
 }
 .ftable .thead {
   display: grid;
@@ -449,7 +460,7 @@ svg.li {
   align-items: center;
   gap: 4px;
   padding: 4px 6px;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-faint);
   letter-spacing: 0.04em;
   text-align: left;
@@ -476,13 +487,17 @@ svg.li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 64px 84px 118px;
   align-items: center;
-  padding: 0 var(--space-3);
+  /* Inset so a selection reads as a rounded block, as in Finder; the
+     padding gives the inset back so columns still line up with the header. */
+  padding: 0 calc(var(--space-3) - var(--row-inset));
   position: absolute;
-  left: 0;
-  right: 0;
+  left: var(--row-inset);
+  right: var(--row-inset);
   height: 26px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   border-left: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  --row-inset: 4px;
 }
 .row:hover {
   background: var(--hover-tint);
@@ -519,23 +534,49 @@ svg.li {
 .row .date,
 .row .ext {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-muted);
 }
 .row.parent {
+  --row-inset: 0px;
   position: static;
   grid-template-columns: 1fr;
   flex: none;
-  height: 24px;
+  height: calc(24px * var(--font-scale));
   color: var(--text-muted);
   border-bottom: 1px solid var(--color-divider);
 }
 .row.parent .icon {
   color: var(--color-accent-2);
 }
-.row.cursor {
-  background: var(--cursor-tint);
-  border-left-color: var(--color-accent);
+/* Selection (marked rows, or the cursor row when nothing is marked):
+   blue in the active panel. Runs of selected rows merge into one block
+   with hairlines between, like Finder's list. */
+.row.sel {
+  background: var(--color-select);
+  color: var(--color-select-text);
+}
+.row.sel .icon,
+.row.sel .num,
+.row.sel .date,
+.row.sel .ext {
+  color: color-mix(in srgb, var(--color-select-text) 82%, transparent);
+}
+.row.sel + .row.sel {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-select-text) 14%, transparent);
+}
+.row.sel:has(+ .row.sel) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+/* With marks, the cursor is only a focus ring (operations act on marks). */
+.row.cursor:not(.sel) {
+  box-shadow: inset 0 0 0 1px var(--color-select);
+}
+.has-marks .row.cursor.sel {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-select-text) 70%, transparent);
 }
 .row.drop-target,
 .panel:not(.active) .row.drop-target {
@@ -544,15 +585,23 @@ svg.li {
   outline: 1px solid var(--color-accent);
   outline-offset: -1px;
 }
-.panel:not(.active) .row.cursor {
-  background: color-mix(in srgb, var(--color-text) 5%, transparent);
-  border-left-color: var(--color-neutral-600);
+/* Inactive panel: selection turns grey, as in an unfocused Finder window. */
+.panel:not(.active) .row.sel {
+  background: var(--color-select-inactive);
+  color: var(--color-text);
 }
-.row.marked .name,
-.row.marked .ext {
-  /* Monochrome accent: bold carries the mark where hue no longer can. */
-  color: var(--color-accent);
-  font-weight: 600;
+.panel:not(.active) .row.sel .icon,
+.panel:not(.active) .row.sel .num,
+.panel:not(.active) .row.sel .date,
+.panel:not(.active) .row.sel .ext {
+  color: var(--text-muted);
+}
+.panel:not(.active) .row.sel + .row.sel {
+  box-shadow: inset 0 1px 0 var(--color-divider);
+}
+.panel:not(.active) .row.cursor:not(.sel),
+.panel:not(.active) .has-marks .row.cursor.sel {
+  box-shadow: inset 0 0 0 1px var(--color-neutral-600);
 }
 /* Pending ⌘X: greyed until pasted or cancelled with Esc. */
 .row.clip-cut {
@@ -586,7 +635,7 @@ svg.li {
   gap: 4px;
   padding: 6px 4px 4px;
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   text-align: center;
 }
 .tile:hover {
@@ -619,22 +668,36 @@ svg.li {
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
-.tile.cursor {
-  background: var(--cursor-tint);
-  box-shadow: inset 0 0 0 1px var(--color-accent);
+.tile .name {
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
 }
-.panel:not(.active) .tile.cursor {
-  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+/* Finder icon view: a soft box behind the icon, the name in a blue pill. */
+.tile.sel {
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+}
+.tile.sel .name {
+  background: var(--color-select);
+  color: var(--color-select-text);
+}
+.tile.cursor:not(.sel) {
+  box-shadow: inset 0 0 0 1px var(--color-select);
+}
+.has-marks .tile.cursor.sel {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+.panel:not(.active) .tile.sel .name {
+  background: var(--color-select-inactive);
+  color: var(--color-text);
+}
+.panel:not(.active) .tile.cursor:not(.sel),
+.panel:not(.active) .has-marks .tile.cursor.sel {
   box-shadow: inset 0 0 0 1px var(--color-neutral-600);
 }
 .tile.drop-target,
 .panel:not(.active) .tile.drop-target {
   background: color-mix(in srgb, var(--color-accent) 22%, transparent);
   box-shadow: inset 0 0 0 1px var(--color-accent);
-}
-.tile.marked .name {
-  color: var(--color-accent);
-  font-weight: 600;
 }
 .tile.clip-cut {
   opacity: 0.45;
@@ -657,7 +720,7 @@ svg.li {
   align-items: center;
   justify-content: center;
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: var(--space-6);
   text-align: center;
 }
@@ -669,7 +732,7 @@ svg.li {
 .statusline {
   padding: 4px var(--space-4);
   border-top: 1px solid var(--color-divider);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-muted);
   font-family: var(--font-mono);
   flex: none;
@@ -685,6 +748,7 @@ svg.li {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  background: var(--color-well);
 }
 .qv-head {
   display: flex;
@@ -692,7 +756,7 @@ svg.li {
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-divider);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--text-muted);
 }
 .qv-head .title {
@@ -748,7 +812,7 @@ svg.li {
 }
 .qv-audio .qa-title {
   flex: none;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
@@ -773,7 +837,7 @@ svg.li {
   position: absolute;
   top: 3px;
   left: 6px;
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   font-family: var(--font-mono);
   color: var(--text-muted);
   pointer-events: none;
@@ -792,7 +856,7 @@ svg.li {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--text-muted);
 }
 .qv-body pre {
@@ -800,7 +864,7 @@ svg.li {
   flex: 1;
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
   line-height: 1.5;
   color: var(--color-neutral-300);
   white-space: pre-wrap;
@@ -817,7 +881,7 @@ svg.li {
   min-width: 0;
   overflow-y: auto;
   background: transparent;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   padding: var(--space-2) var(--space-3);
   user-select: text;
   cursor: auto;
@@ -840,13 +904,13 @@ svg.li {
 .plantuml-hint {
   margin-top: 6px;
   font-family: var(--font-body);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
   color: var(--color-accent-2);
 }
 .plantuml-error {
   margin-top: 6px;
   font-family: var(--font-body);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
   color: var(--color-danger);
 }
 .qv-body .markdown-body.puml-only {
@@ -885,7 +949,7 @@ svg.li {
   gap: var(--space-3);
   padding-top: var(--space-2);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-muted);
   flex: none;
 }
@@ -894,7 +958,7 @@ svg.li {
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-divider);
   color: var(--color-text);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 .pdf-nav button:hover:not(:disabled) {
   background: var(--hover-tint);
@@ -934,7 +998,7 @@ svg.li {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 3px var(--space-6);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   flex: none;
 }
 .qv-meta dt {
@@ -967,7 +1031,7 @@ svg.li {
   gap: 6px;
   padding: 3px 9px;
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--text-muted);
 }
 .fkey:hover {
@@ -976,7 +1040,7 @@ svg.li {
 }
 .fkey kbd {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   color: var(--color-accent-2);
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   border-radius: 4px;
@@ -991,7 +1055,7 @@ svg.li {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--color-accent-2);
   min-width: 0;
 }
@@ -1017,7 +1081,7 @@ svg.li {
 }
 .fkey-repair .pct {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   flex: none;
 }
 
@@ -1042,7 +1106,7 @@ svg.li {
   justify-content: space-between;
 }
 .q-title {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -1051,7 +1115,7 @@ svg.li {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-muted);
   padding: 1px 7px;
   border-radius: var(--radius-sm);
@@ -1066,7 +1130,7 @@ svg.li {
 }
 .q-desc {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1075,14 +1139,14 @@ svg.li {
 }
 .q-eta {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   white-space: nowrap;
   flex: none;
 }
 .q-waiting {
   flex: 1;
   text-align: right;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   color: var(--text-faint);
   font-style: italic;
 }
@@ -1090,7 +1154,7 @@ svg.li {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
   color: var(--text-muted);
 }
 .op-row .bar {
@@ -1113,7 +1177,7 @@ svg.li {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
 }
 .op-row .cancel {
   color: var(--text-faint);
@@ -1140,18 +1204,18 @@ svg.li {
   max-width: 540px;
 }
 .dialog h2 {
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale));
   font-weight: 600;
   margin: 0 0 var(--space-3);
 }
 .dialog .body {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   color: var(--text-muted);
   margin-bottom: var(--space-4);
 }
 .dialog .body .list {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
   color: var(--color-text);
   margin: var(--space-2) 0;
   max-height: 120px;
@@ -1159,14 +1223,14 @@ svg.li {
 }
 .dialog label {
   display: block;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-faint);
   margin: var(--space-3) 0 3px;
 }
 .dialog input {
   width: 100%;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 6px 9px;
 }
 /* Checkboxes must hug their label text, not stretch like text fields. */
@@ -1191,7 +1255,7 @@ svg.li {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--text-muted);
   margin: 0;
 }
@@ -1203,13 +1267,13 @@ svg.li {
   flex: 1;
   min-width: 0;
   padding: 2px 7px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
 }
 .btn {
   padding: 5px 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-divider);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   color: var(--color-text);
 }
 .btn:hover {
@@ -1248,14 +1312,14 @@ svg.li {
   overflow-y: auto;
 }
 .saved-list .headline {
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-faint);
   margin-bottom: var(--space-2);
 }
 .saved-list .none {
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
   color: var(--text-faint);
 }
 /* SMB share picker (connect dialog, share left empty) */
@@ -1271,7 +1335,7 @@ svg.li {
   text-align: left;
   padding: 6px 10px;
   border-radius: var(--radius-sm);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
 }
 .share-list .pick:hover {
   background: var(--hover-tint);
@@ -1298,14 +1362,14 @@ svg.li {
   text-align: left;
 }
 .saved-list .pick .label {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .saved-list .pick .sub {
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   color: var(--text-faint);
   font-family: var(--font-mono);
   max-width: 100%;
@@ -1316,14 +1380,14 @@ svg.li {
 .saved-list .close {
   color: var(--text-faint);
   padding: 2px 6px;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 .saved-list .close:hover {
   color: var(--color-text);
 }
 .connect-grid .form label {
   display: block;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-faint);
   margin: var(--space-3) 0 3px;
 }
@@ -1333,12 +1397,12 @@ svg.li {
 .connect-grid .form input:not([type="checkbox"]),
 .connect-grid .form select {
   width: 100%;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 5px 9px;
 }
 .connect-grid .form select {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--color-text);
   background: var(--color-bg);
   border: 1px solid var(--color-divider);
@@ -1353,7 +1417,7 @@ svg.li {
   display: flex !important;
   align-items: center;
   gap: 7px;
-  font-size: 12px !important;
+  font-size: calc(12px * var(--font-scale)) !important;
   color: var(--text-muted) !important;
   margin-top: var(--space-4) !important;
 }
@@ -1363,7 +1427,7 @@ svg.li {
 
 .saved-list .pick .label .proto {
   font-style: normal;
-  font-size: 9px;
+  font-size: calc(9px * var(--font-scale));
   letter-spacing: 0.06em;
   color: var(--color-accent-2);
   background: color-mix(in srgb, var(--color-accent) 14%, transparent);
@@ -1373,7 +1437,7 @@ svg.li {
 }
 .saved-list .new-conn {
   margin-top: var(--space-2);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
 }
 .proto-seg {
   margin-bottom: var(--space-2);
@@ -1436,14 +1500,14 @@ svg.li {
 }
 .palette-input .prompt {
   color: var(--color-accent);
-  font-size: 16px;
+  font-size: calc(16px * var(--font-scale));
   font-weight: 600;
 }
 .palette-input input {
   flex: 1;
   background: none;
   border: none;
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale));
   padding: 0;
 }
 .palette-list {
@@ -1455,10 +1519,10 @@ svg.li {
   padding: var(--space-4);
   text-align: center;
   color: var(--text-faint);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
 }
 .palette-head {
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -1471,7 +1535,7 @@ svg.li {
   width: 100%;
   text-align: left;
   padding: 5px var(--space-4);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 .palette-row.on {
   background: var(--cursor-tint);
@@ -1486,7 +1550,7 @@ svg.li {
 }
 .palette-row kbd {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   color: var(--color-accent-2);
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   border-radius: 4px;
@@ -1494,13 +1558,13 @@ svg.li {
 }
 .palette-row .ptag {
   font-style: normal;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   color: var(--text-faint);
 }
 .palette-foot {
   padding: var(--space-2) var(--space-4);
   border-top: 1px solid var(--color-divider);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   color: var(--text-faint);
   font-family: var(--font-mono);
 }
@@ -1528,7 +1592,7 @@ svg.li {
   text-align: left;
   padding: 6px 10px;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--text-muted);
 }
 .settings-nav button:hover:not(:disabled) {
@@ -1548,7 +1612,7 @@ svg.li {
   flex-direction: column;
 }
 .settings-pane > label:not(.check) {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-faint);
   margin: var(--space-3) 0 3px;
 }
@@ -1563,7 +1627,7 @@ svg.li {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   color: var(--text-muted);
   margin-top: var(--space-4);
 }
@@ -1573,10 +1637,10 @@ svg.li {
 .settings-pane .wide-in {
   width: 100%;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
 }
 .settings-note {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-faint);
   margin-top: 4px;
 }
@@ -1588,7 +1652,7 @@ svg.li {
 .hk-bar .hk-filter {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
 }
 .hk-table {
   flex: 1;
@@ -1604,7 +1668,7 @@ svg.li {
   align-items: center;
   gap: var(--space-3);
   padding: 3px var(--space-3);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
 }
 .hk-row:hover {
   background: var(--hover-tint);
@@ -1637,7 +1701,7 @@ svg.li {
 }
 .hk-key {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   padding: 2px 7px;
   color: var(--color-accent-2);
 }
@@ -1663,7 +1727,7 @@ svg.li {
 .fav-name {
   width: 130px;
   flex: none;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   padding: 3px 6px;
 }
 .fav-path {
@@ -1675,7 +1739,7 @@ svg.li {
   direction: rtl; /* long paths: keep the tail (folder name) visible */
   text-align: left;
   color: var(--text-faint);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
 }
 .saved-list.tool-list {
   border-right: 0;
@@ -1688,7 +1752,7 @@ svg.li {
   flex: none;
 }
 .tool-form-title {
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -1715,7 +1779,7 @@ svg.li {
 }
 
 .hk-x {
-  font-size: 9px;
+  font-size: calc(9px * var(--font-scale));
   padding: 2px 5px;
   color: var(--text-faint);
   border-left: 1px solid var(--color-divider);
@@ -1725,7 +1789,7 @@ svg.li {
   background: var(--hover-tint);
 }
 .hk-add {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-faint);
   border: 1px dashed var(--color-divider);
   border-radius: var(--radius-sm);
@@ -1739,7 +1803,7 @@ svg.li {
 
 .dialog select {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--color-text);
   background: var(--color-bg);
   border: 1px solid var(--color-divider);
@@ -1751,7 +1815,7 @@ svg.li {
 }
 .find-status {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-muted);
   margin-bottom: var(--space-2);
   white-space: nowrap;
@@ -1771,7 +1835,7 @@ svg.li {
   align-items: center;
   gap: var(--space-3);
   padding: 0 var(--space-3);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
 }
 .find-row:hover {
   background: var(--hover-tint);
@@ -1787,7 +1851,7 @@ svg.li {
 }
 .find-row .fdir {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   color: var(--text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1795,7 +1859,7 @@ svg.li {
 }
 .find-row .fsize {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-muted);
   text-align: right;
 }
@@ -1811,7 +1875,7 @@ svg.li {
   align-items: center;
   gap: var(--space-3);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--text-muted);
   margin-bottom: var(--space-3);
 }
@@ -1833,7 +1897,7 @@ svg.li {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--text-muted);
 }
 .sync-bar .check input {
@@ -1842,7 +1906,7 @@ svg.li {
 .sync-stats {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
   color: var(--text-muted);
 }
 .sync-rows {
@@ -1860,7 +1924,7 @@ svg.li {
   align-items: center;
   justify-content: center;
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
 }
 .sync-row {
   position: absolute;
@@ -1873,7 +1937,7 @@ svg.li {
   gap: var(--space-2);
   padding: 0 var(--space-3);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 .sync-row:hover {
   background: var(--hover-tint);
@@ -1898,7 +1962,7 @@ svg.li {
   text-align: center;
   border-radius: var(--radius-sm);
   padding: 1px 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--color-accent);
 }
 .sync-row .op.skip {
@@ -1909,7 +1973,7 @@ svg.li {
 }
 .sync-actions {
   margin-right: auto;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
   color: var(--text-muted);
   align-self: center;
 }
@@ -1933,14 +1997,14 @@ svg.li {
 .mr-form .field label,
 .mr-form .field.inline label {
   display: block;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-faint);
   margin-bottom: 3px;
 }
 .mr-form .field input {
   width: 100%;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 4px 8px;
 }
 .mr-form .field input.num-in,
@@ -1951,7 +2015,7 @@ svg.li {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--text-muted);
   padding-bottom: 5px;
 }
@@ -1960,7 +2024,7 @@ svg.li {
 }
 .mr-hint {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   color: var(--text-faint);
   margin-bottom: var(--space-2);
 }
@@ -1977,7 +2041,7 @@ svg.li {
   gap: var(--space-2);
   padding: 2px var(--space-3);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
 }
 .mr-row .old {
   flex: 1;
@@ -2021,7 +2085,7 @@ svg.li {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   padding: var(--space-2) var(--space-4);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   user-select: text;
 }
 .toast.error {
@@ -2049,7 +2113,7 @@ svg.li {
   white-space: nowrap;
 }
 .ctx-menu .ctx-chord {
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--font-scale));
   color: var(--text-faint);
 }
 /* "Open With" flyout submenu. */
@@ -2100,7 +2164,7 @@ svg.li {
 }
 .cmp-file {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2112,7 +2176,7 @@ svg.li {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
 }
 .cmp-note.error {
   color: var(--color-danger);
@@ -2124,7 +2188,7 @@ svg.li {
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-sm);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
   background: color-mix(in srgb, var(--color-bg) 55%, var(--color-surface));
 }
 .cmp-row {
@@ -2168,11 +2232,11 @@ svg.li {
 }
 .cmp-foot .cmp-count {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   margin-right: auto;
 }
 .cmp-foot .check {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   display: flex;
   align-items: center;
   gap: 6px;

@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod dock;
 mod fnkeys;
+mod fonts;
 mod fs;
 mod icons;
 mod keychain;
@@ -182,6 +183,7 @@ pub fn run() {
             fnkeys::fkeys_set,
             fnkeys::fkeys_available,
             icons::file_icon,
+            fonts::list_font_families,
             commands::drag::start_drag,
             watch::watch_dir,
             watch::unwatch,

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { SyncDirection, SyncRow } from "../ipc/types";
+import { useScaled } from "../lib/fontScale";
 import { formatDate } from "../lib/format";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
@@ -75,10 +76,11 @@ export function SyncDialog({ d }: { d: Extract<Dialog, { type: "sync" }> }) {
     [rows, diffOnly],
   );
 
+  const rowHeight = useScaled(24);
   const virtualizer = useVirtualizer({
     count: shown.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 24,
+    estimateSize: () => rowHeight,
     overscan: 10,
   });
 
@@ -176,7 +178,7 @@ export function SyncDialog({ d }: { d: Extract<Dialog, { type: "sync" }> }) {
                   <div
                     key={row.rel}
                     className={clsx("sync-row", !row.left || !row.right ? "single" : "")}
-                    style={{ top: item.start }}
+                    style={{ top: item.start, height: rowHeight }}
                   >
                     <span className={clsx("rel", !row.left && "missing")}>
                       {row.left ? row.rel : "—"}

@@ -2,6 +2,7 @@ import clsx from "clsx";
 import { ChevronDown, ChevronUp, GripVertical, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { listFontFamilies } from "../ipc/commands";
 import { isMac } from "../lib/platform";
 import type { ActionId } from "../keymap/actions";
 import { actions } from "../keymap/actions";
@@ -146,9 +147,26 @@ function GeneralPane() {
   );
 }
 
+const FONT_SCALES = [0.9, 1, 1.1, 1.25, 1.5];
+
 function AppearancePane() {
   const { t, i18n } = useTranslation();
   const config = useSettings((s) => s.config);
+  const [families, setFamilies] = useState<string[]>([]);
+  useEffect(() => {
+    void listFontFamilies()
+      .then(setFamilies)
+      .catch(() => {});
+  }, []);
+
+  /** Installed families, plus the saved one should it be gone now. */
+  const fontOptions = (current: string) =>
+    (current && !families.includes(current) ? [current, ...families] : families).map((f) => (
+      <option key={f} value={f}>
+        {f}
+      </option>
+    ));
+  const { setFonts } = useSettings.getState();
 
   return (
     <div className="settings-pane">
@@ -168,6 +186,36 @@ function AppearancePane() {
       >
         <option value="en">English</option>
         <option value="zh-TW">繁體中文</option>
+      </select>
+      <label>{t("settings.font")}</label>
+      <select
+        value={config?.font_family ?? ""}
+        onChange={(e) => setFonts({ font_family: e.target.value })}
+      >
+        <option value="">{t("settings.fontDefault", { name: "Inter" })}</option>
+        {fontOptions(config?.font_family ?? "")}
+      </select>
+      <label>{t("settings.fontMono")}</label>
+      <select
+        value={config?.font_mono ?? ""}
+        onChange={(e) => setFonts({ font_mono: e.target.value })}
+      >
+        <option value="">{t("settings.fontDefault", { name: "JetBrains Mono" })}</option>
+        {fontOptions(config?.font_mono ?? "")}
+      </select>
+      <label>{t("settings.fontSize")}</label>
+      <select
+        value={String(
+          // The config stores an f32; match it to the nearest choice.
+          FONT_SCALES.find((s) => Math.abs(s - (config?.font_scale || 1)) < 0.01) ?? 1,
+        )}
+        onChange={(e) => setFonts({ font_scale: Number(e.target.value) })}
+      >
+        {FONT_SCALES.map((s) => (
+          <option key={s} value={String(s)}>
+            {Math.round(s * 100)}%{s === 1 ? ` (${t("settings.fontSizeDefault")})` : ""}
+          </option>
+        ))}
       </select>
     </div>
   );
