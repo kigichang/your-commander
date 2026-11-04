@@ -15,6 +15,7 @@ import type { Side, TabState } from "../store/panels";
 import { useFileDrop } from "../store/fileDrop";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
+import { FileIcon } from "./FileIcon";
 import { FileTable } from "./FileTable";
 import { Icon } from "./icons";
 import { QuickView } from "./QuickView";
@@ -236,7 +237,7 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
                     }}
                   >
                     <span>
-                      <Icon of={Star} size={14} /> {f.name}
+                      <FileIcon isDir ext="" path={f.path} own /> {f.name}
                     </span>
                     <span className="sub">{displayPath(f.path, home)}</span>
                   </button>

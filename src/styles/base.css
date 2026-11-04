@@ -336,6 +336,16 @@ svg.li {
 .menu .item:hover {
   background: var(--cursor-tint);
 }
+/* System icons (favorites): the same 16 px as the list rows. */
+.menu .item .icon {
+  display: inline-flex;
+  color: var(--color-accent-2);
+}
+.menu .item .icon-img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
 .menu .item:disabled {
   opacity: 0.45;
   cursor: default;

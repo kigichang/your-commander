@@ -27,9 +27,10 @@ function iconUrl(key: string): Promise<string | null> {
 }
 
 /** The system-icon key for an entry (also the native drag image). macOS
- *  app bundles are keyed by path so each shows its own icon. */
-export function iconKey(isDir: boolean, ext: string, path: string): string {
-  if (isMac && isDir && /\.app$/i.test(path)) return `path:${path}`;
+ *  app bundles — and any item asked for with `own` — are keyed by path so
+ *  each shows its own icon (a folder's custom icon, Downloads' glyph…). */
+export function iconKey(isDir: boolean, ext: string, path: string, own = false): string {
+  if (isMac && (own || (isDir && /\.app$/i.test(path)))) return `path:${path}`;
   return isDir ? "folder" : ext || "generic";
 }
 
@@ -38,14 +39,17 @@ export function FileIcon({
   ext,
   path,
   large = false,
+  own = false,
 }: {
   isDir: boolean;
   ext: string;
   path: string;
   /** Icon view's tile size: asks the backend for a 128 px rendition. */
   large?: boolean;
+  /** This item's own icon rather than its type's (macOS). */
+  own?: boolean;
 }) {
-  const key = iconKey(isDir, ext, path) + (large ? "#128" : "");
+  const key = iconKey(isDir, ext, path, own) + (large ? "#128" : "");
   const [url, setUrl] = useState<string | null>(urls.get(key) ?? null);
 
   useEffect(() => {

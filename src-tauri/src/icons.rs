@@ -20,7 +20,7 @@ mod imp {
 
     /// PNG bytes of the Finder icon for `key`: "folder", "generic", a
     /// lower-cased file extension, or "path:<abs path>" for an item's own
-    /// icon (app bundles), optionally suffixed "#<px>" for a larger size.
+    /// icon (app bundles, favorite folders), optionally suffixed "#<px>" for a larger size.
     /// Must run on the main thread.
     pub unsafe fn icon_png(key: &str) -> Option<Vec<u8>> {
         let (key, min_width) = super::split_size(key);
@@ -31,11 +31,16 @@ mod imp {
                 Some(path) if std::path::Path::new(path).exists() => {
                     msg_send![workspace, iconForFile: nsstring(path)]
                 }
-                // Not on the local disk (SFTP, archive): the generic app icon.
-                Some(_) => msg_send![
-                    workspace,
-                    iconForFileType: nsstring("com.apple.application-bundle")
-                ],
+                // Not on the local disk (SFTP, archive, unmounted volume):
+                // the generic app or folder icon.
+                Some(path) => {
+                    let generic = if path.to_lowercase().ends_with(".app") {
+                        "com.apple.application-bundle"
+                    } else {
+                        "public.folder"
+                    };
+                    msg_send![workspace, iconForFileType: nsstring(generic)]
+                }
                 None => {
                     let file_type = match key {
                         "folder" => nsstring("public.folder"),
