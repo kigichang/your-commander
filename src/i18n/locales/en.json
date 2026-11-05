@@ -48,6 +48,7 @@
     "markedSize": "{{marked}} of {{total}} marked · {{size}} of {{totalSize}}",
     "copied": "Copied {{count}} item(s)",
     "moved": "Moved {{count}} item(s)",
+    "moveSameFolder": "Can't move: the items are already in this folder",
     "trashed": "Moved {{count}} item(s) to Trash",
     "deleted": "Deleted {{count}} item(s)",
     "compressed": "Created {{name}}",

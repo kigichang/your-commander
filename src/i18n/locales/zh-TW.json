@@ -48,6 +48,7 @@
     "markedSize": "已標記 {{marked}} / {{total}} · {{size}} / {{totalSize}}",
     "copied": "已複製 {{count}} 個項目",
     "moved": "已移動 {{count}} 個項目",
+    "moveSameFolder": "無法移動：項目已在此資料夾中",
     "trashed": "已將 {{count}} 個項目移至垃圾筒",
     "deleted": "已刪除 {{count}} 個項目",
     "compressed": "已建立 {{name}}",

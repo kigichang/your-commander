@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { ConflictChoice, IfExists } from "../ipc/types";
-import { baseName, joinPath } from "../lib/path";
+import { alreadyIn, baseName, joinPath } from "../lib/path";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
@@ -115,14 +115,24 @@ function CopyMoveDialog({ d }: { d: Extract<Dialog, { type: "copyMove" }> }) {
     const srcTab = s.activeTab(d.side);
     const destTab = s.activeTab(s.otherSide(d.side));
     const sameDest = dest === destTab.path;
+    // Typing a different path only makes sense toward the other panel's
+    // location; the default is exactly that panel's folder.
+    const destLocation = sameDest ? destTab.location : ({ kind: "local" } as const);
+    // A move within the same folder has nowhere to go: refuse it rather
+    // than leave the items behind under new names.
+    if (
+      d.move &&
+      alreadyIn(srcTab.location, d.items.map((e) => e.path), destLocation, dest)
+    ) {
+      useOps.getState().toast(t("status.moveSameFolder"), "error");
+      return;
+    }
     const label = t(d.move ? "dialog.move" : "dialog.copy");
     const request = {
       op: "copy" as const,
       src: srcTab.location,
       sources: d.items.map((e) => ({ path: e.path, isDir: e.isDir, isSymlink: e.isSymlink })),
-      // Typing a different path only makes sense toward the other panel's
-      // location; the default is exactly that panel's folder.
-      dest: sameDest ? destTab.location : ({ kind: "local" } as const),
+      dest: destLocation,
       destDir: dest,
       removeSource: d.move,
       options: {

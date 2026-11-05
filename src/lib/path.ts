@@ -15,6 +15,19 @@ export function sameDir(a: string, b: string): boolean {
   return trim(a) === trim(b);
 }
 
+/** Is any of these entries already inside `destDir`? Moving it there
+ *  would go nowhere. */
+export function alreadyIn(
+  src: Location,
+  paths: string[],
+  dest: Location,
+  destDir: string,
+): boolean {
+  return (
+    sameLocation(src, dest) && paths.some((p) => sameDir(parentPath(p) ?? "/", destDir))
+  );
+}
+
 export function parentPath(path: string): string | null {
   const trimmed = path.replace(/\/+$/, "");
   if (!trimmed || trimmed === "/") return null;
