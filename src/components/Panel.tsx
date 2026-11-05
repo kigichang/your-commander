@@ -38,14 +38,12 @@ async function ejectVolume(volPath: string, side: Side, currentPath: string) {
 export function Panel({ side }: { side: Side }) {
   const panel = usePanels((s) => s.panels[side]);
   const isActive = usePanels((s) => s.activeSide === side);
-  const quickViewSide = usePanels((s) => s.quickViewSide);
-  const quickViewShown = usePanels((s) => s.quickViewShown);
+  const isQuickView = usePanels((s) => s.quickViewSide === side);
   // A file drag hovers this panel's folder (not a folder row inside it).
   const dropHere = useFileDrop((s) => s.target?.side === side && s.target.rowPath === null);
   const tab = panel.tabs[panel.active];
   if (!tab) return <section className="panel" />;
 
-  const isQuickView = quickViewSide === side && quickViewShown;
   return (
     <section
       data-side={side}
@@ -79,7 +77,6 @@ function TabStrip({ side }: { side: Side }) {
   const { t } = useTranslation();
   const panel = usePanels((s) => s.panels[side]);
   const hasQuickView = usePanels((s) => s.quickViewSide === side);
-  const quickViewShown = usePanels((s) => s.quickViewShown);
   const { setActiveTab, closeTab, openTab } = usePanels.getState();
   // The strip's blank space moves the window, as in Safari's tab bar; the
   // tabs themselves stay buttons (Tauri ignores mousedowns on children).
@@ -113,10 +110,7 @@ function TabStrip({ side }: { side: Side }) {
         </button>
       ))}
       {hasQuickView && (
-        <button
-          className={clsx("tab", "tab-qv", quickViewShown && "on")}
-          onClick={() => usePanels.getState().showQuickView()}
-        >
+        <button className="tab tab-qv on">
           <span className="label">{t("quickview.title")}</span>
           <span
             className="close"

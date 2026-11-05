@@ -134,7 +134,7 @@ export const actions: Record<ActionId, Action> = {
       const s = panels();
       const target = s.otherSide(s.activeSide);
       // Never focus a pane that is showing the Quick View preview.
-      if (s.quickViewSide === target && s.quickViewShown) return;
+      if (s.quickViewSide === target) return;
       s.setActiveSide(target);
     },
   },
