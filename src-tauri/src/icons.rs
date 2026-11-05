@@ -7,11 +7,41 @@ use tauri::AppHandle;
 
 #[cfg(target_os = "macos")]
 mod imp {
+    use objc2::encode::{Encode, Encoding};
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
     use std::ffi::CString;
 
     const NS_BITMAP_IMAGE_FILE_TYPE_PNG: usize = 4;
+    const NS_COMPOSITING_OPERATION_COPY: usize = 1;
+
+    /// NSRect, for `drawInRect:fromRect:…`.
+    #[repr(C)]
+    struct Rect {
+        origin: [f64; 2],
+        size: [f64; 2],
+    }
+
+    unsafe impl Encode for Rect {
+        const ENCODING: Encoding = Encoding::Struct(
+            "CGRect",
+            &[
+                Encoding::Struct("CGPoint", &[Encoding::Double, Encoding::Double]),
+                Encoding::Struct("CGSize", &[Encoding::Double, Encoding::Double]),
+            ],
+        );
+    }
+
+    /// An owned (alloc/init) object, released on drop.
+    struct Rep(*mut AnyObject);
+
+    impl Drop for Rep {
+        fn drop(&mut self) {
+            unsafe {
+                let _: () = msg_send![self.0, release];
+            }
+        }
+    }
 
     unsafe fn nsstring(s: &str) -> *mut AnyObject {
         let c = CString::new(s).unwrap_or_default();
@@ -53,46 +83,49 @@ mod imp {
             if image.is_null() {
                 return None;
             }
-            // The icon carries several representations (16/32/128/…); pick the
-            // smallest one that still looks crisp at the requested size.
-            let tiff: *mut AnyObject = msg_send![image, TIFFRepresentation];
-            if tiff.is_null() {
+            // Draw the icon straight into a bitmap of the requested size.
+            // (Going through TIFFRepresentation instead encodes every
+            // representation up to 1024 px @2x — tens of MB and 30–350 ms
+            // per icon, all of it blocking the main thread.)
+            let rep: *mut AnyObject = msg_send![class!(NSBitmapImageRep), alloc];
+            let rep: *mut AnyObject = msg_send![
+                rep,
+                initWithBitmapDataPlanes: std::ptr::null_mut::<*mut u8>(),
+                pixelsWide: min_width,
+                pixelsHigh: min_width,
+                bitsPerSample: 8isize,
+                samplesPerPixel: 4isize,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: nsstring("NSDeviceRGBColorSpace"),
+                bytesPerRow: 0isize,
+                bitsPerPixel: 0isize
+            ];
+            if rep.is_null() {
                 return None;
             }
-            let reps: *mut AnyObject =
-                msg_send![class!(NSBitmapImageRep), imageRepsWithData: tiff];
-            if reps.is_null() {
+            let best = Rep(rep);
+            let context: *mut AnyObject = msg_send![
+                class!(NSGraphicsContext),
+                graphicsContextWithBitmapImageRep: best.0
+            ];
+            if context.is_null() {
                 return None;
             }
-            let count: usize = msg_send![reps, count];
-            let mut best: *mut AnyObject = std::ptr::null_mut();
-            let mut best_width: isize = isize::MAX;
-            for i in 0..count {
-                let rep: *mut AnyObject = msg_send![reps, objectAtIndex: i];
-                let width: isize = msg_send![rep, pixelsWide];
-                if width >= min_width && width < best_width {
-                    best = rep;
-                    best_width = width;
-                }
-            }
-            if best.is_null() && count > 0 {
-                // Nothing that large: take the largest there is.
-                let mut largest: isize = -1;
-                for i in 0..count {
-                    let rep: *mut AnyObject = msg_send![reps, objectAtIndex: i];
-                    let width: isize = msg_send![rep, pixelsWide];
-                    if width > largest {
-                        best = rep;
-                        largest = width;
-                    }
-                }
-            }
-            if best.is_null() {
-                return None;
-            }
+            let side = min_width as f64;
+            let _: () = msg_send![class!(NSGraphicsContext), saveGraphicsState];
+            let _: () = msg_send![class!(NSGraphicsContext), setCurrentContext: context];
+            let _: () = msg_send![
+                image,
+                drawInRect: Rect { origin: [0.0, 0.0], size: [side, side] },
+                fromRect: Rect { origin: [0.0, 0.0], size: [0.0, 0.0] },
+                operation: NS_COMPOSITING_OPERATION_COPY,
+                fraction: 1.0f64
+            ];
+            let _: () = msg_send![class!(NSGraphicsContext), restoreGraphicsState];
             let props: *mut AnyObject = msg_send![class!(NSDictionary), dictionary];
             let png: *mut AnyObject = msg_send![
-                best,
+                best.0,
                 representationUsingType: NS_BITMAP_IMAGE_FILE_TYPE_PNG,
                 properties: props
             ];
@@ -192,5 +225,26 @@ mod tests {
         assert_eq!(split_size("folder#128"), ("folder", 128));
         assert_eq!(split_size("path:/Applications/A.app#128"), ("path:/Applications/A.app", 128));
         assert_eq!(split_size("path:/x/#y.app"), ("path:/x/#y.app", 32));
+    }
+
+    /// Icons come back as a PNG of exactly the requested pixel size, fast
+    /// enough not to stall the main thread while a listing scrolls.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn renders_icons_at_requested_size_quickly() {
+        for (key, px) in [("folder", 32u32), ("txt", 32), ("pdf#128", 128)] {
+            let start = std::time::Instant::now();
+            let png = unsafe { super::imp::icon_png(key) }.expect(key);
+            let elapsed = start.elapsed();
+            assert_eq!(&png[1..4], b"PNG");
+            let width = u32::from_be_bytes(png[16..20].try_into().unwrap());
+            let height = u32::from_be_bytes(png[20..24].try_into().unwrap());
+            assert_eq!((width, height), (px, px), "{key}");
+            eprintln!("{key}: {elapsed:?}, {} bytes", png.len());
+        }
+        // Warm (the first call above loads AppKit): well under a frame.
+        let start = std::time::Instant::now();
+        unsafe { super::imp::icon_png("json") }.unwrap();
+        assert!(start.elapsed().as_millis() < 20, "{:?}", start.elapsed());
     }
 }
