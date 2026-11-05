@@ -1,4 +1,19 @@
+import type { Location } from "../ipc/types";
+
 /** Minimal POSIX path helpers (backend paths are always absolute POSIX). */
+
+export function sameLocation(a: Location, b: Location): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "sftp" && b.kind === "sftp") return a.connId === b.connId;
+  if (a.kind === "archive" && b.kind === "archive") return a.archive === b.archive;
+  return true;
+}
+
+/** Same folder, however the trailing slash was typed. */
+export function sameDir(a: string, b: string): boolean {
+  const trim = (p: string) => p.replace(/\/+$/, "") || "/";
+  return trim(a) === trim(b);
+}
 
 export function parentPath(path: string): string | null {
   const trimmed = path.replace(/\/+$/, "");

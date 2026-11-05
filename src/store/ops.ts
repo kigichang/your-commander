@@ -2,7 +2,9 @@ import { create } from "zustand";
 import i18n from "../i18n";
 import * as ipc from "../ipc/commands";
 import type { ConflictChoice, OpEvent, OpRequest } from "../ipc/types";
-import { baseName } from "../lib/path";
+import { arrivedNames } from "../lib/arrivals";
+import { baseName, sameDir, sameLocation } from "../lib/path";
+import type { Side } from "./panels";
 import { usePanels } from "./panels";
 
 type DoneEvent = Extract<OpEvent, { type: "done" }>;
@@ -86,6 +88,32 @@ function describe(req: OpRequest): string {
   }
 }
 
+/** Finder selects what a paste or drop brought in; do the same for a
+ *  copy/move. Call when the operation starts; the returned function
+ *  selects the arrivals in a pane, should it be showing the destination
+ *  (call it once that pane has been refreshed). */
+function arrivalSelector(req: Extract<OpRequest, { op: "copy" }>): (side: Side) => void {
+  const sources = req.sources.map((s) => baseName(s.path));
+  const shows = (side: Side) => {
+    const tab = usePanels.getState().activeTab(side);
+    return (
+      !!tab && sameLocation(tab.location, req.dest) && sameDir(tab.path, req.destDir)
+    );
+  };
+  // The destination as it is now, to recognize arrivals that get renamed.
+  const listed = ([0, 1] as Side[])
+    .filter(shows)
+    .map((side) => usePanels.getState().activeTab(side))
+    .find((tab) => !tab.loading && !tab.error);
+  const before = listed ? new Set(listed.entries.map((e) => e.name)) : null;
+  return (side) => {
+    if (!shows(side)) return;
+    const panels = usePanels.getState();
+    const after = panels.visible(side).map((e) => e.name);
+    panels.selectNames(side, arrivedNames(sources, before, after));
+  };
+}
+
 function makeJob(
   label: string,
   request: OpRequest,
@@ -134,6 +162,7 @@ export const useOps = create<OpsStore>((set, get) => {
     patchJob(key, { state: "running", lastT: performance.now() });
     let opId: number | null = null;
     const pending: OpEvent[] = [];
+    const selectArrivals = job.request.op === "copy" ? arrivalSelector(job.request) : null;
     const handle = (event: OpEvent) => {
       if (event.type === "progress") {
         patchJob(key, (j) => {
@@ -172,8 +201,12 @@ export const useOps = create<OpsStore>((set, get) => {
         } else if (event.error) {
           get().toast(event.error, "error");
         }
-        void usePanels.getState().refresh(0, { silent: true });
-        void usePanels.getState().refresh(1, { silent: true });
+        for (const side of [0, 1] as Side[]) {
+          void usePanels
+            .getState()
+            .refresh(side, { silent: true })
+            .then(() => event.ok && selectArrivals?.(side));
+        }
         pump();
       }
     };
