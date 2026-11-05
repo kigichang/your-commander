@@ -25,7 +25,7 @@ export function FKeyBar() {
   const repairJob = useRepair((s) => s.job);
   // While the Quick View pane is visible its repair button already shows
   // the progress; the bar takes over once the pane is closed or hidden.
-  const qvVisible = usePanels((s) => s.quickViewSide !== null && s.quickViewShown);
+  const qvVisible = usePanels((s) => s.quickViewSide !== null);
   return (
     <footer className="fkeybar">
       {KEYS.map((k) => (

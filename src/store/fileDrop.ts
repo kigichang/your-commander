@@ -32,7 +32,7 @@ function hitTest(pos: { x: number; y: number }): DropTarget | null {
   if (!el || !panelEl) return null;
   const side: Side = panelEl.dataset.side === "1" ? 1 : 0;
   const s = usePanels.getState();
-  if (s.quickViewSide === side && s.quickViewShown) return null;
+  if (s.quickViewSide === side) return null;
   const tab = s.activeTab(side);
   if (tab.location.kind === "archive") return null;
   const rowPath = el.closest<HTMLElement>("[data-dir-path]")?.dataset.dirPath ?? null;
