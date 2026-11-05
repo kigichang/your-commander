@@ -3,13 +3,13 @@ import clsx from "clsx";
 import { ChevronDown, ChevronUp, CornerLeftUp } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { FsEntry, Location } from "../ipc/types";
+import type { FsEntry } from "../ipc/types";
 import { useClipboard } from "../store/clipboard";
 import { useFileDrop } from "../store/fileDrop";
 import { useScaled } from "../lib/fontScale";
 import { formatDate, humanSize } from "../lib/format";
 import { iconGridCols } from "../lib/iconGrid";
-import { parentPath } from "../lib/path";
+import { parentPath, sameLocation } from "../lib/path";
 import { isModKey } from "../lib/platform";
 import { targetEntries, visibleEntries } from "../lib/selectors";
 import { startDrag } from "../ipc/commands";
@@ -46,13 +46,6 @@ const COLUMNS: Array<{
 
 function gridColumns(w: ColWidths): string {
   return `minmax(0, 1fr) ${w.ext}px ${w.size}px ${w.date}px`;
-}
-
-function sameLocation(a: Location, b: Location): boolean {
-  if (a.kind !== b.kind) return false;
-  if (a.kind === "sftp" && b.kind === "sftp") return a.connId === b.connId;
-  if (a.kind === "archive" && b.kind === "archive") return a.archive === b.archive;
-  return true;
 }
 
 /** Header divider: dragging moves the boundary with the mouse by resizing

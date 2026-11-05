@@ -99,6 +99,10 @@ interface PanelsStore {
   setColWidth: (side: Side, col: ColKey, width: number) => void;
   resetColWidth: (side: Side, col: ColKey) => void;
   persist: () => void;
+  /** Make these entries the pane's selection, Finder style: one entry
+   *  takes the cursor, several are marked with the cursor on the first.
+   *  Names that are not listed (hidden, filtered out) are ignored. */
+  selectNames: (side: Side, names: ReadonlySet<string>) => void;
   /** Navigate to a folder and put the cursor on one of its entries. */
   revealEntry: (side: Side, path: string, name: string, location?: Location) => Promise<void>;
   toggleQuickView: () => void;
@@ -587,6 +591,22 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   },
 
   persist: () => persistPanels(),
+
+  selectNames: (side, names) => {
+    const tab = get().activeTab(side);
+    const hits = get()
+      .visible(side)
+      .flatMap((e, i) => (names.has(e.name) ? [{ name: e.name, index: i }] : []));
+    if (hits.length === 0) return;
+    set((s) => ({
+      panels: updateTab(s.panels, side, tab.id, {
+        cursor: hits[0].index,
+        anchor: hits[0].index,
+        // A lone entry is selected by the cursor alone, like a click.
+        marked: new Set(hits.length > 1 ? hits.map((h) => h.name) : []),
+      }),
+    }));
+  },
 
   revealEntry: async (side, path, name, location) => {
     await get().navigate(side, path, location);

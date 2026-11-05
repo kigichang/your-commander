@@ -22,6 +22,8 @@ remote filesystems, and a fast Quick View for the files you actually work with.
 - Copy / move with background queue: progress, ETA, pause/resume, cancel,
   sticky conflict policies (ask / skip / replace older / keep both), optional
   byte-verify, metadata & Finder-tag preservation, wildcard masks
+- Copied, moved, pasted or dropped items are selected where they land, like
+  Finder
 - Trash or permanent delete; multi-rename with masks, regex, counters and undo
 - Symbolic links are preserved end-to-end (list, copy, archive, SFTP)
 
