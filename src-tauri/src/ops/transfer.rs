@@ -32,6 +32,16 @@ pub fn copy_op(
     dest_dir: PathBuf,
     remove_source: bool,
 ) -> Result<usize, String> {
+    // A move within the same folder has nowhere to go. Refuse it up front,
+    // before anything is touched, rather than rename the items.
+    if remove_source
+        && let Some(src) = sources.iter().find(|src| is_inside(src, &dest_dir))
+    {
+        return Err(format!(
+            "Cannot move \"{}\": it is already in this folder",
+            src.file_name().unwrap_or_default().to_string_lossy()
+        ));
+    }
     ctx.total_bytes = total_bytes(ctx, &sources);
     let mut copied = 0usize;
     for src in &sources {
@@ -53,6 +63,18 @@ pub fn copy_op(
         copied += 1;
     }
     Ok(copied)
+}
+
+/// Is `dir` the folder that holds `path`? Compared after resolving
+/// symlinks, so a folder reached through a link counts too.
+fn is_inside(path: &Path, dir: &Path) -> bool {
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    match (parent.canonicalize(), dir.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => parent == dir,
+    }
 }
 
 fn copy_item(ctx: &mut OpCtx, src: &Path, dest: &Path, remove_source: bool) -> Result<(), String> {
@@ -301,6 +323,53 @@ mod tests {
         assert!(!dest_root.join("proj").exists(), "move must remove source");
 
         for d in [&src_root, &dest_root, &move_dest] {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    #[test]
+    fn move_within_the_same_folder_is_refused() {
+        let root = tmp("same_dir");
+        std::fs::write(root.join("a.txt"), b"a").unwrap();
+        std::fs::write(root.join("b.txt"), b"b").unwrap();
+        let other = tmp("same_dir_other");
+        std::fs::write(other.join("c.txt"), b"c").unwrap();
+
+        // One source already in the destination aborts the whole move,
+        // before the others are touched.
+        let mut ctx = test_ctx();
+        let err = copy_op(
+            &mut ctx,
+            vec![other.join("c.txt"), root.join("a.txt")],
+            root.clone(),
+            true,
+        )
+        .unwrap_err();
+        assert!(err.contains("a.txt"), "names the offending item: {err}");
+        assert!(other.join("c.txt").exists(), "nothing was moved");
+        let mut names: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.txt", "b.txt"], "nothing renamed or added");
+
+        // The same folder reached through a symlink is still the same folder.
+        let link = std::env::temp_dir().join(format!("yc_tx_{}_same_dir_ln", std::process::id()));
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&root, &link).unwrap();
+        let mut ctx = test_ctx();
+        assert!(copy_op(&mut ctx, vec![root.join("a.txt")], link.clone(), true).is_err());
+        assert_eq!(std::fs::read(root.join("a.txt")).unwrap(), b"a");
+
+        // A copy into the same folder still duplicates.
+        let mut ctx = test_ctx();
+        copy_op(&mut ctx, vec![root.join("a.txt")], root.clone(), false).unwrap();
+        assert!(root.join("a 2.txt").exists());
+
+        let _ = std::fs::remove_file(&link);
+        for d in [&root, &other] {
             let _ = std::fs::remove_dir_all(d);
         }
     }

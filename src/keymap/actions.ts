@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import i18n from "../i18n";
 import * as ipc from "../ipc/commands";
 import { iconGridCols } from "../lib/iconGrid";
+import { alreadyIn } from "../lib/path";
 import { targetEntries } from "../lib/selectors";
 import { useClipboard } from "../store/clipboard";
 import { useDialogs } from "../store/dialogs";
@@ -241,6 +242,13 @@ export const actions: Record<ActionId, Action> = {
       const tab = s.activeTab(s.activeSide);
       if (tab.location.kind === "archive")
         return ops().toast(i18n.t("status.archiveReadOnly"));
+      // Cut and pasted back where it came from: nothing to move. The cut
+      // stays on the clipboard for a paste somewhere else.
+      if (
+        clip.move &&
+        alreadyIn(clip.location, clip.items.map((e) => e.path), tab.location, tab.path)
+      )
+        return ops().toast(i18n.t("status.moveSameFolder"), "error");
       const label = i18n.t(clip.move ? "dialog.move" : "dialog.copy");
       void ops().run(
         label,
