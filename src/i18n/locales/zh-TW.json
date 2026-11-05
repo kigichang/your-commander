@@ -185,6 +185,7 @@
     "sec_plugins": "外掛",
     "sec_quickview": "快速預覽",
     "sec_tools": "外部工具",
+    "sec_about": "關於",
     "qvVideo": "影片",
     "qvAutoplay": "自動播放",
     "qvMute": "靜音",
@@ -237,7 +238,10 @@
     "favHint": "此處的順序就是磁碟選單中的顯示順序。",
     "favUp": "上移",
     "favDown": "下移",
-    "favDrag": "拖曳調整順序"
+    "favDrag": "拖曳調整順序",
+    "aboutVersion": "版本 {{version}}",
+    "aboutPlatform": "平台",
+    "aboutLicense": "授權"
   },
   "action": {
     "switchPanel": "切換作用面板",
