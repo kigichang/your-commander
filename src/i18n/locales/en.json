@@ -185,6 +185,7 @@
     "sec_plugins": "Plugins",
     "sec_quickview": "Quick View",
     "sec_tools": "External Tools",
+    "sec_about": "About",
     "qvVideo": "Video",
     "qvAutoplay": "Auto Play",
     "qvMute": "Mute",
@@ -237,7 +238,10 @@
     "favHint": "The order here is the order in the drives menu.",
     "favUp": "Move up",
     "favDown": "Move down",
-    "favDrag": "Drag to reorder"
+    "favDrag": "Drag to reorder",
+    "aboutVersion": "Version {{version}}",
+    "aboutPlatform": "Platform",
+    "aboutLicense": "License"
   },
   "action": {
     "switchPanel": "Switch active panel",

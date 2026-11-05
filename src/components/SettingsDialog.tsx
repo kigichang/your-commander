@@ -1,3 +1,4 @@
+import { getName, getTauriVersion, getVersion } from "@tauri-apps/api/app";
 import clsx from "clsx";
 import { ChevronDown, ChevronUp, GripVertical, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -15,9 +16,10 @@ import { useKeymap } from "../store/keymapStore";
 import { useOps } from "../store/ops";
 import { useSettings } from "../store/settings";
 import { Icon } from "./icons";
+import appIcon from "../../src-tauri/icons/128x128@2x.png";
 
-const SECTIONS = ["general", "appearance", "favorites", "quickview", "hotkeys", "panes", "tools", "plugins"] as const;
-const READY = new Set(["general", "appearance", "favorites", "quickview", "hotkeys", "panes", "tools", "plugins"]);
+const SECTIONS = ["general", "appearance", "favorites", "quickview", "hotkeys", "panes", "tools", "plugins", "about"] as const;
+const READY = new Set(["general", "appearance", "favorites", "quickview", "hotkeys", "panes", "tools", "plugins", "about"]);
 
 export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }> }) {
   const { t } = useTranslation();
@@ -95,6 +97,8 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
             <FavoritesPane />
           ) : section === "plugins" ? (
             <PluginsPane />
+          ) : section === "about" ? (
+            <AboutPane />
           ) : (
             <HotkeysPane capture={capture} setCapture={setCapture} />
           )}
@@ -143,6 +147,37 @@ function GeneralPane() {
         />
         {t("settings.fkeys")}
       </label>
+    </div>
+  );
+}
+
+function AboutPane() {
+  const { t } = useTranslation();
+  // Asked of the running binary, so it is the installed build's version
+  // rather than whatever the frontend was compiled against.
+  const [info, setInfo] = useState({ name: "Your Commander", version: "", tauri: "" });
+  useEffect(() => {
+    void Promise.all([getName(), getVersion(), getTauriVersion()])
+      .then(([name, version, tauri]) => setInfo({ name, version, tauri }))
+      .catch(() => {});
+  }, []);
+
+  return (
+    <div className="settings-pane about-pane">
+      <img className="about-icon" src={appIcon} alt="" draggable={false} />
+      <div className="about-name">{info.name}</div>
+      <div className="about-version">
+        {t("settings.aboutVersion", { version: info.version || "…" })}
+      </div>
+      <dl className="about-info">
+        <dt>{t("settings.aboutPlatform")}</dt>
+        <dd>{isMac ? "macOS" : "Linux"}</dd>
+        <dt>Tauri</dt>
+        <dd>{info.tauri || "…"}</dd>
+        <dt>{t("settings.aboutLicense")}</dt>
+        <dd>MIT</dd>
+      </dl>
+      <div className="settings-note">© 2026 Kigi Chang</div>
     </div>
   );
 }
