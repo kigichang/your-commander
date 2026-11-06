@@ -10,6 +10,7 @@ import {
   Rows3,
   Search,
   Settings,
+  Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { actions } from "../keymap/actions";
@@ -57,6 +58,9 @@ export function Toolbar() {
         <Icon of={ArrowLeftRight} /> {t("toolbar.swap")}
       </button>
       <div className="spacer" {...dragRegion} />
+      <button className="tbtn" title={t("toolbar.trash")} onClick={() => actions.openTrash.run()}>
+        <Icon of={Trash2} />
+      </button>
       <button
         className="tbtn"
         title={prettyChord("mod+,")}

@@ -54,6 +54,7 @@ export type ActionId =
   | "toggleHidden"
   | "commandPalette"
   | "openSettings"
+  | "openTrash"
   | "quit";
 
 type Modded = { mark?: boolean };
@@ -488,6 +489,16 @@ export const actions: Record<ActionId, Action> = {
   openSettings: {
     id: "openSettings",
     run: () => dialogs().open({ type: "settings", section: "hotkeys" }),
+  },
+
+  // Show the Trash's contents in the active panel.
+  openTrash: {
+    id: "openTrash",
+    run: () =>
+      void ipc
+        .trashDir()
+        .then((dir) => panels().navigate(panels().activeSide, dir, { kind: "local" }))
+        .catch((e) => ops().toast(String(e), "error")),
   },
 
   // Quit closes every window (size/state still saved per window); the red

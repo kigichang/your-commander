@@ -10,6 +10,7 @@
     "find": "Find",
     "sync": "Sync",
     "connect": "Connect",
+    "trash": "Trash",
     "fnHint": "F-keys work without fn while the app is focused (click to toggle)",
     "fnUnavailable": "F-key switching unavailable on this system — use the {{mod}} shortcuts"
   },
@@ -30,7 +31,9 @@
     "ext": "Ext",
     "size": "Size",
     "date": "Date",
-    "empty": "Empty folder"
+    "empty": "Empty folder",
+    "trashNeedsAccess": "macOS only lets apps with Full Disk Access read the Trash.",
+    "openPrivacy": "Open Full Disk Access settings"
   },
   "fkeys": {
     "f3": "Quick View",
@@ -289,6 +292,7 @@
     "toggleHidden": "Show/hide hidden files",
     "commandPalette": "Command palette",
     "openSettings": "Settings",
+    "openTrash": "Show Trash",
     "quit": "Quit"
   },
   "ctx": {

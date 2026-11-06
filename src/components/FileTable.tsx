@@ -10,9 +10,9 @@ import { useScaled } from "../lib/fontScale";
 import { formatDate, humanSize } from "../lib/format";
 import { iconGridCols } from "../lib/iconGrid";
 import { parentPath, sameLocation } from "../lib/path";
-import { isModKey } from "../lib/platform";
+import { isMac, isModKey } from "../lib/platform";
 import { targetEntries, visibleEntries } from "../lib/selectors";
-import { startDrag } from "../ipc/commands";
+import { openPath, startDrag } from "../ipc/commands";
 import { actions } from "../keymap/actions";
 import type { ColKey, ColWidths, Side, SortKey, TabState, ViewMode } from "../store/panels";
 import { usePanels } from "../store/panels";
@@ -193,7 +193,28 @@ export function FileTable({
         }}
       >
         {tab.error ? (
-          <div className="error">{tab.error}</div>
+          <div className="error">
+            <span>{tab.error}</span>
+            {/* macOS privacy protection: ~/.Trash needs Full Disk Access. */}
+            {isMac &&
+              tab.location.kind === "local" &&
+              /\/\.Trash\/?$/.test(tab.path) &&
+              /not permitted|os error 1\b/i.test(tab.error) && (
+                <>
+                  <span className="hint">{t("list.trashNeedsAccess")}</span>
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      void openPath(
+                        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                      )
+                    }
+                  >
+                    {t("list.openPrivacy")}
+                  </button>
+                </>
+              )}
+          </div>
         ) : visible.length === 0 && !tab.loading ? (
           <div className="empty">{t("list.empty")}</div>
         ) : (

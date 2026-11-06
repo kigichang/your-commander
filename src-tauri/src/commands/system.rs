@@ -79,6 +79,12 @@ pub fn home_dir() -> PathBuf {
     local::home_dir()
 }
 
+/// Folder whose listing is the user's Trash (toolbar Trash button).
+#[tauri::command]
+pub fn trash_dir() -> Result<PathBuf, String> {
+    platform::trash_dir()
+}
+
 /// "New … Here" in the blank-space context menu: open a terminal or editor
 /// in `dir`. `tool` is "terminal", "vscode", or "zed".
 #[tauri::command]
