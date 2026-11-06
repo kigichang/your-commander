@@ -5,10 +5,11 @@ import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import { formatDate, humanSize } from "../lib/format";
 import { isJson, prettyJson } from "../lib/json";
-import { baseName } from "../lib/path";
+import { baseName, parentPath } from "../lib/path";
 import { isMac } from "../lib/platform";
 import { visibleEntries } from "../lib/selectors";
 import { AudioPreview } from "./AudioPreview";
+import { HtmlPreview } from "./HtmlPreview";
 import { JsonPreview } from "./JsonPreview";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
@@ -49,10 +50,11 @@ function formatDuration(secs: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 const MD_EXTS = new Set(["md", "markdown"]);
+const HTML_EXTS = new Set(["html", "htm", "xhtml"]);
 const PUML_EXTS = new Set(["puml", "plantuml", "pu"]);
 const TEXT_EXTS = new Set([
   "txt", "json", "js", "ts", "tsx", "jsx", "rs", "py", "sh", "zsh", "css",
-  "html", "xml", "yml", "yaml", "toml", "ini", "conf", "log", "csv", "swift",
+  "html", "htm", "xhtml", "xml", "yml", "yaml", "toml", "ini", "conf", "log", "csv", "swift",
   "c", "h", "cpp", "go", "java", "rb", "sql", "lock",
 ]);
 const IMAGE_MAX = 32 * 1024 * 1024;
@@ -307,6 +309,9 @@ export function QuickView() {
   /** "Pretty" re-indents JSON previews; it stays on while the cursor moves
    *  to other files so a folder of JSON reads the same way. */
   const [pretty, setPretty] = useState(false);
+  /** "View" renders HTML previews instead of showing their source; sticky
+   *  across files the same way. */
+  const [htmlView, setHtmlView] = useState(false);
   /** Path under the cursor right now — guards async results that outlive it. */
   const entryRef = useRef<string | null>(null);
   entryRef.current = entry?.path ?? null;
@@ -495,6 +500,7 @@ export function QuickView() {
   }, [entry?.path, entry?.modified, tab?.location, hex]);
 
   const isJsonText = entry?.ext === "json" && preview.kind === "text";
+  const isHtmlText = !!entry && HTML_EXTS.has(entry.ext) && preview.kind === "text";
   // A file past the read cap is cut off and can't parse; format it anyway.
   const jsonOk = useMemo(
     () =>
@@ -538,6 +544,16 @@ export function QuickView() {
             onClick={() => setPretty((p) => !p)}
           >
             Pretty
+          </button>
+        )}
+        {isHtmlText && (
+          <button
+            className={htmlView ? "tbtn on" : "tbtn"}
+            aria-pressed={htmlView}
+            title={t("quickview.htmlViewTitle")}
+            onClick={() => setHtmlView((v) => !v)}
+          >
+            View
           </button>
         )}
         <span className="spacer" />
@@ -624,6 +640,11 @@ export function QuickView() {
         ) : preview.kind === "text" ? (
           prettyText !== null ? (
             <JsonPreview text={prettyText} />
+          ) : isHtmlText && htmlView ? (
+            <HtmlPreview
+              html={preview.text}
+              baseDir={tab.location.kind === "local" ? parentPath(entry.path) : null}
+            />
           ) : (
             <pre>{preview.text}</pre>
           )

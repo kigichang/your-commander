@@ -394,6 +394,7 @@
     "pdfPages": "PDF · {{count}} 頁",
     "noPreview": "無可用預覽",
     "prettyTitle": "格式化 JSON；再按一次回復原始內容",
-    "invalidJson": "不是有效的 JSON，無法格式化"
+    "invalidJson": "不是有效的 JSON，無法格式化",
+    "htmlViewTitle": "顯示網頁呈現結果（不執行腳本、不載入遠端內容）；再按一次回到原始碼"
   }
 }
