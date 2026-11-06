@@ -258,6 +258,7 @@
     "markAll": "全部標記",
     "clearMarks": "清除標記／過濾",
     "quickView": "快速預覽",
+    "quickViewHex": "快速預覽（Hex）",
     "getInfo": "取得資訊",
     "getInfo_linux": "內容",
     "edit": "編輯",

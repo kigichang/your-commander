@@ -872,6 +872,28 @@ svg.li {
   user-select: text;
   overflow: auto;
 }
+.qv-hex {
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+.qv-hex pre,
+.qv-hex-head {
+  min-width: max-content;
+  white-space: pre;
+  overflow: visible;
+}
+.qv-hex-head {
+  position: sticky;
+  top: 0;
+  background: var(--color-well);
+  font-family: var(--font-mono);
+  font-size: calc(11.5px * var(--font-scale));
+  line-height: 1.5;
+  font-weight: 600;
+  color: var(--color-neutral-300);
+}
 .qv-body .none {
   color: var(--text-faint);
 }

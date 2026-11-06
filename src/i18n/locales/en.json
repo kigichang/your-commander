@@ -258,6 +258,7 @@
     "markAll": "Mark all",
     "clearMarks": "Clear marks / filter",
     "quickView": "Quick View",
+    "quickViewHex": "Quick View (Hex)",
     "getInfo": "Get Info",
     "getInfo_linux": "Properties",
     "edit": "Edit",

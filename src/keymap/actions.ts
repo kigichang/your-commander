@@ -24,6 +24,7 @@ export type ActionId =
   | "markAll"
   | "clearMarks"
   | "quickView"
+  | "quickViewHex"
   | "getInfo"
   | "edit"
   | "copy"
@@ -212,6 +213,7 @@ export const actions: Record<ActionId, Action> = {
   },
 
   quickView: { id: "quickView", run: () => panels().toggleQuickView() },
+  quickViewHex: { id: "quickViewHex", run: () => panels().toggleQuickViewHex() },
 
   getInfo: {
     id: "getInfo",

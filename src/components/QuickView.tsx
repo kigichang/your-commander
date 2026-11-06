@@ -56,6 +56,28 @@ const TEXT_EXTS = new Set([
 const IMAGE_MAX = 32 * 1024 * 1024;
 const TEXT_MAX = 256 * 1024;
 const MD_MAX = 2 * 1024 * 1024;
+const HEX_MAX = 256 * 1024;
+const HEX_HEAD =
+  "          " +
+  Array.from({ length: 16 }, (_, i) => i.toString(16).toUpperCase().padStart(2, "0")).join(" ") +
+  "  Decoded Text";
+
+/** Classic hex dump: offset, 16 bytes per row, printable ASCII. */
+function hexDump(bytes: Uint8Array, truncated: boolean): string {
+  const rows: string[] = [];
+  for (let off = 0; off < bytes.length; off += 16) {
+    const row = bytes.subarray(off, off + 16);
+    let hex = "";
+    let text = "";
+    for (const b of row) {
+      hex += b.toString(16).toUpperCase().padStart(2, "0") + " ";
+      text += b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ".";
+    }
+    rows.push(`${off.toString(16).toUpperCase().padStart(8, "0")}  ${hex.padEnd(48)} ${text}`);
+  }
+  if (truncated) rows.push("…");
+  return rows.join("\n");
+}
 // pdf.js needs the whole file; past this size show no preview instead of
 // freezing the pane on a huge download.
 const PDF_MAX = 64 * 1024 * 1024;
@@ -94,6 +116,7 @@ type Preview =
   | { kind: "video-failed" }
   | { kind: "audio"; url: string; data: ArrayBuffer | null }
   | { kind: "text"; text: string }
+  | { kind: "hex"; text: string }
   | { kind: "markdown"; text: string }
   | { kind: "plantuml"; text: string }
   | { kind: "pdf"; data: ArrayBuffer }
@@ -277,6 +300,8 @@ export function QuickView() {
     ffmpeg: false,
   });
   const repairJob = useRepair((s) => s.job);
+  /** ⌘F3: show every file as a hex dump instead of its usual preview. */
+  const hex = usePanels((s) => s.quickViewHex);
   /** Path under the cursor right now — guards async results that outlive it. */
   const entryRef = useRef<string | null>(null);
   entryRef.current = entry?.path ?? null;
@@ -350,7 +375,7 @@ export function QuickView() {
           if (!stale) setTags(v);
         });
         const isVideo = VIDEO_EXTS.has(entry.ext);
-        if (isVideo || AUDIO_EXTS.has(entry.ext)) {
+        if (!hex && (isVideo || AUDIO_EXTS.has(entry.ext))) {
           void ipc
             .mediaInfo(entry.path)
             .then((info) => {
@@ -410,7 +435,11 @@ export function QuickView() {
         }
       }
       try {
-        if (entry.ext === "pdf" && entry.size <= PDF_MAX) {
+        if (hex) {
+          const buf = await ipc.readPreview(tab.location, entry.path, HEX_MAX);
+          if (stale) return;
+          setPreview({ kind: "hex", text: hexDump(new Uint8Array(buf), entry.size > HEX_MAX) });
+        } else if (entry.ext === "pdf" && entry.size <= PDF_MAX) {
           const buf = await ipc.readPreview(tab.location, entry.path, PDF_MAX);
           if (stale) return;
           setPreview({ kind: "pdf", data: buf });
@@ -451,7 +480,7 @@ export function QuickView() {
       clearTimeout(timer);
       if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [entry?.path, entry?.modified, tab?.location]);
+  }, [entry?.path, entry?.modified, tab?.location, hex]);
 
   const kindLabel = !entry
     ? ""
@@ -466,7 +495,10 @@ export function QuickView() {
   return (
     <div className="quickview">
       <div className="qv-head">
-        <span className="title">{t("quickview.title")}</span>
+        <span className="title">
+          {t("quickview.title")}
+          {hex ? " · Hex" : ""}
+        </span>
         <span className="spacer" />
         <span>{entry?.name ?? ""}</span>
         <button
@@ -550,6 +582,11 @@ export function QuickView() {
           />
         ) : preview.kind === "text" ? (
           <pre>{preview.text}</pre>
+        ) : preview.kind === "hex" ? (
+          <div className="qv-hex">
+            <div className="qv-hex-head">{HEX_HEAD}</div>
+            <pre>{preview.text}</pre>
+          </div>
         ) : preview.kind === "loading" ? (
           <span className="none">…</span>
         ) : (
