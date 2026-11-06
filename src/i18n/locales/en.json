@@ -391,6 +391,8 @@
     "folder": "Folder",
     "file": "File",
     "pdfPages": "PDF · {{count}} pages",
-    "noPreview": "No preview available"
+    "noPreview": "No preview available",
+    "prettyTitle": "Format the JSON; click again for the original text",
+    "invalidJson": "Not valid JSON — can't format"
   }
 }

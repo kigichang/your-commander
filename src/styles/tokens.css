@@ -94,6 +94,15 @@
   --shadow-md: 0 0 0 1px #55565b, 0 6px 18px rgba(0, 0, 0, 0.55);
   --shadow-lg: 0 0 0 1px #8f9095, 0 16px 40px rgba(0, 0, 0, 0.65);
 
+  /* Syntax colors (Quick View pretty JSON). */
+  --syn-key: #3dc28f;
+  --syn-string: #5b9cf5;
+  --syn-number: #f0a43a;
+  --syn-literal: #d9967a;
+  --syn-bracket-0: #e8c547;
+  --syn-bracket-1: #d670d6;
+  --syn-bracket-2: #4aa8f0;
+
   /* App-specific derived tints. These reference the theme variables at use
      time, so they need no per-theme redefinition. */
   --cursor-tint: color-mix(in srgb, var(--color-accent) 14%, transparent);
@@ -142,6 +151,13 @@
   --shadow-sm: 0 0 0 1px #dddee1;
   --shadow-md: 0 0 0 1px #c9cacd, 0 6px 18px rgba(20, 22, 26, 0.14);
   --shadow-lg: 0 0 0 1px #aeafb4, 0 16px 40px rgba(20, 22, 26, 0.2);
+  --syn-key: #0e8a5c;
+  --syn-string: #1f5fcf;
+  --syn-number: #b56500;
+  --syn-literal: #a4502c;
+  --syn-bracket-0: #a67c00;
+  --syn-bracket-1: #a42ea4;
+  --syn-bracket-2: #0b6fc0;
 }
 
 /* Before JS applies the saved choice, follow the system so a light desktop
@@ -185,5 +201,12 @@
     --shadow-sm: 0 0 0 1px #dddee1;
     --shadow-md: 0 0 0 1px #c9cacd, 0 6px 18px rgba(20, 22, 26, 0.14);
     --shadow-lg: 0 0 0 1px #aeafb4, 0 16px 40px rgba(20, 22, 26, 0.2);
+    --syn-key: #0e8a5c;
+    --syn-string: #1f5fcf;
+    --syn-number: #b56500;
+    --syn-literal: #a4502c;
+    --syn-bracket-0: #a67c00;
+    --syn-bracket-1: #a42ea4;
+    --syn-bracket-2: #0b6fc0;
   }
 }
