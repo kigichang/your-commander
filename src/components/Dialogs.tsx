@@ -234,11 +234,17 @@ function NewFolderDialog({ d }: { d: Extract<Dialog, { type: "newFolder" }> }) {
     close();
     const s = usePanels.getState();
     const tab = s.activeTab(d.side);
+    const folder = name.trim();
     ipc
-      .mkdir(tab.location, tab.path, name.trim())
-      .then(() => {
+      .mkdir(tab.location, tab.path, folder)
+      .then(async () => {
         useOps.getState().toast(t("status.folderCreated"));
-        void s.refresh(d.side, { silent: true });
+        await s.refresh(d.side, { silent: true });
+        // Put the cursor on the new folder; the file table scrolls to the cursor.
+        const now = usePanels.getState();
+        if (now.activeTab(d.side).id !== tab.id) return;
+        const idx = now.visible(d.side).findIndex((e) => e.name === folder);
+        if (idx >= 0) now.setCursor(d.side, idx);
       })
       .catch((e) => useOps.getState().toast(String(e), "error"));
   };
