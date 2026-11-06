@@ -7,6 +7,7 @@ import { useScaled } from "../lib/fontScale";
 import { humanSize } from "../lib/format";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
+import { Overlay } from "./Overlay";
 
 const CMP_MAX = 4 * 1024 * 1024;
 const ROW_HEIGHT = 19;
@@ -134,17 +135,6 @@ export function CompareDialog({ d }: { d: Extract<Dialog, { type: "compare" }> }
   const [diffOnly, setDiffOnly] = useState(false);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        close();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [close]);
-
-  useEffect(() => {
     let stale = false;
     void (async () => {
       try {
@@ -203,71 +193,69 @@ export function CompareDialog({ d }: { d: Extract<Dialog, { type: "compare" }> }
   }, [state.phase]);
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="dialog wide cmp">
-        <div className="cmp-head">
-          <span className="cmp-file" title={d.left.label}>
-            {d.left.label}
-          </span>
-          <span className="cmp-file" title={d.right.label}>
-            {d.right.label}
-          </span>
-        </div>
-        {state.phase === "loading" && <div className="cmp-note">{t("sync.comparing")}</div>}
-        {state.phase === "error" && <div className="cmp-note error">{state.msg}</div>}
-        {state.phase === "binary" && (
-          <div className="cmp-note">
-            {state.equal
-              ? t("compare.identical")
-              : t("compare.binaryDiffer", {
-                  a: humanSize(state.lsize),
-                  b: humanSize(state.rsize),
-                })}
-          </div>
-        )}
-        {state.phase === "text" &&
-          (diffs === 0 ? (
-            <div className="cmp-note">{t("compare.identical")}</div>
-          ) : (
-            <div className="cmp-body" ref={scrollRef}>
-              <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-                {virtualizer.getVirtualItems().map((item) => {
-                  const r = visible[item.index];
-                  return (
-                    <div
-                      key={item.key}
-                      className={clsx("cmp-row", r.kind)}
-                      style={{ top: item.start, height: rowHeight, lineHeight: `${rowHeight}px` }}
-                    >
-                      <span className="num">{r.ln ?? ""}</span>
-                      <span className={clsx("txt", "l", r.lt === undefined && "void")}>{r.lt}</span>
-                      <span className="num">{r.rn ?? ""}</span>
-                      <span className={clsx("txt", "r", r.rt === undefined && "void")}>{r.rt}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        <div className="buttons cmp-foot">
-          {state.phase === "text" && diffs > 0 && (
-            <>
-              <span className="cmp-count">{t("compare.diffs", { count: diffs })}</span>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={diffOnly}
-                  onChange={(e) => setDiffOnly(e.target.checked)}
-                />
-                {t("sync.diffOnly")}
-              </label>
-            </>
-          )}
-          <button className="btn primary" onClick={close}>
-            {t("settings.done")}
-          </button>
-        </div>
+    <Overlay onClose={close} className="wide cmp">
+      <div className="cmp-head">
+        <span className="cmp-file" title={d.left.label}>
+          {d.left.label}
+        </span>
+        <span className="cmp-file" title={d.right.label}>
+          {d.right.label}
+        </span>
       </div>
-    </div>
+      {state.phase === "loading" && <div className="cmp-note">{t("sync.comparing")}</div>}
+      {state.phase === "error" && <div className="cmp-note error">{state.msg}</div>}
+      {state.phase === "binary" && (
+        <div className="cmp-note">
+          {state.equal
+            ? t("compare.identical")
+            : t("compare.binaryDiffer", {
+                a: humanSize(state.lsize),
+                b: humanSize(state.rsize),
+              })}
+        </div>
+      )}
+      {state.phase === "text" &&
+        (diffs === 0 ? (
+          <div className="cmp-note">{t("compare.identical")}</div>
+        ) : (
+          <div className="cmp-body" ref={scrollRef}>
+            <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+              {virtualizer.getVirtualItems().map((item) => {
+                const r = visible[item.index];
+                return (
+                  <div
+                    key={item.key}
+                    className={clsx("cmp-row", r.kind)}
+                    style={{ top: item.start, height: rowHeight, lineHeight: `${rowHeight}px` }}
+                  >
+                    <span className="num">{r.ln ?? ""}</span>
+                    <span className={clsx("txt", "l", r.lt === undefined && "void")}>{r.lt}</span>
+                    <span className="num">{r.rn ?? ""}</span>
+                    <span className={clsx("txt", "r", r.rt === undefined && "void")}>{r.rt}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      <div className="buttons cmp-foot">
+        {state.phase === "text" && diffs > 0 && (
+          <>
+            <span className="cmp-count">{t("compare.diffs", { count: diffs })}</span>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={diffOnly}
+                onChange={(e) => setDiffOnly(e.target.checked)}
+              />
+              {t("sync.diffOnly")}
+            </label>
+          </>
+        )}
+        <button className="btn primary" onClick={close}>
+          {t("settings.done")}
+        </button>
+      </div>
+    </Overlay>
   );
 }

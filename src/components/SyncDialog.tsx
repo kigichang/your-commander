@@ -1,7 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
 import { ArrowLeft, ArrowLeftRight, ArrowRight, Minus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { SyncDirection, SyncRow } from "../ipc/types";
@@ -11,6 +11,7 @@ import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { Icon } from "./icons";
+import { Overlay } from "./Overlay";
 
 type Action = SyncDirection | "skip";
 
@@ -40,17 +41,6 @@ export function SyncDialog({ d }: { d: Extract<Dialog, { type: "sync" }> }) {
   const [rows, setRows] = useState<SyncRow[] | null>(null);
   const [actions, setActions] = useState<Map<string, Action>>(new Map());
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        close();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [close]);
 
   const compare = async () => {
     setComparing(true);
@@ -127,96 +117,94 @@ export function SyncDialog({ d }: { d: Extract<Dialog, { type: "sync" }> }) {
   };
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="dialog wide sync">
-        <h2>{t("sync.title")}</h2>
-        <div className="sync-paths">
-          <span>{d.leftLabel}</span>
-          <span className="arrow">
-            <Icon of={ArrowLeftRight} size={14} />
-          </span>
-          <span>{d.rightLabel}</span>
-        </div>
-        <div className="sync-bar">
-          <button className="btn primary" disabled={comparing} onClick={() => void compare()}>
-            {comparing ? t("sync.comparing") : t("sync.compare")}
-          </button>
-          <label className="check" title={bothLocal ? "" : t("sync.contentLocalOnly")}>
-            <input
-              type="checkbox"
-              disabled={!bothLocal}
-              checked={byContent && bothLocal}
-              onChange={(e) => setByContent(e.target.checked)}
-            />
-            {t("sync.byContent")}
-          </label>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={diffOnly}
-              onChange={(e) => setDiffOnly(e.target.checked)}
-            />
-            {t("sync.diffOnly")}
-          </label>
-          {rows && (
-            <span className="sync-stats">
-              → {stats.ltr} · ＝ {stats.eq} · ≠ {stats.ne} · ← {stats.rtl}
-            </span>
-          )}
-        </div>
-        <div className="sync-rows" ref={scrollRef}>
-          {rows === null ? (
-            <div className="none">{t("sync.hint")}</div>
-          ) : shown.length === 0 ? (
-            <div className="none">{t("sync.allEqual")}</div>
-          ) : (
-            <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-              {virtualizer.getVirtualItems().map((item) => {
-                const row = shown[item.index];
-                const action = actions.get(row.rel) ?? "skip";
-                return (
-                  <div
-                    key={row.rel}
-                    className={clsx("sync-row", !row.left || !row.right ? "single" : "")}
-                    style={{ top: item.start, height: rowHeight }}
-                  >
-                    <span className={clsx("rel", !row.left && "missing")}>
-                      {row.left ? row.rel : "—"}
-                    </span>
-                    <span className="date">
-                      {row.left ? formatDate(row.left.modified) : ""}
-                    </span>
-                    <button
-                      className={clsx("op", action)}
-                      title="→ / ← / ·"
-                      onClick={() => cycle(row.rel)}
-                    >
-                      <Icon of={GLYPH[action]} size={14} />
-                    </button>
-                    <span className="date">
-                      {row.right ? formatDate(row.right.modified) : ""}
-                    </span>
-                    <span className={clsx("rel right", !row.right && "missing")}>
-                      {row.right ? row.rel : "—"}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        <div className="buttons">
-          <span className="sync-actions">
-            {rows ? t("sync.actions", { count: stats.total }) : ""}
-          </span>
-          <button className="btn" onClick={close}>
-            {t("dialog.cancel")}
-          </button>
-          <button className="btn primary" disabled={!rows || stats.total === 0} onClick={synchronize}>
-            {t("sync.synchronize")}
-          </button>
-        </div>
+    <Overlay onClose={close} className="wide sync">
+      <h2>{t("sync.title")}</h2>
+      <div className="sync-paths">
+        <span>{d.leftLabel}</span>
+        <span className="arrow">
+          <Icon of={ArrowLeftRight} size={14} />
+        </span>
+        <span>{d.rightLabel}</span>
       </div>
-    </div>
+      <div className="sync-bar">
+        <button className="btn primary" disabled={comparing} onClick={() => void compare()}>
+          {comparing ? t("sync.comparing") : t("sync.compare")}
+        </button>
+        <label className="check" title={bothLocal ? "" : t("sync.contentLocalOnly")}>
+          <input
+            type="checkbox"
+            disabled={!bothLocal}
+            checked={byContent && bothLocal}
+            onChange={(e) => setByContent(e.target.checked)}
+          />
+          {t("sync.byContent")}
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={diffOnly}
+            onChange={(e) => setDiffOnly(e.target.checked)}
+          />
+          {t("sync.diffOnly")}
+        </label>
+        {rows && (
+          <span className="sync-stats">
+            → {stats.ltr} · ＝ {stats.eq} · ≠ {stats.ne} · ← {stats.rtl}
+          </span>
+        )}
+      </div>
+      <div className="sync-rows" ref={scrollRef}>
+        {rows === null ? (
+          <div className="none">{t("sync.hint")}</div>
+        ) : shown.length === 0 ? (
+          <div className="none">{t("sync.allEqual")}</div>
+        ) : (
+          <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+            {virtualizer.getVirtualItems().map((item) => {
+              const row = shown[item.index];
+              const action = actions.get(row.rel) ?? "skip";
+              return (
+                <div
+                  key={row.rel}
+                  className={clsx("sync-row", !row.left || !row.right ? "single" : "")}
+                  style={{ top: item.start, height: rowHeight }}
+                >
+                  <span className={clsx("rel", !row.left && "missing")}>
+                    {row.left ? row.rel : "—"}
+                  </span>
+                  <span className="date">
+                    {row.left ? formatDate(row.left.modified) : ""}
+                  </span>
+                  <button
+                    className={clsx("op", action)}
+                    title="→ / ← / ·"
+                    onClick={() => cycle(row.rel)}
+                  >
+                    <Icon of={GLYPH[action]} size={14} />
+                  </button>
+                  <span className="date">
+                    {row.right ? formatDate(row.right.modified) : ""}
+                  </span>
+                  <span className={clsx("rel right", !row.right && "missing")}>
+                    {row.right ? row.rel : "—"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <div className="buttons">
+        <span className="sync-actions">
+          {rows ? t("sync.actions", { count: stats.total }) : ""}
+        </span>
+        <button className="btn" onClick={close}>
+          {t("dialog.cancel")}
+        </button>
+        <button className="btn primary" disabled={!rows || stats.total === 0} onClick={synchronize}>
+          {t("sync.synchronize")}
+        </button>
+      </div>
+    </Overlay>
   );
 }

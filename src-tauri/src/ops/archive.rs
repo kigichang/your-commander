@@ -17,6 +17,38 @@ pub fn excluded(name: &str) -> bool {
     name == ".DS_Store" || name.starts_with("._")
 }
 
+/// What `extract_op` can unpack: every `ArchiveFormat`, plus 7z.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Extractable {
+    Zip,
+    SevenZ,
+    Tar,
+    TarGz,
+    Gz,
+}
+
+/// Every archive suffix the backend recognises. ".tar.gz" must come before
+/// ".gz", which is its tail. The frontend mirrors this list in ARCHIVE_RE
+/// and BROWSABLE_ARCHIVE_RE (src/keymap/actions.ts).
+const SUFFIXES: [(&str, Extractable); 6] = [
+    (".tar.gz", Extractable::TarGz),
+    (".tgz", Extractable::TarGz),
+    (".tar", Extractable::Tar),
+    (".zip", Extractable::Zip),
+    (".7z", Extractable::SevenZ),
+    (".gz", Extractable::Gz),
+];
+
+/// The archive kind and the name with its suffix stripped, or None when the
+/// name is not a known archive.
+pub fn classify(name: &str) -> Option<(Extractable, &str)> {
+    let lower = name.to_lowercase();
+    SUFFIXES
+        .iter()
+        .find(|(suffix, _)| lower.ends_with(suffix))
+        .map(|(suffix, kind)| (*kind, &name[..name.len() - suffix.len()]))
+}
+
 /// (relative name with forward slashes, absolute path, is_dir), exclusions applied.
 fn collect_tree(sources: &[PathBuf]) -> Result<Vec<(String, PathBuf, bool)>, String> {
     fn walk(
@@ -222,59 +254,52 @@ pub fn extract_op(
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        let lower = name.to_lowercase();
-        let stem = archive_stem(&name);
-        let mut target = dest_dir.join(&stem);
+        let Some((kind, stem)) = classify(&name) else {
+            return Err(format!("Unknown archive format: {name}"));
+        };
+        let mut target = dest_dir.join(stem);
         if target.exists() {
             target = keep_both_path(&target);
         }
 
         ctx.report(&name);
-        if lower.ends_with(".zip") {
-            extract_zip(ctx, archive, &target)?;
-        } else if lower.ends_with(".7z") {
-            sevenz_rust2::decompress_file(archive, &target).map_err(|e| e.to_string())?;
-        } else if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
-            let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
-            let dec = flate2::read::GzDecoder::new(file);
-            extract_tar(ctx, dec, &target)?;
-        } else if lower.ends_with(".tar") {
-            let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
-            extract_tar(ctx, file, &target)?;
-        } else if lower.ends_with(".gz") {
-            // Single gzip-compressed file: decompress next to the others.
-            std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
-            let out = target.join(&stem);
-            let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
-            let mut dec = flate2::read::GzDecoder::new(file);
-            let mut writer = std::fs::File::create(&out).map_err(|e| e.to_string())?;
-            let mut buf = vec![0u8; CHUNK];
-            loop {
-                if ctx.cancelled() {
-                    return Err(cancelled_err());
-                }
-                let n = dec.read(&mut buf).map_err(|e| e.to_string())?;
-                if n == 0 {
-                    break;
-                }
-                writer.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        match kind {
+            Extractable::Zip => extract_zip(ctx, archive, &target)?,
+            Extractable::SevenZ => {
+                sevenz_rust2::decompress_file(archive, &target).map_err(|e| e.to_string())?;
             }
-        } else {
-            return Err(format!("Unknown archive format: {name}"));
+            Extractable::TarGz => {
+                let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
+                let dec = flate2::read::GzDecoder::new(file);
+                extract_tar(ctx, dec, &target)?;
+            }
+            Extractable::Tar => {
+                let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
+                extract_tar(ctx, file, &target)?;
+            }
+            Extractable::Gz => {
+                // Single gzip-compressed file: decompress next to the others.
+                std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+                let out = target.join(stem);
+                let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
+                let mut dec = flate2::read::GzDecoder::new(file);
+                let mut writer = std::fs::File::create(&out).map_err(|e| e.to_string())?;
+                let mut buf = vec![0u8; CHUNK];
+                loop {
+                    if ctx.cancelled() {
+                        return Err(cancelled_err());
+                    }
+                    let n = dec.read(&mut buf).map_err(|e| e.to_string())?;
+                    if n == 0 {
+                        break;
+                    }
+                    writer.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+                }
+            }
         }
         count += 1;
     }
     Ok(count)
-}
-
-pub fn archive_stem(name: &str) -> String {
-    let lower = name.to_lowercase();
-    for suffix in [".tar.gz", ".tgz", ".tar", ".zip", ".7z", ".gz"] {
-        if lower.ends_with(suffix) {
-            return name[..name.len() - suffix.len()].to_string();
-        }
-    }
-    name.to_string()
 }
 
 fn extract_zip(ctx: &mut OpCtx, archive: &Path, dest: &Path) -> Result<(), String> {
@@ -368,12 +393,14 @@ mod tests {
     }
 
     #[test]
-    fn archive_stem_strips_known_suffixes() {
-        assert_eq!(archive_stem("a.tar.gz"), "a");
-        assert_eq!(archive_stem("b.tgz"), "b");
-        assert_eq!(archive_stem("c.zip"), "c");
-        assert_eq!(archive_stem("d.7z"), "d");
-        assert_eq!(archive_stem("Pic.JPG.gz"), "Pic.JPG");
+    fn classify_finds_kind_and_stem() {
+        assert_eq!(classify("a.tar.gz"), Some((Extractable::TarGz, "a")));
+        assert_eq!(classify("b.tgz"), Some((Extractable::TarGz, "b")));
+        assert_eq!(classify("c.zip"), Some((Extractable::Zip, "c")));
+        assert_eq!(classify("d.7z"), Some((Extractable::SevenZ, "d")));
+        assert_eq!(classify("e.tar"), Some((Extractable::Tar, "e")));
+        assert_eq!(classify("Pic.JPG.gz"), Some((Extractable::Gz, "Pic.JPG")));
+        assert_eq!(classify("notes.txt"), None);
     }
 
     #[test]

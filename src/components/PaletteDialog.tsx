@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActionId } from "../keymap/actions";
 import { actions } from "../keymap/actions";
-import { prettyChord } from "../keymap/keymap";
+import { chordForAction, prettyChord } from "../keymap/keymap";
 import { fuzzyScore } from "../lib/fuzzy";
 import { displayPath } from "../lib/path";
 import { useDialogs } from "../store/dialogs";
@@ -29,15 +29,11 @@ export function PaletteDialog() {
   useEffect(() => inputRef.current?.focus(), []);
 
   const all = useMemo<Item[]>(() => {
-    const chordOfAction = new Map<ActionId, string>();
-    for (const [chord, id] of Object.entries(map)) {
-      if (!chordOfAction.has(id as ActionId)) chordOfAction.set(id as ActionId, chord);
-    }
     const acts: Item[] = (Object.keys(actions) as ActionId[]).map((id) => ({
       kind: "action",
       id,
       label: t(`action.${id}`),
-      chord: chordOfAction.get(id) ?? null,
+      chord: chordForAction(map, id),
     }));
     const folders: Item[] = [
       ...(home ? [{ kind: "folder", label: "~", path: home, tag: "home" } as Item] : []),

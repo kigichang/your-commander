@@ -4,6 +4,7 @@
 //! no leading slash ("" is the archive root).
 
 use crate::fs::provider::FsEntry;
+use crate::ops::archive::{classify, Extractable};
 use crate::ops::queue::{cancelled_err, OpCtx};
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -18,19 +19,12 @@ enum Kind {
 }
 
 fn kind_of(archive: &Path) -> Result<Kind, String> {
-    let name = archive
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_lowercase();
-    if name.ends_with(".zip") {
-        Ok(Kind::Zip)
-    } else if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
-        Ok(Kind::TarGz)
-    } else if name.ends_with(".tar") {
-        Ok(Kind::Tar)
-    } else {
-        Err(format!("Cannot browse this archive type: {name}"))
+    let name = archive.file_name().unwrap_or_default().to_string_lossy();
+    match classify(&name) {
+        Some((Extractable::Zip, _)) => Ok(Kind::Zip),
+        Some((Extractable::TarGz, _)) => Ok(Kind::TarGz),
+        Some((Extractable::Tar, _)) => Ok(Kind::Tar),
+        _ => Err(format!("Cannot browse this archive type: {}", name.to_lowercase())),
     }
 }
 
