@@ -146,8 +146,19 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
     const close = (e: MouseEvent) => {
       if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
     };
+    // Capture phase, so Esc closes the menu instead of reaching the keymap.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setMenuOpen(false);
+      }
+    };
     window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", onKey, true);
+    };
   }, [menuOpen]);
 
   // Longest matching mount wins ("/" would otherwise swallow every path on
