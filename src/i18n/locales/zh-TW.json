@@ -69,7 +69,10 @@
     "clipCancelled": "已取消複製／剪下",
     "nothingSelected": "未選取任何項目",
     "archiveReadOnly": "壓縮檔為唯讀——按 F5 解壓選取項目",
-    "comingSoon": "功能尚未完成"
+    "comingSoon": "功能尚未完成",
+    "restored": "已復原 {{count}} 個項目",
+    "emptied": "已清空垃圾筒（永久刪除 {{count}} 個項目）",
+    "notInTrash": "復原只適用於垃圾筒內的項目"
   },
   "dialog": {
     "copyTitle": "複製 {{count}} 個項目",
@@ -108,7 +111,9 @@
     "compressTitle": "壓縮 {{count}} 個項目",
     "archiveName": "檔名：",
     "format": "格式：",
-    "compress": "壓縮"
+    "compress": "壓縮",
+    "emptyTrashTitle": "清空垃圾筒？",
+    "emptyTrashBody": "垃圾筒內的所有項目將被永久刪除，且無法復原。"
   },
   "connect": {
     "title": "連線到伺服器",
@@ -295,7 +300,9 @@
     "openSettings": "設定",
     "openTrash": "顯示垃圾筒",
     "openDesktop": "顯示桌面",
-    "quit": "結束"
+    "quit": "結束",
+    "restore": "復原",
+    "emptyTrash": "清空垃圾筒"
   },
   "ctx": {
     "open": "開啟",

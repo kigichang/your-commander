@@ -2,7 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import i18n from "../i18n";
 import * as ipc from "../ipc/commands";
 import { iconGridCols } from "../lib/iconGrid";
-import { alreadyIn } from "../lib/path";
+import { alreadyIn, isTrashDir } from "../lib/path";
 import { targetEntries } from "../lib/selectors";
 import { useClipboard } from "../store/clipboard";
 import { useDialogs } from "../store/dialogs";
@@ -56,6 +56,8 @@ export type ActionId =
   | "openSettings"
   | "openTrash"
   | "openDesktop"
+  | "restore"
+  | "emptyTrash"
   | "quit";
 
 type Modded = { mark?: boolean };
@@ -397,6 +399,27 @@ export const actions: Record<ActionId, Action> = {
         dialogs().open({ type: "confirmDelete", side, items, remote });
       }
     },
+  },
+
+  // Trash folder only: put the targets back where they came from.
+  restore: {
+    id: "restore",
+    run: () => {
+      const { tab, items } = activeTargets();
+      if (!isTrashDir(tab.location, tab.path, useSettings.getState().trashDir))
+        return ops().toast(i18n.t("status.notInTrash"));
+      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+      void ops().run(
+        i18n.t("action.restore"),
+        { op: "restore", items: items.map((e) => e.path) },
+        (done) => ops().toast(i18n.t("status.restored", { count: done.count })),
+      );
+    },
+  },
+
+  emptyTrash: {
+    id: "emptyTrash",
+    run: () => dialogs().open({ type: "confirmEmptyTrash" }),
   },
 
   deletePermanent: {

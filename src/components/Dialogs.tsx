@@ -42,6 +42,8 @@ export function Dialogs() {
       return <PaletteDialog />;
     case "confirmDelete":
       return <ConfirmDeleteDialog d={dialog} />;
+    case "confirmEmptyTrash":
+      return <ConfirmEmptyTrashDialog />;
     case "repairVideo":
       return <RepairVideoDialog d={dialog} />;
     case "compress":
@@ -400,6 +402,33 @@ function ConfirmDeleteDialog({ d }: { d: Extract<Dialog, { type: "confirmDelete"
         )}
         <button className="btn danger" onClick={() => run(true)}>
           {t("dialog.deletePermanent")}
+        </button>
+      </div>
+    </Overlay>
+  );
+}
+
+function ConfirmEmptyTrashDialog() {
+  const { t } = useTranslation();
+  const close = useDialogs((s) => s.close);
+  const run = () => {
+    close();
+    void useOps.getState().run(t("action.emptyTrash"), { op: "emptyTrash" }, (done) =>
+      useOps.getState().toast(t("status.emptied", { count: done.count })),
+    );
+  };
+  return (
+    <Overlay onClose={close}>
+      <h2>{t("dialog.emptyTrashTitle")}</h2>
+      <div className="body">
+        <p>{t("dialog.emptyTrashBody")}</p>
+      </div>
+      <div className="buttons">
+        <button className="btn" onClick={close}>
+          {t("dialog.cancel")}
+        </button>
+        <button className="btn danger" onClick={run}>
+          {t("action.emptyTrash")}
         </button>
       </div>
     </Overlay>

@@ -47,6 +47,8 @@ darkMedia.addEventListener("change", () => {
 interface SettingsStore {
   config: Config | null;
   home: string | null;
+  /** The Trash folder (toolbar Trash button); null if unavailable. */
+  trashDir: string | null;
   showHidden: boolean;
   fkeysWithoutFn: boolean;
   fkeysAvailable: boolean;
@@ -65,20 +67,23 @@ interface SettingsStore {
 export const useSettings = create<SettingsStore>((set, get) => ({
   config: null,
   home: null,
+  trashDir: null,
   showHidden: false,
   fkeysWithoutFn: true,
   fkeysAvailable: false,
   fontScale: 1,
 
   load: async () => {
-    const [config, home, fkeysAvailable] = await Promise.all([
+    const [config, home, fkeysAvailable, trashDir] = await Promise.all([
       ipc.getConfig(),
       ipc.homeDir(),
       ipc.fkeysAvailable(),
+      ipc.trashDir().catch(() => null),
     ]);
     set({
       config,
       home,
+      trashDir,
       showHidden: config.show_hidden,
       fkeysWithoutFn: config.fkeys_without_fn,
       fkeysAvailable,
