@@ -4,6 +4,7 @@ import {
   GitCompare,
   LayoutGrid,
   List,
+  Monitor,
   Network,
   PencilLine,
   RefreshCw,
@@ -58,6 +59,13 @@ export function Toolbar() {
         <Icon of={ArrowLeftRight} /> {t("toolbar.swap")}
       </button>
       <div className="spacer" {...dragRegion} />
+      <button
+        className="tbtn"
+        title={t("toolbar.desktop")}
+        onClick={() => actions.openDesktop.run()}
+      >
+        <Icon of={Monitor} />
+      </button>
       <button className="tbtn" title={t("toolbar.trash")} onClick={() => actions.openTrash.run()}>
         <Icon of={Trash2} />
       </button>

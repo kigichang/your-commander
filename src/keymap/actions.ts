@@ -55,6 +55,7 @@ export type ActionId =
   | "commandPalette"
   | "openSettings"
   | "openTrash"
+  | "openDesktop"
   | "quit";
 
 type Modded = { mark?: boolean };
@@ -71,6 +72,12 @@ export const ARCHIVE_RE = /\.(zip|7z|tar|tgz|gz)$/i;
 
 const panels = () => usePanels.getState();
 const ops = () => useOps.getState();
+
+/** Open a backend-resolved local folder (Trash, Desktop) in the active panel. */
+const openSpecialDir = (resolve: () => Promise<string>) =>
+  void resolve()
+    .then((dir) => panels().navigate(panels().activeSide, dir, { kind: "local" }))
+    .catch((e) => ops().toast(String(e), "error"));
 
 const inIconView = () => {
   const s = panels();
@@ -491,15 +498,9 @@ export const actions: Record<ActionId, Action> = {
     run: () => dialogs().open({ type: "settings", section: "hotkeys" }),
   },
 
-  // Show the Trash's contents in the active panel.
-  openTrash: {
-    id: "openTrash",
-    run: () =>
-      void ipc
-        .trashDir()
-        .then((dir) => panels().navigate(panels().activeSide, dir, { kind: "local" }))
-        .catch((e) => ops().toast(String(e), "error")),
-  },
+  // Show the Trash's / Desktop's contents in the active panel.
+  openTrash: { id: "openTrash", run: () => openSpecialDir(ipc.trashDir) },
+  openDesktop: { id: "openDesktop", run: () => openSpecialDir(ipc.desktopDir) },
 
   // Quit closes every window (size/state still saved per window); the red
   // traffic light closes just one.

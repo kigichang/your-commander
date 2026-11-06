@@ -11,6 +11,7 @@
     "sync": "同步",
     "connect": "連線",
     "trash": "垃圾筒",
+    "desktop": "桌面",
     "fnHint": "App 聚焦時 F 鍵免按 fn（點擊切換）",
     "fnUnavailable": "此系統無法切換 F 鍵模式——請使用 {{mod}} 快捷鍵"
   },
@@ -293,6 +294,7 @@
     "commandPalette": "指令面板",
     "openSettings": "設定",
     "openTrash": "顯示垃圾筒",
+    "openDesktop": "顯示桌面",
     "quit": "結束"
   },
   "ctx": {
