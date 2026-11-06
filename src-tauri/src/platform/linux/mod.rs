@@ -9,6 +9,28 @@ use std::process::Command;
 
 pub mod smb;
 
+/// The home trash's files/ folder (freedesktop Trash spec). Created when
+/// missing — a fresh account has none until something is trashed.
+pub fn trash_dir() -> Result<PathBuf, String> {
+    let dir = home_trash_files(
+        std::env::var_os("XDG_DATA_HOME"),
+        &crate::fs::local::home_dir(),
+    );
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    Ok(dir)
+}
+
+/// $XDG_DATA_HOME/Trash/files, ~/.local/share/Trash/files when it is unset
+/// or empty — the same rule the `trash` crate uses when it moves files
+/// there, so the button opens exactly where F8 puts things.
+fn home_trash_files(xdg_data_home: Option<std::ffi::OsString>, home: &Path) -> PathBuf {
+    xdg_data_home
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/share"))
+        .join("Trash/files")
+}
+
 /// file:// URI with each path segment percent-encoded (quotes too, so the
 /// result is safe to embed in a GVariant literal).
 pub(crate) fn file_uri(path: &Path) -> String {
@@ -402,6 +424,23 @@ pub fn icon_png(key: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn home_trash_files_follows_xdg_data_home() {
+        let home = Path::new("/home/u");
+        assert_eq!(
+            home_trash_files(None, home),
+            PathBuf::from("/home/u/.local/share/Trash/files")
+        );
+        assert_eq!(
+            home_trash_files(Some("".into()), home),
+            PathBuf::from("/home/u/.local/share/Trash/files")
+        );
+        assert_eq!(
+            home_trash_files(Some("/data".into()), home),
+            PathBuf::from("/data/Trash/files")
+        );
+    }
 
     #[test]
     fn parses_gio_mime_output() {

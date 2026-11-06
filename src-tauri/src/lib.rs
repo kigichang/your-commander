@@ -139,6 +139,8 @@ pub fn run() {
             commands::system::quit_app,
             commands::system::volumes,
             commands::system::home_dir,
+            commands::system::trash_dir,
+            commands::system::desktop_dir,
             commands::system::open_path,
             commands::system::open_in,
             commands::system::open_with,

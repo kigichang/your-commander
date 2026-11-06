@@ -10,6 +10,8 @@
     "find": "搜尋",
     "sync": "同步",
     "connect": "連線",
+    "trash": "垃圾筒",
+    "desktop": "桌面",
     "fnHint": "App 聚焦時 F 鍵免按 fn（點擊切換）",
     "fnUnavailable": "此系統無法切換 F 鍵模式——請使用 {{mod}} 快捷鍵"
   },
@@ -30,7 +32,9 @@
     "ext": "副檔名",
     "size": "大小",
     "date": "日期",
-    "empty": "空資料夾"
+    "empty": "空資料夾",
+    "trashNeedsAccess": "macOS 只允許具有「完整磁碟取用權限」的 App 讀取垃圾筒。",
+    "openPrivacy": "開啟「完整磁碟取用權限」設定"
   },
   "fkeys": {
     "f3": "預覽",
@@ -289,6 +293,8 @@
     "toggleHidden": "顯示／隱藏隱藏檔",
     "commandPalette": "指令面板",
     "openSettings": "設定",
+    "openTrash": "顯示垃圾筒",
+    "openDesktop": "顯示桌面",
     "quit": "結束"
   },
   "ctx": {

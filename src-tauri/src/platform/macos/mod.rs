@@ -7,6 +7,12 @@ use std::path::{Path, PathBuf};
 
 pub mod smb;
 
+/// The user's Trash folder. Listing it needs Full Disk Access: macOS
+/// privacy protection answers EPERM ("Operation not permitted") otherwise.
+pub fn trash_dir() -> Result<PathBuf, String> {
+    Ok(crate::fs::local::home_dir().join(".Trash"))
+}
+
 /// "New … Here" in the blank-space context menu: open a terminal or editor
 /// in `dir`. `tool` is "terminal", "vscode", or "zed".
 pub fn open_in(tool: &str, dir: &Path) -> Result<(), String> {

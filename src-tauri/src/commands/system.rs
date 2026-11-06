@@ -79,6 +79,20 @@ pub fn home_dir() -> PathBuf {
     local::home_dir()
 }
 
+/// The user's Desktop folder (toolbar Desktop button): ~/Desktop on macOS;
+/// on Linux the XDG user dir from user-dirs.dirs (localized names such as
+/// ~/桌面 included), falling back to ~/Desktop.
+#[tauri::command]
+pub fn desktop_dir() -> PathBuf {
+    dirs::desktop_dir().unwrap_or_else(|| local::home_dir().join("Desktop"))
+}
+
+/// Folder whose listing is the user's Trash (toolbar Trash button).
+#[tauri::command]
+pub fn trash_dir() -> Result<PathBuf, String> {
+    platform::trash_dir()
+}
+
 /// "New … Here" in the blank-space context menu: open a terminal or editor
 /// in `dir`. `tool` is "terminal", "vscode", or "zed".
 #[tauri::command]

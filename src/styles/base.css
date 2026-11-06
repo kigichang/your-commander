@@ -730,8 +730,13 @@ svg.li {
   text-align: center;
 }
 .tbody .error {
+  flex-direction: column;
+  gap: var(--space-3);
   color: var(--color-danger);
   user-select: text;
+}
+.tbody .error .hint {
+  color: var(--text-muted);
 }
 
 .statusline {
