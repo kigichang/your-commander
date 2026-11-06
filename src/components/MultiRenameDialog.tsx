@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { Location } from "../ipc/types";
@@ -8,6 +8,7 @@ import type { CaseMode, RenameRules } from "../lib/renameMask";
 import { DEFAULT_RULES, previewRenames } from "../lib/renameMask";
 import type { Dialog } from "../store/dialogs";
 import { Icon } from "./icons";
+import { Overlay } from "./Overlay";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
@@ -26,17 +27,6 @@ export function MultiRenameDialog({ d }: { d: Extract<Dialog, { type: "multiRena
   const [rules, setRules] = useState<RenameRules>(DEFAULT_RULES);
   const [hasUndo, setHasUndo] = useState(lastBatch !== null);
   const patch = (p: Partial<RenameRules>) => setRules((r) => ({ ...r, ...p }));
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        close();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [close]);
 
   const tab = usePanels((s) => s.activeTab(d.side));
   const existing = useMemo(
@@ -87,119 +77,117 @@ export function MultiRenameDialog({ d }: { d: Extract<Dialog, { type: "multiRena
   };
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="dialog wide">
-        <h2>{t("rename.title", { count: d.items.length })}</h2>
-        <div className="mr-form">
-          <div className="field grow">
-            <label>{t("rename.nameMask")}</label>
-            <input
-              value={rules.nameMask}
-              spellCheck={false}
-              onChange={(e) => patch({ nameMask: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label>{t("rename.extension")}</label>
-            <input
-              value={rules.extMask}
-              spellCheck={false}
-              onChange={(e) => patch({ extMask: e.target.value })}
-            />
-          </div>
-          <div className="field grow">
-            <label>{t("rename.find")}</label>
-            <input
-              value={rules.find}
-              spellCheck={false}
-              onChange={(e) => patch({ find: e.target.value })}
-            />
-          </div>
-          <div className="field grow">
-            <label>{t("rename.replaceWith")}</label>
-            <input
-              value={rules.replace}
-              spellCheck={false}
-              onChange={(e) => patch({ replace: e.target.value })}
-            />
-          </div>
+    <Overlay onClose={close} className="wide">
+      <h2>{t("rename.title", { count: d.items.length })}</h2>
+      <div className="mr-form">
+        <div className="field grow">
+          <label>{t("rename.nameMask")}</label>
+          <input
+            value={rules.nameMask}
+            spellCheck={false}
+            onChange={(e) => patch({ nameMask: e.target.value })}
+          />
         </div>
-        <div className="mr-form">
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={rules.regex}
-              onChange={(e) => patch({ regex: e.target.checked })}
-            />
-            {t("rename.regex")}
-          </label>
-          <div className="field inline">
-            <label>{t("rename.caseLabel")}</label>
-            <div className="seg">
-              {CASES.map((c) => (
-                <button
-                  key={c}
-                  className={rules.caseMode === c ? "on" : ""}
-                  onClick={() => patch({ caseMode: c })}
-                >
-                  {t(`rename.case_${c}`)}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="field inline">
-            <label>{t("rename.counterStart")}</label>
-            <input
-              className="num-in"
-              value={rules.counterStart}
-              onChange={(e) => patch({ counterStart: Number(e.target.value) || 0 })}
-            />
-          </div>
-          <div className="field inline">
-            <label>{t("rename.step")}</label>
-            <input
-              className="num-in"
-              value={rules.counterStep}
-              onChange={(e) => patch({ counterStep: Number(e.target.value) || 1 })}
-            />
-          </div>
+        <div className="field">
+          <label>{t("rename.extension")}</label>
+          <input
+            value={rules.extMask}
+            spellCheck={false}
+            onChange={(e) => patch({ extMask: e.target.value })}
+          />
         </div>
-        <div className="mr-hint">[N] [E] [C:3] [YMD] [Y] [M] [D]</div>
-        <div className="mr-preview">
-          {rows.map((r) => (
-            <div key={r.entry.path} className={clsx("mr-row", r.problem && "bad")}>
-              <span className="old">{r.entry.name}</span>
-              <span className="arrow">→</span>
-              <span className={clsx("new", !r.changed && "same")}>
-                {r.newName}
-                {r.problem && (
-                  <>
-                    {"  "}
-                    <Icon of={TriangleAlert} size={13} /> {t(r.problem)}
-                  </>
-                )}
-              </span>
-            </div>
-          ))}
+        <div className="field grow">
+          <label>{t("rename.find")}</label>
+          <input
+            value={rules.find}
+            spellCheck={false}
+            onChange={(e) => patch({ find: e.target.value })}
+          />
         </div>
-        <div className="buttons">
-          {hasUndo && (
-            <button className="btn" onClick={() => void undo()}>
-              {t("rename.undoLast")}
-            </button>
-          )}
-          <button className="btn" onClick={close}>
-            {t("dialog.cancel")}
-          </button>
-          <button
-            className="btn primary"
-            disabled={invalid || changed.length === 0}
-            onClick={() => void apply()}
-          >
-            {t("rename.apply", { count: changed.length })}
-          </button>
+        <div className="field grow">
+          <label>{t("rename.replaceWith")}</label>
+          <input
+            value={rules.replace}
+            spellCheck={false}
+            onChange={(e) => patch({ replace: e.target.value })}
+          />
         </div>
       </div>
-    </div>
+      <div className="mr-form">
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={rules.regex}
+            onChange={(e) => patch({ regex: e.target.checked })}
+          />
+          {t("rename.regex")}
+        </label>
+        <div className="field inline">
+          <label>{t("rename.caseLabel")}</label>
+          <div className="seg">
+            {CASES.map((c) => (
+              <button
+                key={c}
+                className={rules.caseMode === c ? "on" : ""}
+                onClick={() => patch({ caseMode: c })}
+              >
+                {t(`rename.case_${c}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field inline">
+          <label>{t("rename.counterStart")}</label>
+          <input
+            className="num-in"
+            value={rules.counterStart}
+            onChange={(e) => patch({ counterStart: Number(e.target.value) || 0 })}
+          />
+        </div>
+        <div className="field inline">
+          <label>{t("rename.step")}</label>
+          <input
+            className="num-in"
+            value={rules.counterStep}
+            onChange={(e) => patch({ counterStep: Number(e.target.value) || 1 })}
+          />
+        </div>
+      </div>
+      <div className="mr-hint">[N] [E] [C:3] [YMD] [Y] [M] [D]</div>
+      <div className="mr-preview">
+        {rows.map((r) => (
+          <div key={r.entry.path} className={clsx("mr-row", r.problem && "bad")}>
+            <span className="old">{r.entry.name}</span>
+            <span className="arrow">→</span>
+            <span className={clsx("new", !r.changed && "same")}>
+              {r.newName}
+              {r.problem && (
+                <>
+                  {"  "}
+                  <Icon of={TriangleAlert} size={13} /> {t(r.problem)}
+                </>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="buttons">
+        {hasUndo && (
+          <button className="btn" onClick={() => void undo()}>
+            {t("rename.undoLast")}
+          </button>
+        )}
+        <button className="btn" onClick={close}>
+          {t("dialog.cancel")}
+        </button>
+        <button
+          className="btn primary"
+          disabled={invalid || changed.length === 0}
+          onClick={() => void apply()}
+        >
+          {t("rename.apply", { count: changed.length })}
+        </button>
+      </div>
+    </Overlay>
   );
 }

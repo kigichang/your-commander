@@ -10,6 +10,7 @@ import type { Side } from "../store/panels";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
 import { Icon } from "./icons";
+import { Overlay } from "./Overlay";
 
 type Protocol = "sftp" | "ftp" | "s3" | "webdav" | "smb";
 const PROTOCOLS: Protocol[] = ["sftp", "ftp", "s3", "webdav", "smb"];
@@ -64,18 +65,12 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     void ipc.sshHosts().then(setHosts);
   }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        if (askPw) setAskPw(false);
-        else if (shareList) setShareList(null);
-        else close();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [close, askPw, shareList]);
+  // Escape backs out of the innermost prompt first.
+  const onEscape = () => {
+    if (askPw) setAskPw(false);
+    else if (shareList) setShareList(null);
+    else close();
+  };
 
   const authMode: SshAuthMode = ssh.use_agent ? "agent" : ssh.use_password ? "password" : "key";
   const setAuthMode = (m: SshAuthMode) =>
@@ -276,312 +271,220 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     protocol === "sftp" ? !!(ssh.host && ssh.username) : !!smb.server;
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="dialog wide">
-        <h2>{t("connect.title")}</h2>
-        <div className="connect-grid">
-          <div className="saved-list">
-            <div className="headline">{t("connect.saved")}</div>
-            {saved.length === 0 && <div className="none">{t("connect.noSaved")}</div>}
-            {saved.map((s) => (
-              <div key={s.proto + nameOf(s) + descOf(s)} className="saved">
-                <button className="pick" onClick={() => pick(s)}>
-                  <span className="label">
-                    {nameOf(s)} <em className="proto">{s.proto.toUpperCase()}</em>
-                  </span>
-                  <span className="sub">{descOf(s)}</span>
-                </button>
-                <button className="close" title={t("connect.deleteSaved")} onClick={() => remove(s)}>
-                  <Icon of={X} size={12} />
-                </button>
-              </div>
-            ))}
-            <button
-              className="tab-new new-conn"
-              onClick={() => {
-                setSsh(emptySsh);
-                setSmb(emptySmb);
-                setSecret("");
-              }}
-            >
-              + {t("connect.new")}
-            </button>
-          </div>
-          <div className="form">
-            <div className="seg proto-seg">
-              {PROTOCOLS.map((p) => (
-                <button
-                  key={p}
-                  className={protocol === p ? "on" : ""}
-                  disabled={!READY.has(p)}
-                  title={READY.has(p) ? "" : t("status.comingSoon")}
-                  onClick={() => READY.has(p) && setProtocol(p)}
-                >
-                  {p.toUpperCase()}
-                </button>
-              ))}
-            </div>
-
-            {protocol === "sftp" ? (
-              <>
-                {hosts.length > 0 && (
-                  <>
-                    <label>{t("connect.fromSshConfig")}</label>
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        const h = hosts.find((x) => x.alias === e.target.value);
-                        if (h)
-                          setSsh((s) => ({
-                            ...s,
-                            name: h.alias,
-                            host: h.hostName,
-                            port: h.port,
-                            username: h.user,
-                            identity_file: h.identity,
-                            use_password: false,
-                            use_agent: false,
-                          }));
-                      }}
-                    >
-                      <option value="">{t("connect.pickHost")}</option>
-                      {hosts.map((h) => (
-                        <option key={h.alias} value={h.alias}>
-                          {h.alias} — {h.user ? h.user + "@" : ""}
-                          {h.hostName}
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                )}
-                <label>{t("connect.name")}</label>
-                <input
-                  value={ssh.name}
-                  spellCheck={false}
-                  onChange={(e) => setSsh((s) => ({ ...s, name: e.target.value }))}
-                />
-                <div className="two">
-                  <div>
-                    <label>{t("connect.host")}</label>
-                    <input
-                      value={ssh.host}
-                      spellCheck={false}
-                      placeholder="prod.example.com"
-                      onChange={(e) => setSsh((s) => ({ ...s, host: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label>{t("connect.port")}</label>
-                    <input
-                      value={ssh.port}
-                      onChange={(e) =>
-                        setSsh((s) => ({ ...s, port: Number(e.target.value) || 22 }))
-                      }
-                    />
-                  </div>
-                </div>
-                <label>{t("connect.username")}</label>
-                <input
-                  value={ssh.username}
-                  spellCheck={false}
-                  onChange={(e) => setSsh((s) => ({ ...s, username: e.target.value }))}
-                />
-                <label>{t("connect.auth")}</label>
-                <div className="seg">
-                  {(["key", "password", "agent"] as SshAuthMode[]).map((m) => (
-                    <button
-                      key={m}
-                      className={authMode === m ? "on" : ""}
-                      onClick={() => setAuthMode(m)}
-                    >
-                      {t(`connect.auth_${m}`)}
-                    </button>
-                  ))}
-                </div>
-                {authMode === "key" && (
-                  <>
-                    <label>{t("connect.identityFile")}</label>
-                    <input
-                      value={ssh.identity_file}
-                      spellCheck={false}
-                      placeholder={t("connect.identityHint")}
-                      onChange={(e) => setSsh((s) => ({ ...s, identity_file: e.target.value }))}
-                    />
-                  </>
-                )}
-                {authMode !== "agent" && (
-                  <>
-                    <label>
-                      {authMode === "password" ? t("connect.password") : t("connect.passphrase")}
-                    </label>
-                    <input
-                      type="password"
-                      value={secret}
-                      onChange={(e) => setSecret(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && void connect()}
-                    />
-                  </>
-                )}
-                <label>{t("connect.startIn")}</label>
-                <input
-                  value={ssh.start_in}
-                  spellCheck={false}
-                  placeholder="/var/www"
-                  onChange={(e) => setSsh((s) => ({ ...s, start_in: e.target.value }))}
-                />
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={ssh.remember}
-                    onChange={(e) => setSsh((s) => ({ ...s, remember: e.target.checked }))}
-                  />
-                  {t("connect.remember")}
-                </label>
-              </>
-            ) : (
-              <>
-                <label>{t("connect.name")}</label>
-                <input
-                  value={smb.name}
-                  spellCheck={false}
-                  onChange={(e) => setSmb((s) => ({ ...s, name: e.target.value }))}
-                />
-                <div className="two">
-                  <div>
-                    <label>{t("connect.server")}</label>
-                    <input
-                      value={smb.server}
-                      spellCheck={false}
-                      placeholder="nas.local"
-                      onChange={(e) => setSmb((s) => ({ ...s, server: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label>{t("connect.share")}</label>
-                    <input
-                      value={smb.share}
-                      spellCheck={false}
-                      placeholder={t("connect.shareHint")}
-                      onChange={(e) => setSmb((s) => ({ ...s, share: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div className="two">
-                  <div>
-                    <label>{t("connect.username")}</label>
-                    <input
-                      value={smb.username}
-                      spellCheck={false}
-                      onChange={(e) => setSmb((s) => ({ ...s, username: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label>{t("connect.password")}</label>
-                    <input
-                      type="password"
-                      value={secret}
-                      onChange={(e) => setSecret(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && void connect()}
-                    />
-                  </div>
-                </div>
-                <label>{t("connect.startIn")}</label>
-                <input
-                  value={smb.start_in}
-                  spellCheck={false}
-                  placeholder="photos/2026"
-                  onChange={(e) => setSmb((s) => ({ ...s, start_in: e.target.value }))}
-                />
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={smb.remember}
-                    onChange={(e) => setSmb((s) => ({ ...s, remember: e.target.checked }))}
-                  />
-                  {t("connect.remember")}
-                </label>
-              </>
-            )}
-
-            <div className="buttons">
-              <button className="btn" disabled={!canSubmit || busy !== ""} onClick={() => void test()}>
-                {busy === "test" ? t("connect.testing") : t("connect.test")}
-              </button>
-              <button
-                className="btn"
-                disabled={protocol === "smb" ? !(smb.server && smb.share) : !canSubmit}
-                onClick={() => save()}
-              >
-                {t("connect.save")}
-              </button>
-              <span className="pane-pick">
-                <span className="seg">
-                  <button className={side === 0 ? "on" : ""} onClick={() => setSide(0)}>
-                    {t("connect.paneLeft")}
-                  </button>
-                  <button className={side === 1 ? "on" : ""} onClick={() => setSide(1)}>
-                    {t("connect.paneRight")}
-                  </button>
+    <Overlay onClose={close} onEscape={onEscape} className="wide">
+      <h2>{t("connect.title")}</h2>
+      <div className="connect-grid">
+        <div className="saved-list">
+          <div className="headline">{t("connect.saved")}</div>
+          {saved.length === 0 && <div className="none">{t("connect.noSaved")}</div>}
+          {saved.map((s) => (
+            <div key={s.proto + nameOf(s) + descOf(s)} className="saved">
+              <button className="pick" onClick={() => pick(s)}>
+                <span className="label">
+                  {nameOf(s)} <em className="proto">{s.proto.toUpperCase()}</em>
                 </span>
-              </span>
-              <button
-                className="btn primary"
-                disabled={!canSubmit || busy !== ""}
-                onClick={() => void connect()}
-              >
-                {busy === "connect" ? t("connect.connecting") : t("connect.connect") + " ↵"}
+                <span className="sub">{descOf(s)}</span>
+              </button>
+              <button className="close" title={t("connect.deleteSaved")} onClick={() => remove(s)}>
+                <Icon of={X} size={12} />
               </button>
             </div>
-          </div>
-        </div>
-        {shareList && (
-          <div
-            className="overlay"
-            onMouseDown={(e) => e.target === e.currentTarget && setShareList(null)}
+          ))}
+          <button
+            className="tab-new new-conn"
+            onClick={() => {
+              setSsh(emptySsh);
+              setSmb(emptySmb);
+              setSecret("");
+            }}
           >
-            <div className="dialog">
-              <h2>{t("connect.pickShare")}</h2>
-              <div className="settings-note">{`//${smb.server}`}</div>
-              <div className="share-list">
-                {shareList.map((share) => (
-                  <button
-                    key={share}
-                    className="pick"
-                    onClick={() => {
-                      setSmb((s) => ({ ...s, share }));
-                      setShareList(null);
-                      doMount(secret, share);
+            + {t("connect.new")}
+          </button>
+        </div>
+        <div className="form">
+          <div className="seg proto-seg">
+            {PROTOCOLS.map((p) => (
+              <button
+                key={p}
+                className={protocol === p ? "on" : ""}
+                disabled={!READY.has(p)}
+                title={READY.has(p) ? "" : t("status.comingSoon")}
+                onClick={() => READY.has(p) && setProtocol(p)}
+              >
+                {p.toUpperCase()}
+              </button>
+            ))}
+          </div>
+
+          {protocol === "sftp" ? (
+            <>
+              {hosts.length > 0 && (
+                <>
+                  <label>{t("connect.fromSshConfig")}</label>
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const h = hosts.find((x) => x.alias === e.target.value);
+                      if (h)
+                        setSsh((s) => ({
+                          ...s,
+                          name: h.alias,
+                          host: h.hostName,
+                          port: h.port,
+                          username: h.user,
+                          identity_file: h.identity,
+                          use_password: false,
+                          use_agent: false,
+                        }));
                     }}
                   >
-                    {share}
+                    <option value="">{t("connect.pickHost")}</option>
+                    {hosts.map((h) => (
+                      <option key={h.alias} value={h.alias}>
+                        {h.alias} — {h.user ? h.user + "@" : ""}
+                        {h.hostName}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              <label>{t("connect.name")}</label>
+              <input
+                value={ssh.name}
+                spellCheck={false}
+                onChange={(e) => setSsh((s) => ({ ...s, name: e.target.value }))}
+              />
+              <div className="two">
+                <div>
+                  <label>{t("connect.host")}</label>
+                  <input
+                    value={ssh.host}
+                    spellCheck={false}
+                    placeholder="prod.example.com"
+                    onChange={(e) => setSsh((s) => ({ ...s, host: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label>{t("connect.port")}</label>
+                  <input
+                    value={ssh.port}
+                    onChange={(e) =>
+                      setSsh((s) => ({ ...s, port: Number(e.target.value) || 22 }))
+                    }
+                  />
+                </div>
+              </div>
+              <label>{t("connect.username")}</label>
+              <input
+                value={ssh.username}
+                spellCheck={false}
+                onChange={(e) => setSsh((s) => ({ ...s, username: e.target.value }))}
+              />
+              <label>{t("connect.auth")}</label>
+              <div className="seg">
+                {(["key", "password", "agent"] as SshAuthMode[]).map((m) => (
+                  <button
+                    key={m}
+                    className={authMode === m ? "on" : ""}
+                    onClick={() => setAuthMode(m)}
+                  >
+                    {t(`connect.auth_${m}`)}
                   </button>
                 ))}
               </div>
-              <div className="buttons">
-                <button className="btn" onClick={() => setShareList(null)}>
-                  {t("dialog.cancel")}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {askPw && (
-          <div
-            className="overlay"
-            onMouseDown={(e) => e.target === e.currentTarget && setAskPw(false)}
-          >
-            <div className="dialog">
-              <h2>{t("connect.pwTitle")}</h2>
-              <div className="settings-note">
-                {`${smb.username}@${smb.server}/${smb.share}`}
-              </div>
-              <label>{t("connect.password")}</label>
+              {authMode === "key" && (
+                <>
+                  <label>{t("connect.identityFile")}</label>
+                  <input
+                    value={ssh.identity_file}
+                    spellCheck={false}
+                    placeholder={t("connect.identityHint")}
+                    onChange={(e) => setSsh((s) => ({ ...s, identity_file: e.target.value }))}
+                  />
+                </>
+              )}
+              {authMode !== "agent" && (
+                <>
+                  <label>
+                    {authMode === "password" ? t("connect.password") : t("connect.passphrase")}
+                  </label>
+                  <input
+                    type="password"
+                    value={secret}
+                    onChange={(e) => setSecret(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void connect()}
+                  />
+                </>
+              )}
+              <label>{t("connect.startIn")}</label>
               <input
-                type="password"
-                autoFocus
-                value={pwInput}
-                onChange={(e) => setPwInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && submitPw()}
+                value={ssh.start_in}
+                spellCheck={false}
+                placeholder="/var/www"
+                onChange={(e) => setSsh((s) => ({ ...s, start_in: e.target.value }))}
+              />
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={ssh.remember}
+                  onChange={(e) => setSsh((s) => ({ ...s, remember: e.target.checked }))}
+                />
+                {t("connect.remember")}
+              </label>
+            </>
+          ) : (
+            <>
+              <label>{t("connect.name")}</label>
+              <input
+                value={smb.name}
+                spellCheck={false}
+                onChange={(e) => setSmb((s) => ({ ...s, name: e.target.value }))}
+              />
+              <div className="two">
+                <div>
+                  <label>{t("connect.server")}</label>
+                  <input
+                    value={smb.server}
+                    spellCheck={false}
+                    placeholder="nas.local"
+                    onChange={(e) => setSmb((s) => ({ ...s, server: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label>{t("connect.share")}</label>
+                  <input
+                    value={smb.share}
+                    spellCheck={false}
+                    placeholder={t("connect.shareHint")}
+                    onChange={(e) => setSmb((s) => ({ ...s, share: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="two">
+                <div>
+                  <label>{t("connect.username")}</label>
+                  <input
+                    value={smb.username}
+                    spellCheck={false}
+                    onChange={(e) => setSmb((s) => ({ ...s, username: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label>{t("connect.password")}</label>
+                  <input
+                    type="password"
+                    value={secret}
+                    onChange={(e) => setSecret(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void connect()}
+                  />
+                </div>
+              </div>
+              <label>{t("connect.startIn")}</label>
+              <input
+                value={smb.start_in}
+                spellCheck={false}
+                placeholder="photos/2026"
+                onChange={(e) => setSmb((s) => ({ ...s, start_in: e.target.value }))}
               />
               <label className="check">
                 <input
@@ -591,18 +494,108 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
                 />
                 {t("connect.remember")}
               </label>
-              <div className="buttons">
-                <button className="btn" onClick={() => setAskPw(false)}>
-                  {t("dialog.cancel")}
+            </>
+          )}
+
+          <div className="buttons">
+            <button className="btn" disabled={!canSubmit || busy !== ""} onClick={() => void test()}>
+              {busy === "test" ? t("connect.testing") : t("connect.test")}
+            </button>
+            <button
+              className="btn"
+              disabled={protocol === "smb" ? !(smb.server && smb.share) : !canSubmit}
+              onClick={() => save()}
+            >
+              {t("connect.save")}
+            </button>
+            <span className="pane-pick">
+              <span className="seg">
+                <button className={side === 0 ? "on" : ""} onClick={() => setSide(0)}>
+                  {t("connect.paneLeft")}
                 </button>
-                <button className="btn primary" onClick={submitPw}>
-                  {t("connect.connect")}
+                <button className={side === 1 ? "on" : ""} onClick={() => setSide(1)}>
+                  {t("connect.paneRight")}
                 </button>
-              </div>
+              </span>
+            </span>
+            <button
+              className="btn primary"
+              disabled={!canSubmit || busy !== ""}
+              onClick={() => void connect()}
+            >
+              {busy === "connect" ? t("connect.connecting") : t("connect.connect") + " ↵"}
+            </button>
+          </div>
+        </div>
+      </div>
+      {shareList && (
+        <div
+          className="overlay"
+          onMouseDown={(e) => e.target === e.currentTarget && setShareList(null)}
+        >
+          <div className="dialog">
+            <h2>{t("connect.pickShare")}</h2>
+            <div className="settings-note">{`//${smb.server}`}</div>
+            <div className="share-list">
+              {shareList.map((share) => (
+                <button
+                  key={share}
+                  className="pick"
+                  onClick={() => {
+                    setSmb((s) => ({ ...s, share }));
+                    setShareList(null);
+                    doMount(secret, share);
+                  }}
+                >
+                  {share}
+                </button>
+              ))}
+            </div>
+            <div className="buttons">
+              <button className="btn" onClick={() => setShareList(null)}>
+                {t("dialog.cancel")}
+              </button>
             </div>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+      {askPw && (
+        <div
+          className="overlay"
+          onMouseDown={(e) => e.target === e.currentTarget && setAskPw(false)}
+        >
+          <div className="dialog">
+            <h2>{t("connect.pwTitle")}</h2>
+            <div className="settings-note">
+              {`${smb.username}@${smb.server}/${smb.share}`}
+            </div>
+            <label>{t("connect.password")}</label>
+            <input
+              type="password"
+              autoFocus
+              value={pwInput}
+              onChange={(e) => setPwInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitPw()}
+            />
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={smb.remember}
+                onChange={(e) => setSmb((s) => ({ ...s, remember: e.target.checked }))}
+              />
+              {t("connect.remember")}
+            </label>
+            <div className="buttons">
+              <button className="btn" onClick={() => setAskPw(false)}>
+                {t("dialog.cancel")}
+              </button>
+              <button className="btn primary" onClick={submitPw}>
+                {t("connect.connect")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Overlay>
   );
 }

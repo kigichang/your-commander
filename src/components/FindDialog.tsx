@@ -12,6 +12,7 @@ import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
+import { Overlay } from "./Overlay";
 import { displayPath, expandHome } from "../lib/path";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -60,19 +61,6 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
     }, 120);
     return () => clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        stop();
-        close();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [close]);
 
   // Cancel a still-running search when the dialog unmounts.
   useEffect(
@@ -148,112 +136,113 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
   });
 
   return (
-    <div
-      className="overlay"
-      onMouseDown={(e) => e.target === e.currentTarget && (stop(), close())}
+    <Overlay
+      onClose={() => {
+        stop();
+        close();
+      }}
+      className="wide sync"
     >
-      <div className="dialog wide sync">
-        <h2>{t("find.title")}</h2>
-        <div className="mr-form">
-          <div className="field grow">
-            <label>{t("find.name")}</label>
-            <input
-              value={mask}
-              spellCheck={false}
-              onChange={(e) => setMask(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && void search()}
-            />
-          </div>
-          <div className="field grow">
-            <label>{t("find.in")}</label>
-            <input
-              value={inDir}
-              spellCheck={false}
-              onChange={(e) => setInDir(e.target.value)}
-            />
-          </div>
+      <h2>{t("find.title")}</h2>
+      <div className="mr-form">
+        <div className="field grow">
+          <label>{t("find.name")}</label>
+          <input
+            value={mask}
+            spellCheck={false}
+            onChange={(e) => setMask(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void search()}
+          />
         </div>
-        <div className="mr-form">
-          <div className="field grow">
-            <label>{t("find.containing")}</label>
-            <input
-              value={content}
-              spellCheck={false}
-              onChange={(e) => setContent(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && void search()}
-            />
-          </div>
-          <div className="field">
-            <label>{t("find.modified")}</label>
-            <select value={modified} onChange={(e) => setModified(e.target.value as never)}>
-              {MODIFIED.map((m) => (
-                <option key={m.key} value={m.key}>
-                  {t(`find.mod_${m.key}`)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>{t("find.size")}</label>
-            <select value={size} onChange={(e) => setSize(e.target.value as never)}>
-              {SIZES.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {t(`find.size_${s.key}`)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button className="btn primary find-go" onClick={() => void search()}>
-            {findId !== null ? t("find.stop") : `${t("find.search")} ↵`}
-          </button>
-        </div>
-        <div className="find-status">
-          {t("find.results", { count: results.length })}
-          {findId !== null && scanning && (
-            <span className="scanning"> · {scanning}</span>
-          )}
-        </div>
-        <div className="sync-rows" ref={scrollRef}>
-          {results.length === 0 ? (
-            <div className="none">
-              {findId !== null ? t("find.searching") : t("find.hint")}
-            </div>
-          ) : (
-            <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-              {virtualizer.getVirtualItems().map((item) => {
-                const entry = results[item.index];
-                return (
-                  <div
-                    key={entry.path}
-                    className={clsx("find-row", item.index === selected && "on")}
-                    style={{ top: item.start, height: rowHeight }}
-                    onMouseDown={() => setSelected(item.index)}
-                    onDoubleClick={() => goTo(entry)}
-                  >
-                    <span className="fname">{entry.name}</span>
-                    <span className="fdir">
-                      {displayPath(parentPath(entry.path) ?? "", home)}
-                    </span>
-                    <span className="fsize">{humanSize(entry.size)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        <div className="buttons">
-          <button className="btn" onClick={() => (stop(), close())}>
-            {t("dialog.cancel")}
-          </button>
-          <button
-            className="btn primary"
-            disabled={selected < 0}
-            onClick={() => goTo(results[selected])}
-          >
-            {t("find.goTo")}
-          </button>
+        <div className="field grow">
+          <label>{t("find.in")}</label>
+          <input
+            value={inDir}
+            spellCheck={false}
+            onChange={(e) => setInDir(e.target.value)}
+          />
         </div>
       </div>
-    </div>
+      <div className="mr-form">
+        <div className="field grow">
+          <label>{t("find.containing")}</label>
+          <input
+            value={content}
+            spellCheck={false}
+            onChange={(e) => setContent(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void search()}
+          />
+        </div>
+        <div className="field">
+          <label>{t("find.modified")}</label>
+          <select value={modified} onChange={(e) => setModified(e.target.value as never)}>
+            {MODIFIED.map((m) => (
+              <option key={m.key} value={m.key}>
+                {t(`find.mod_${m.key}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>{t("find.size")}</label>
+          <select value={size} onChange={(e) => setSize(e.target.value as never)}>
+            {SIZES.map((s) => (
+              <option key={s.key} value={s.key}>
+                {t(`find.size_${s.key}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button className="btn primary find-go" onClick={() => void search()}>
+          {findId !== null ? t("find.stop") : `${t("find.search")} ↵`}
+        </button>
+      </div>
+      <div className="find-status">
+        {t("find.results", { count: results.length })}
+        {findId !== null && scanning && (
+          <span className="scanning"> · {scanning}</span>
+        )}
+      </div>
+      <div className="sync-rows" ref={scrollRef}>
+        {results.length === 0 ? (
+          <div className="none">
+            {findId !== null ? t("find.searching") : t("find.hint")}
+          </div>
+        ) : (
+          <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+            {virtualizer.getVirtualItems().map((item) => {
+              const entry = results[item.index];
+              return (
+                <div
+                  key={entry.path}
+                  className={clsx("find-row", item.index === selected && "on")}
+                  style={{ top: item.start, height: rowHeight }}
+                  onMouseDown={() => setSelected(item.index)}
+                  onDoubleClick={() => goTo(entry)}
+                >
+                  <span className="fname">{entry.name}</span>
+                  <span className="fdir">
+                    {displayPath(parentPath(entry.path) ?? "", home)}
+                  </span>
+                  <span className="fsize">{humanSize(entry.size)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <div className="buttons">
+        <button className="btn" onClick={() => (stop(), close())}>
+          {t("dialog.cancel")}
+        </button>
+        <button
+          className="btn primary"
+          disabled={selected < 0}
+          onClick={() => goTo(results[selected])}
+        >
+          {t("find.goTo")}
+        </button>
+      </div>
+    </Overlay>
   );
 }

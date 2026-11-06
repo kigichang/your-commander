@@ -4,7 +4,7 @@ import { create } from "zustand";
 import * as ipc from "../ipc/commands";
 import type { ActionId } from "../keymap/actions";
 import { actions, ARCHIVE_RE } from "../keymap/actions";
-import { prettyChord } from "../keymap/keymap";
+import { chordForAction, prettyChord } from "../keymap/keymap";
 import { isMac } from "../lib/platform";
 import { targetEntries, visibleEntries } from "../lib/selectors";
 import type { ExternalTool, OpenApp } from "../ipc/types";
@@ -95,7 +95,7 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
 
   const sections = useMemo<Section[]>(() => {
     const chordOf = (id: ActionId) => {
-      const chord = Object.entries(keymap).find(([, a]) => a === id)?.[0];
+      const chord = chordForAction(keymap, id);
       return chord ? prettyChord(chord) : undefined;
     };
     const act = (id: ActionId, label?: string): Item => ({

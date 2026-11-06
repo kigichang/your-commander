@@ -16,6 +16,7 @@ import { useKeymap } from "../store/keymapStore";
 import { useOps } from "../store/ops";
 import { useSettings } from "../store/settings";
 import { Icon } from "./icons";
+import { Overlay } from "./Overlay";
 import appIcon from "../../src-tauri/icons/128x128@2x.png";
 
 const SECTIONS = ["general", "appearance", "favorites", "quickview", "hotkeys", "panes", "tools", "plugins", "about"] as const;
@@ -54,62 +55,56 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
           );
         }
         setCapture(null);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        close();
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [capture, close, t]);
+  }, [capture, t]);
 
+  // While a chord is being recorded, the handler above owns Escape.
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="dialog wide settings">
-        <h2>{t("settings.title")}</h2>
-        <div className="settings-grid">
-          <nav className="settings-nav">
-            {SECTIONS.map((s) => (
-              <button
-                key={s}
-                className={clsx(section === s && "on")}
-                disabled={!READY.has(s)}
-                title={READY.has(s) ? "" : t("status.comingSoon")}
-                onClick={() => READY.has(s) && setSection(s)}
-              >
-                {t(`settings.sec_${s}`)}
-              </button>
-            ))}
-          </nav>
-          {section === "general" ? (
-            <GeneralPane />
-          ) : section === "appearance" ? (
-            <AppearancePane />
-          ) : section === "quickview" ? (
-            <QuickViewPane />
-          ) : section === "panes" ? (
-            <PanesPane />
-          ) : section === "tools" ? (
-            <ToolsPane />
-          ) : section === "favorites" ? (
-            <FavoritesPane />
-          ) : section === "plugins" ? (
-            <PluginsPane />
-          ) : section === "about" ? (
-            <AboutPane />
-          ) : (
-            <HotkeysPane capture={capture} setCapture={setCapture} />
-          )}
-        </div>
-        <div className="buttons">
-          <button className="btn primary" onClick={close}>
-            {t("settings.done")}
-          </button>
-        </div>
+    <Overlay onClose={close} onEscape={() => !capture && close()} className="wide settings">
+      <h2>{t("settings.title")}</h2>
+      <div className="settings-grid">
+        <nav className="settings-nav">
+          {SECTIONS.map((s) => (
+            <button
+              key={s}
+              className={clsx(section === s && "on")}
+              disabled={!READY.has(s)}
+              title={READY.has(s) ? "" : t("status.comingSoon")}
+              onClick={() => READY.has(s) && setSection(s)}
+            >
+              {t(`settings.sec_${s}`)}
+            </button>
+          ))}
+        </nav>
+        {section === "general" ? (
+          <GeneralPane />
+        ) : section === "appearance" ? (
+          <AppearancePane />
+        ) : section === "quickview" ? (
+          <QuickViewPane />
+        ) : section === "panes" ? (
+          <PanesPane />
+        ) : section === "tools" ? (
+          <ToolsPane />
+        ) : section === "favorites" ? (
+          <FavoritesPane />
+        ) : section === "plugins" ? (
+          <PluginsPane />
+        ) : section === "about" ? (
+          <AboutPane />
+        ) : (
+          <HotkeysPane capture={capture} setCapture={setCapture} />
+        )}
       </div>
-    </div>
+      <div className="buttons">
+        <button className="btn primary" onClick={close}>
+          {t("settings.done")}
+        </button>
+      </div>
+    </Overlay>
   );
 }
 

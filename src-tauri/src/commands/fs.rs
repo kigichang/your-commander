@@ -159,25 +159,6 @@ pub async fn batch_rename(
     .await
 }
 
-#[tauri::command]
-pub async fn exists(
-    state: State<'_, AppState>,
-    location: Location,
-    path: PathBuf,
-) -> Result<bool, String> {
-    let resolved = state.resolve(&location)?;
-    blocking(move || {
-        Ok(match resolved {
-            Resolved::Local => path.exists(),
-            Resolved::Sftp(c) => c.exists(&path).is_some(),
-            Resolved::Archive(archive) => {
-                archive_fs::read_entry(&archive, &path.to_string_lossy(), 1).is_ok()
-            }
-        })
-    })
-    .await
-}
-
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DroppedItem {

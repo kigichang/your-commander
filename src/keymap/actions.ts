@@ -63,14 +63,16 @@ export type ActionId =
 type Modded = { mark?: boolean };
 
 export interface Action {
-  id: ActionId;
   run: (mods?: Modded) => void;
   /** When false, the key is left to the browser (not consumed). */
   enabled?: () => boolean;
 }
 
-/** Keep in sync with the backend's is_archive (ops/archive.rs). */
+/** Archive names by suffix. Keep both in sync with the backend's SUFFIXES
+ *  table (ops/archive.rs): everything it extracts, and the subset the panel
+ *  can step into like a folder (fs/archive_fs.rs). */
 export const ARCHIVE_RE = /\.(zip|7z|tar|tgz|gz)$/i;
+const BROWSABLE_ARCHIVE_RE = /\.(zip|tar|tgz|tar\.gz)$/i;
 
 const panels = () => usePanels.getState();
 const ops = () => useOps.getState();
@@ -140,7 +142,6 @@ function openCopyMove(move: boolean) {
 
 export const actions: Record<ActionId, Action> = {
   switchPanel: {
-    id: "switchPanel",
     run: () => {
       const s = panels();
       const target = s.otherSide(s.activeSide);
@@ -151,7 +152,6 @@ export const actions: Record<ActionId, Action> = {
   },
 
   enter: {
-    id: "enter",
     run: () => {
       const s = panels();
       const side = s.activeSide;
@@ -161,7 +161,7 @@ export const actions: Record<ActionId, Action> = {
         void s.navigate(side, entry.path);
       } else if (s.activeTab(side).location.kind === "local") {
         // Browsable archives open like folders (screen 2d).
-        if (/\.(zip|tar|tgz)$/i.test(entry.name) || /\.tar\.gz$/i.test(entry.name)) {
+        if (BROWSABLE_ARCHIVE_RE.test(entry.name)) {
           void s.navigate(side, "", { kind: "archive", archive: entry.path }, entry.name);
         } else {
           void ipc.openPath(entry.path).catch((e) => ops().toast(String(e), "error"));
@@ -170,47 +170,39 @@ export const actions: Record<ActionId, Action> = {
     },
   },
 
-  up: { id: "up", run: () => panels().up(panels().activeSide) },
+  up: { run: () => panels().up(panels().activeSide) },
 
   cursorUp: {
-    id: "cursorUp",
     run: (mods) =>
       panels().moveCursor(panels().activeSide, -rowStep(), { mark: mods?.mark }),
   },
   cursorDown: {
-    id: "cursorDown",
     run: (mods) =>
       panels().moveCursor(panels().activeSide, rowStep(), { mark: mods?.mark }),
   },
   // ←/→ only mean something in the Icon view's grid.
   cursorLeft: {
-    id: "cursorLeft",
     enabled: inIconView,
     run: (mods) => panels().moveCursor(panels().activeSide, -1, { mark: mods?.mark }),
   },
   cursorRight: {
-    id: "cursorRight",
     enabled: inIconView,
     run: (mods) => panels().moveCursor(panels().activeSide, 1, { mark: mods?.mark }),
   },
   cursorHome: {
-    id: "cursorHome",
     run: (mods) =>
       panels().moveCursor(panels().activeSide, -1, { edge: true, mark: mods?.mark }),
   },
   cursorEnd: {
-    id: "cursorEnd",
     run: (mods) =>
       panels().moveCursor(panels().activeSide, 1, { edge: true, mark: mods?.mark }),
   },
 
   markToggle: {
-    id: "markToggle",
     run: () => panels().toggleMark(panels().activeSide, undefined, true),
   },
-  markAll: { id: "markAll", run: () => panels().markAll(panels().activeSide) },
+  markAll: { run: () => panels().markAll(panels().activeSide) },
   clearMarks: {
-    id: "clearMarks",
     run: () => {
       // Esc peels one layer at a time: a pending ⌘C/⌘X first, marks next.
       if (useClipboard.getState().clip) {
@@ -222,11 +214,10 @@ export const actions: Record<ActionId, Action> = {
     },
   },
 
-  quickView: { id: "quickView", run: () => panels().toggleQuickView() },
-  quickViewHex: { id: "quickViewHex", run: () => panels().toggleQuickViewHex() },
+  quickView: { run: () => panels().toggleQuickView() },
+  quickViewHex: { run: () => panels().toggleQuickViewHex() },
 
   getInfo: {
-    id: "getInfo",
     run: () => {
       const { tab, items } = activeTargets();
       if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
@@ -237,16 +228,15 @@ export const actions: Record<ActionId, Action> = {
     },
   },
 
-  edit: { id: "edit", run: () => ops().toast(i18n.t("status.comingSoon")) },
+  edit: { run: () => ops().toast(i18n.t("status.comingSoon")) },
 
-  copy: { id: "copy", run: () => openCopyMove(false) },
-  move: { id: "move", run: () => openCopyMove(true) },
+  copy: { run: () => openCopyMove(false) },
+  move: { run: () => openCopyMove(true) },
 
-  clipCopy: { id: "clipCopy", run: () => clipTake(false) },
-  clipCut: { id: "clipCut", run: () => clipTake(true) },
+  clipCopy: { run: () => clipTake(false) },
+  clipCut: { run: () => clipTake(true) },
 
   clipPaste: {
-    id: "clipPaste",
     run: () => {
       const clip = useClipboard.getState().clip;
       if (!clip) return ops().toast(i18n.t("status.clipEmpty"));
@@ -287,12 +277,10 @@ export const actions: Record<ActionId, Action> = {
   },
 
   newFolder: {
-    id: "newFolder",
     run: () => dialogs().open({ type: "newFolder", side: panels().activeSide }),
   },
 
   renameOne: {
-    id: "renameOne",
     run: () => {
       const s = panels();
       const side = s.activeSide;
@@ -303,7 +291,6 @@ export const actions: Record<ActionId, Action> = {
   },
 
   multiRename: {
-    id: "multiRename",
     run: () => {
       const { side, items } = activeTargets();
       if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
@@ -312,7 +299,6 @@ export const actions: Record<ActionId, Action> = {
   },
 
   compareFiles: {
-    id: "compareFiles",
     run: () => {
       const s = panels();
       // One file per panel: the single marked entry, or the one under cursor.
@@ -338,7 +324,6 @@ export const actions: Record<ActionId, Action> = {
   },
 
   copyPath: {
-    id: "copyPath",
     run: () => {
       const { items } = activeTargets();
       if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
@@ -348,7 +333,6 @@ export const actions: Record<ActionId, Action> = {
   },
 
   syncFolders: {
-    id: "syncFolders",
     run: () => {
       const s = panels();
       const left = s.activeTab(0);
@@ -368,7 +352,6 @@ export const actions: Record<ActionId, Action> = {
   },
 
   findFiles: {
-    id: "findFiles",
     run: () => {
       const s = panels();
       const tab = s.activeTab(s.activeSide);
@@ -382,7 +365,6 @@ export const actions: Record<ActionId, Action> = {
   },
 
   trash: {
-    id: "trash",
     run: () => {
       const { side, tab, items } = activeTargets();
       if (tab.location.kind === "archive")
@@ -403,7 +385,6 @@ export const actions: Record<ActionId, Action> = {
 
   // Trash folder only: put the targets back where they came from.
   restore: {
-    id: "restore",
     run: () => {
       const { tab, items } = activeTargets();
       if (!isTrashDir(tab.location, tab.path, useSettings.getState().trashDir))
@@ -418,12 +399,10 @@ export const actions: Record<ActionId, Action> = {
   },
 
   emptyTrash: {
-    id: "emptyTrash",
     run: () => dialogs().open({ type: "confirmEmptyTrash" }),
   },
 
   deletePermanent: {
-    id: "deletePermanent",
     run: () => {
       const { side, tab, items } = activeTargets();
       if (tab.location.kind === "archive")
@@ -439,7 +418,6 @@ export const actions: Record<ActionId, Action> = {
   },
 
   compress: {
-    id: "compress",
     run: () => {
       const { side, tab, items } = activeTargets();
       if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
@@ -455,7 +433,6 @@ export const actions: Record<ActionId, Action> = {
   },
 
   extract: {
-    id: "extract",
     run: () => {
       const { side, tab, items } = activeTargets();
       if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
@@ -472,13 +449,11 @@ export const actions: Record<ActionId, Action> = {
   },
 
   refresh: {
-    id: "refresh",
     run: () => void panels().refresh(panels().activeSide),
   },
 
-  newTab: { id: "newTab", run: () => panels().openTab(panels().activeSide) },
+  newTab: { run: () => panels().openTab(panels().activeSide) },
   closeTab: {
-    id: "closeTab",
     run: () => {
       const s = panels();
       // Browser convention: ⌘W closes the tab, and the window itself once
@@ -492,18 +467,16 @@ export const actions: Record<ActionId, Action> = {
   },
 
   newWindow: {
-    id: "newWindow",
     run: () => void ipc.newWindow().catch((e) => ops().toast(String(e), "error")),
   },
 
-  newTerminalHere: { id: "newTerminalHere", run: () => openHere("terminal") },
-  newVscodeHere: { id: "newVscodeHere", run: () => openHere("vscode") },
-  newZedHere: { id: "newZedHere", run: () => openHere("zed") },
+  newTerminalHere: { run: () => openHere("terminal") },
+  newVscodeHere: { run: () => openHere("vscode") },
+  newZedHere: { run: () => openHere("zed") },
 
-  swap: { id: "swap", run: () => panels().swapPanels() },
+  swap: { run: () => panels().swapPanels() },
 
   toggleHidden: {
-    id: "toggleHidden",
     run: () => {
       useSettings.getState().toggleShowHidden();
       void panels().refresh(0, { silent: true });
@@ -512,20 +485,18 @@ export const actions: Record<ActionId, Action> = {
   },
 
   commandPalette: {
-    id: "commandPalette",
     run: () => dialogs().open({ type: "palette" }),
   },
 
   openSettings: {
-    id: "openSettings",
     run: () => dialogs().open({ type: "settings", section: "hotkeys" }),
   },
 
   // Show the Trash's / Desktop's contents in the active panel.
-  openTrash: { id: "openTrash", run: () => openSpecialDir(ipc.trashDir) },
-  openDesktop: { id: "openDesktop", run: () => openSpecialDir(ipc.desktopDir) },
+  openTrash: { run: () => openSpecialDir(ipc.trashDir) },
+  openDesktop: { run: () => openSpecialDir(ipc.desktopDir) },
 
   // Quit closes every window (size/state still saved per window); the red
   // traffic light closes just one.
-  quit: { id: "quit", run: () => void ipc.quitApp() },
+  quit: { run: () => void ipc.quitApp() },
 };

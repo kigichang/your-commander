@@ -33,15 +33,6 @@ pub async fn smb_shares(
         .map_err(|e| e.to_string())?
 }
 
-/// Where `//server/share` is currently mounted, if anywhere.
-#[tauri::command]
-pub async fn smb_find_mount(server: String, share: String) -> Option<PathBuf> {
-    tauri::async_runtime::spawn_blocking(move || smb::find_mount(&server, &share))
-        .await
-        .ok()
-        .flatten()
-}
-
 #[tauri::command]
 pub async fn smb_unmount(path: PathBuf) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || smb::unmount(&path))

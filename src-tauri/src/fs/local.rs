@@ -77,48 +77,6 @@ fn statfs(path: &Path) -> Option<(u64, u64)> {
     Some((stat.f_bavail * block, stat.f_blocks * block))
 }
 
-/// True when the file lives on a network mount. Same deadline guard as
-/// statfs_timeout; an unreachable mount counts as network, which is the
-/// safe answer for the callers.
-pub fn is_network_volume(path: &Path) -> bool {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let p = path.to_path_buf();
-    std::thread::spawn(move || {
-        let _ = tx.send(statfs_is_network(&p));
-    });
-    rx.recv_timeout(std::time::Duration::from_millis(800)).unwrap_or(true)
-}
-
-/// statfs MNT_LOCAL unset → network.
-#[cfg(target_os = "macos")]
-fn statfs_is_network(path: &Path) -> bool {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-    let local = CString::new(path.as_os_str().as_bytes()).ok().is_some_and(|c| {
-        let mut stat: libc::statfs = unsafe { std::mem::zeroed() };
-        let ok = unsafe { libc::statfs(c.as_ptr(), &mut stat) } == 0;
-        ok && (stat.f_flags & libc::MNT_LOCAL as u32) != 0
-    });
-    !local
-}
-
-/// Linux has no MNT_LOCAL; go by the filesystem magic instead. FUSE counts
-/// as network: that is where gvfs (SMB) and sshfs mounts live, and the
-/// callers want the conservative answer for anything FUSE-backed.
-#[cfg(target_os = "linux")]
-fn statfs_is_network(path: &Path) -> bool {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-    let Ok(c) = CString::new(path.as_os_str().as_bytes()) else {
-        return true;
-    };
-    let mut stat: libc::statfs = unsafe { std::mem::zeroed() };
-    if unsafe { libc::statfs(c.as_ptr(), &mut stat) } != 0 {
-        return true;
-    }
-    linux_volumes::is_network_fstype(stat.f_type as u64)
-}
-
 /// statfs with a deadline: a sleeping disk or a dead network mount can hang
 /// the syscall for tens of seconds, which must not stall the drives menu.
 /// On timeout the stuck thread finishes (and is discarded) on its own.
@@ -209,17 +167,6 @@ fn gvfs_mounts() -> Vec<(String, PathBuf, bool)> {
 #[cfg(any(target_os = "linux", test))]
 mod linux_volumes {
     use std::path::PathBuf;
-
-    /// Filesystem magics that mean "network" (plus FUSE, see caller).
-    pub fn is_network_fstype(f_type: u64) -> bool {
-        matches!(
-            f_type,
-            0xFF53_4D42 // CIFS
-            | 0xFE53_4D42 // SMB2
-            | 0x6969 // NFS
-            | 0x6573_5546 // FUSE (gvfs, sshfs)
-        )
-    }
 
     /// Real filesystems worth showing in the drives menu. Everything else in
     /// mountinfo is kernel plumbing (proc, sysfs, cgroups), snap squashfs
@@ -324,7 +271,7 @@ mod linux_volumes {
 
 #[cfg(test)]
 mod tests {
-    use super::linux_volumes::{gvfs_display_name, is_network_fstype, parse_mountinfo};
+    use super::linux_volumes::{gvfs_display_name, parse_mountinfo};
     use std::path::PathBuf;
 
     // Trimmed from a real Ubuntu 24.04 desktop: root ext4, snap squashfs
@@ -378,13 +325,5 @@ mod tests {
         );
         assert_eq!(gvfs_display_name("sftp:host=box"), None);
         assert_eq!(gvfs_display_name("smb-share:server=nas"), None);
-    }
-
-    #[test]
-    fn network_fstypes() {
-        assert!(is_network_fstype(0xFF53_4D42)); // cifs
-        assert!(is_network_fstype(0x6969)); // nfs
-        assert!(is_network_fstype(0x6573_5546)); // fuse
-        assert!(!is_network_fstype(0xEF53)); // ext4
     }
 }

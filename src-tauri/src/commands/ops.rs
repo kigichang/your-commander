@@ -36,8 +36,6 @@ pub enum OpEvent {
         count: usize,
         /// Created archive name, SMB mount path, … when the op produced one.
         name: Option<String>,
-        /// New SFTP connection id for a connect op.
-        conn_id: Option<u32>,
         error: Option<String>,
     },
 }
@@ -288,7 +286,6 @@ pub fn start_op(
                 cancelled: false,
                 count: outcome.count,
                 name: outcome.name,
-                conn_id: None,
                 error: None,
             },
             Err(e) => OpEvent::Done {
@@ -296,7 +293,6 @@ pub fn start_op(
                 cancelled: e == CANCELLED,
                 count: 0,
                 name: None,
-                conn_id: None,
                 error: Some(e),
             },
         };

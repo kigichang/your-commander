@@ -1,6 +1,5 @@
 {
   "toolbar": {
-    "refresh": "Refresh",
     "icon": "Icon",
     "brief": "Brief",
     "full": "Full",
@@ -24,8 +23,7 @@
     "freeOf": "{{free}} free of {{total}}",
     "notReady": "Not ready yet",
     "newTab": "New tab",
-    "closeTab": "Close tab",
-    "disconnect": "Disconnect"
+    "closeTab": "Close tab"
   },
   "list": {
     "name": "Name",
@@ -129,8 +127,6 @@
     "host": "Host",
     "port": "Port",
     "auth": "Auth",
-    "authKey": "SSH key",
-    "authPassword": "Password",
     "identityFile": "Key file",
     "identityHint": "empty = default ~/.ssh keys",
     "passphrase": "Passphrase",

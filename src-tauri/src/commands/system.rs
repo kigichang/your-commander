@@ -1,5 +1,4 @@
 use crate::fs::local::{self, VolumeInfo};
-use crate::ops::archive;
 use crate::platform;
 use crate::state::AppState;
 use std::path::PathBuf;
@@ -297,17 +296,6 @@ pub async fn reveal_in_finder(path: PathBuf) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || platform::reveal(&path))
         .await
         .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub fn is_archive(name: String) -> bool {
-    archive::is_archive(&name)
-}
-
-/// Can the panel step into this archive like a folder (2d)?
-#[tauri::command]
-pub fn can_browse_archive(name: String) -> bool {
-    crate::fs::archive_fs::can_browse(&name)
 }
 
 /// File tags (Finder tags on macOS; best effort, empty elsewhere).
