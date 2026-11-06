@@ -57,3 +57,8 @@ export function expandHome(path: string, home: string | null): string {
   if (home && path.startsWith("~/")) return home + path.slice(1);
   return path;
 }
+
+/** True when a local panel at `path` is showing the Trash folder. */
+export function isTrashDir(location: Location, path: string, trashDir: string | null): boolean {
+  return location.kind === "local" && !!trashDir && sameDir(path, trashDir);
+}

@@ -207,6 +207,8 @@ export type OpRequest =
       options?: CopyOptions;
     }
   | { op: "trash"; items: string[] }
+  | { op: "restore"; items: string[] }
+  | { op: "emptyTrash" }
   | { op: "delete"; location: Location; items: string[] }
   | {
       op: "sync";

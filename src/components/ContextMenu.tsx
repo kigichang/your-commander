@@ -14,6 +14,7 @@ import type { Side } from "../store/panels";
 import { usePanels } from "../store/panels";
 import { useKeymap } from "../store/keymapStore";
 import { useSettings } from "../store/settings";
+import { isTrashDir } from "../lib/path";
 
 interface CtxState {
   menu: { x: number; y: number; side: Side; kind: "row" | "empty" } | null;
@@ -65,6 +66,7 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
   const keymap = useKeymap((s) => s.map);
   const showHidden = useSettings((s) => s.showHidden);
   const config = useSettings((s) => s.config);
+  const trashDir = useSettings((s) => s.trashDir);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -103,6 +105,7 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
     });
 
     const loc = tab.location.kind;
+    const inTrash = isTrashDir(tab.location, tab.path, trashDir);
     if (kind === "empty") {
       const hasClip = useClipboard.getState().clip !== null;
       return [
@@ -130,6 +133,7 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
               ],
             ]
           : []),
+        ...(inTrash ? [[act("emptyTrash")]] : []),
       ];
     }
 
@@ -245,15 +249,22 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
             }))
         : [];
 
+    // In the Trash, "Move to Trash" becomes Restore, and Empty Trash is
+    // offered whatever is selected.
     const danger: Section = [
-      ...(loc === "local" ? [{ ...act("trash"), label: many(t("action.trash")) }] : []),
+      ...(inTrash
+        ? [{ ...act("restore"), label: many(t("action.restore")) }]
+        : loc === "local"
+          ? [{ ...act("trash"), label: many(t("action.trash")) }]
+          : []),
       ...(loc !== "archive"
         ? [{ ...act("deletePermanent"), label: many(t("action.deletePermanent")) }]
         : []),
+      ...(inTrash ? [act("emptyTrash")] : []),
     ];
 
     return [open, work, tools, clipboard, danger].filter((sec) => sec.length > 0);
-  }, [tab, side, kind, keymap, showHidden, config, apps, t]);
+  }, [tab, side, kind, keymap, showHidden, config, trashDir, apps, t]);
 
   // Keep the menu inside the window.
   useLayoutEffect(() => {

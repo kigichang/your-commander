@@ -20,6 +20,70 @@ pub fn trash_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// `<Trash>/info/<name>.trashinfo` for an item in `<Trash>/files`.
+fn trash_info_file(item: &Path) -> Result<PathBuf, String> {
+    let name = item.file_name().ok_or("not in the Trash")?;
+    let trash = item.parent().and_then(Path::parent).ok_or("not in the Trash")?;
+    let mut info = name.to_os_string();
+    info.push(".trashinfo");
+    Ok(trash.join("info").join(info))
+}
+
+/// The original path from a .trashinfo file's `Path=` key (percent-encoded;
+/// absolute for the home trash).
+fn parse_trash_info(text: &str) -> Option<PathBuf> {
+    let mut in_section = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_section = line == "[Trash Info]";
+        } else if in_section {
+            if let Some(v) = line.strip_prefix("Path=") {
+                let bytes = urlencoding::decode_binary(v.as_bytes()).into_owned();
+                use std::os::unix::ffi::OsStringExt;
+                let path = PathBuf::from(std::ffi::OsString::from_vec(bytes));
+                return path.is_absolute().then_some(path);
+            }
+        }
+    }
+    None
+}
+
+/// Where a Trash item came from, from its .trashinfo file.
+pub fn trash_origin(item: &Path) -> Result<PathBuf, String> {
+    let name = item.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let info = trash_info_file(item)?;
+    let text = std::fs::read_to_string(&info)
+        .map_err(|_| format!("{name}: original location unknown (no .trashinfo)"))?;
+    parse_trash_info(&text).ok_or_else(|| format!("{name}: original location unknown"))
+}
+
+/// Remove the .trashinfo of an item that left the Trash.
+pub fn trash_forget(item: &Path) {
+    if let Ok(info) = trash_info_file(item) {
+        let _ = std::fs::remove_file(info);
+    }
+}
+
+/// Entries of Trash/files are all trashed items.
+pub fn trash_is_bookkeeping(_name: &std::ffi::OsStr) -> bool {
+    false
+}
+
+/// After emptying: clear orphaned .trashinfo files and the size cache.
+pub fn trash_after_empty() {
+    let Ok(files) = trash_dir() else { return };
+    let Some(trash) = files.parent() else { return };
+    if let Ok(rd) = std::fs::read_dir(trash.join("info")) {
+        for e in rd.flatten() {
+            if e.path().extension().is_some_and(|x| x == "trashinfo") {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    let _ = std::fs::remove_file(trash.join("directorysizes"));
+}
+
 /// $XDG_DATA_HOME/Trash/files, ~/.local/share/Trash/files when it is unset
 /// or empty — the same rule the `trash` crate uses when it moves files
 /// there, so the button opens exactly where F8 puts things.
@@ -424,6 +488,18 @@ pub fn icon_png(key: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_trash_info() {
+        let text = "[Trash Info]\nPath=/home/u/My%20Docs/%E4%B8%AD.txt\nDeletionDate=2026-11-06T20:30:47\n";
+        assert_eq!(parse_trash_info(text), Some(PathBuf::from("/home/u/My Docs/中.txt")));
+        assert_eq!(parse_trash_info("[Other]\nPath=/x\n"), None);
+        assert_eq!(parse_trash_info("[Trash Info]\nPath=relative/x\n"), None);
+        assert_eq!(
+            trash_info_file(Path::new("/h/.local/share/Trash/files/a.txt")).unwrap(),
+            PathBuf::from("/h/.local/share/Trash/info/a.txt.trashinfo")
+        );
+    }
 
     #[test]
     fn home_trash_files_follows_xdg_data_home() {

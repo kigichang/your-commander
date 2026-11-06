@@ -69,7 +69,10 @@
     "clipCancelled": "Cut/copy cancelled",
     "nothingSelected": "Nothing selected",
     "archiveReadOnly": "Archives are read-only — press F5 to extract",
-    "comingSoon": "Not implemented yet"
+    "comingSoon": "Not implemented yet",
+    "restored": "Restored {{count}} item(s)",
+    "emptied": "Emptied the Trash ({{count}} item(s) deleted)",
+    "notInTrash": "Restore works on items in the Trash"
   },
   "dialog": {
     "copyTitle": "Copy {{count}} item(s)",
@@ -108,7 +111,9 @@
     "compressTitle": "Compress {{count}} item(s)",
     "archiveName": "Name:",
     "format": "Format:",
-    "compress": "Compress"
+    "compress": "Compress",
+    "emptyTrashTitle": "Empty the Trash?",
+    "emptyTrashBody": "Everything in the Trash will be deleted permanently. This can't be undone."
   },
   "connect": {
     "title": "Connect to Server",
@@ -295,7 +300,9 @@
     "openSettings": "Settings",
     "openTrash": "Show Trash",
     "openDesktop": "Show Desktop",
-    "quit": "Quit"
+    "quit": "Quit",
+    "restore": "Restore",
+    "emptyTrash": "Empty Trash"
   },
   "ctx": {
     "open": "Open",

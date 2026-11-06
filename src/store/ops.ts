@@ -76,7 +76,10 @@ function describe(req: OpRequest): string {
       const extra = req.archives.length > 1 ? ` +${req.archives.length - 1}` : "";
       return `${first}${extra} → ${baseName(req.destDir)}`;
     }
+    case "emptyTrash":
+      return i18n.t("toolbar.trash");
     case "trash":
+    case "restore":
     case "delete": {
       const first = baseName(req.items[0] ?? "");
       return req.items.length > 1 ? `${first} +${req.items.length - 1}` : first;

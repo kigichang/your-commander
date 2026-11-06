@@ -99,6 +99,11 @@ pub enum OpRequest {
     },
     #[serde(rename_all = "camelCase")]
     Trash { items: Vec<PathBuf> },
+    /// Put Trash items back where they came from.
+    #[serde(rename_all = "camelCase")]
+    Restore { items: Vec<PathBuf> },
+    /// Permanently delete everything in the Trash.
+    EmptyTrash,
     #[serde(rename_all = "camelCase")]
     Delete {
         location: Location,
@@ -199,6 +204,8 @@ fn run_request(
             }
         }
         OpRequest::Trash { items } => delete::trash_op(ctx, items).map(counted),
+        OpRequest::Restore { items } => delete::restore_op(ctx, items).map(counted),
+        OpRequest::EmptyTrash => delete::empty_trash_op(ctx).map(counted),
         OpRequest::Delete { location, items } => {
             match state.resolve(&location)?.conn_or_err("Delete")? {
                 None => delete::delete_op(ctx, items).map(counted),

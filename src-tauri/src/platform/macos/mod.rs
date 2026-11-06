@@ -6,12 +6,30 @@ use super::{MediaInfo, OpenApp, find_cli};
 use std::path::{Path, PathBuf};
 
 pub mod smb;
+mod trash;
 
 /// The user's Trash folder. Listing it needs Full Disk Access: macOS
 /// privacy protection answers EPERM ("Operation not permitted") otherwise.
 pub fn trash_dir() -> Result<PathBuf, String> {
     Ok(crate::fs::local::home_dir().join(".Trash"))
 }
+
+/// Where a Trash item came from, from Finder's Put Back records.
+pub fn trash_origin(item: &Path) -> Result<PathBuf, String> {
+    trash::original_location(item)
+}
+
+/// Drop the Trash's bookkeeping for a restored or deleted item. Finder
+/// prunes its own stale .DS_Store records, so nothing to do here.
+pub fn trash_forget(_item: &Path) {}
+
+/// Entries of the Trash folder that are bookkeeping, not trashed items.
+pub fn trash_is_bookkeeping(name: &std::ffi::OsStr) -> bool {
+    name == ".DS_Store"
+}
+
+/// After emptying: nothing beyond the items themselves on macOS.
+pub fn trash_after_empty() {}
 
 /// "New … Here" in the blank-space context menu: open a terminal or editor
 /// in `dir`. `tool` is "terminal", "vscode", or "zed".
