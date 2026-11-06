@@ -7,16 +7,6 @@ use tauri::ipc::Response;
 
 pub use crate::platform::MediaInfo;
 
-/// Whether a path sits on a network mount (SMB/NFS/...). Quick View streams
-/// video from local disks through the asset protocol but must fall back to
-/// a Blob for network mounts, where chunked range reads starve the decoder.
-#[tauri::command]
-pub async fn is_network_path(path: PathBuf) -> Result<bool, String> {
-    tauri::async_runtime::spawn_blocking(move || Ok(crate::fs::local::is_network_volume(&path)))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
 /// Video metadata for Quick View, local files only. Missing attributes
 /// come back as None.
 #[tauri::command]

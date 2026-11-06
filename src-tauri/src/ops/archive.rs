@@ -17,17 +17,6 @@ pub fn excluded(name: &str) -> bool {
     name == ".DS_Store" || name.starts_with("._")
 }
 
-/// Can this file be extracted by `extract_op`?
-pub fn is_archive(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    lower.ends_with(".zip")
-        || lower.ends_with(".7z")
-        || lower.ends_with(".tar")
-        || lower.ends_with(".tar.gz")
-        || lower.ends_with(".tgz")
-        || lower.ends_with(".gz")
-}
-
 /// (relative name with forward slashes, absolute path, is_dir), exclusions applied.
 fn collect_tree(sources: &[PathBuf]) -> Result<Vec<(String, PathBuf, bool)>, String> {
     fn walk(

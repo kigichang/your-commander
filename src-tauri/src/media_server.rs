@@ -6,7 +6,6 @@
 //! Bodies stream straight to the socket, so memory stays flat however big
 //! the video is, and a seek simply drops the old connection.
 
-use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};

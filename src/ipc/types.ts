@@ -157,7 +157,6 @@ export type OpEvent =
       cancelled: boolean;
       count: number;
       name: string | null;
-      connId: number | null;
       error: string | null;
     };
 

@@ -69,7 +69,7 @@ export interface Action {
   enabled?: () => boolean;
 }
 
-/** Keep in sync with the backend's is_archive (ops/archive.rs). */
+/** Keep in sync with the formats the backend's extract_op handles (ops/archive.rs). */
 export const ARCHIVE_RE = /\.(zip|7z|tar|tgz|gz)$/i;
 
 const panels = () => usePanels.getState();

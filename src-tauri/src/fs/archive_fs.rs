@@ -34,15 +34,6 @@ fn kind_of(archive: &Path) -> Result<Kind, String> {
     }
 }
 
-/// Can the panel step into this file like a folder?
-pub fn can_browse(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    lower.ends_with(".zip")
-        || lower.ends_with(".tar")
-        || lower.ends_with(".tar.gz")
-        || lower.ends_with(".tgz")
-}
-
 /// Unix epoch ms from a civil date/time (Howard Hinnant's days algorithm).
 fn civil_epoch_ms(y: i64, m: u64, d: u64, h: u64, min: u64, s: u64) -> u64 {
     let y = if m <= 2 { y - 1 } else { y };

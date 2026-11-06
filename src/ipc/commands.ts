@@ -35,8 +35,6 @@ export const desktopDir = () => invoke<string>("desktop_dir");
 export const openPath = (path: string) => invoke<void>("open_path", { path });
 export const revealInFinder = (path: string) =>
   invoke<void>("reveal_in_finder", { path });
-export const isArchiveName = (name: string) =>
-  invoke<boolean>("is_archive", { name });
 export const fileTags = (path: string) =>
   invoke<string[]>("file_tags", { path });
 /** Hand local files to a native drag session (drop on Finder, Mail, …).
@@ -122,8 +120,6 @@ export const smbShares = (server: string, username: string, password: string) =>
 export const sftpDisconnect = (connId: number) =>
   invoke<void>("sftp_disconnect", { connId });
 
-export const smbFindMount = (server: string, share: string) =>
-  invoke<string | null>("smb_find_mount", { server, share });
 export const smbUnmount = (path: string) =>
   invoke<void>("smb_unmount", { path });
 export const smbSavedPassword = (
@@ -171,8 +167,6 @@ export const appsForPath = (path: string) =>
 export const getInfo = (paths: string[]) => invoke<void>("get_info", { paths });
 export const mediaInfo = (path: string) =>
   invoke<import("./types").MediaInfo>("media_info", { path });
-export const isNetworkPath = (path: string) =>
-  invoke<boolean>("is_network_path", { path });
 /** Localhost URL streaming the file with Range support (Linux media). */
 export const mediaUrl = (path: string) => invoke<string>("media_url", { path });
 export const videoTools = () =>
