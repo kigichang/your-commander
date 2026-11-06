@@ -4,10 +4,12 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import { formatDate, humanSize } from "../lib/format";
+import { isJson, prettyJson } from "../lib/json";
 import { baseName } from "../lib/path";
 import { isMac } from "../lib/platform";
 import { visibleEntries } from "../lib/selectors";
 import { AudioPreview } from "./AudioPreview";
+import { JsonPreview } from "./JsonPreview";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
 import { useRepair } from "../store/repair";
@@ -302,6 +304,9 @@ export function QuickView() {
   const repairJob = useRepair((s) => s.job);
   /** ⌘F3: show every file as a hex dump instead of its usual preview. */
   const hex = usePanels((s) => s.quickViewHex);
+  /** "Pretty" re-indents JSON previews; it stays on while the cursor moves
+   *  to other files so a folder of JSON reads the same way. */
+  const [pretty, setPretty] = useState(false);
   /** Path under the cursor right now — guards async results that outlive it. */
   const entryRef = useRef<string | null>(null);
   entryRef.current = entry?.path ?? null;
@@ -489,6 +494,24 @@ export function QuickView() {
     };
   }, [entry?.path, entry?.modified, tab?.location, hex]);
 
+  const isJsonText = entry?.ext === "json" && preview.kind === "text";
+  // A file past the read cap is cut off and can't parse; format it anyway.
+  const jsonOk = useMemo(
+    () =>
+      isJsonText && preview.kind === "text"
+        ? (entry?.size ?? 0) > TEXT_MAX || isJson(preview.text)
+        : false,
+    [isJsonText, preview, entry?.size],
+  );
+  /** Formatted JSON while "Pretty" is on, else null (show the raw text). */
+  const prettyText = useMemo(
+    () =>
+      preview.kind === "text" && pretty && isJsonText && jsonOk
+        ? prettyJson(preview.text)
+        : null,
+    [preview, pretty, isJsonText, jsonOk],
+  );
+
   const kindLabel = !entry
     ? ""
     : entry.isDir
@@ -506,6 +529,17 @@ export function QuickView() {
           {t("quickview.title")}
           {hex ? " · Hex" : ""}
         </span>
+        {isJsonText && (
+          <button
+            className={pretty && jsonOk ? "tbtn on" : "tbtn"}
+            disabled={!jsonOk}
+            aria-pressed={pretty && jsonOk}
+            title={jsonOk ? t("quickview.prettyTitle") : t("quickview.invalidJson")}
+            onClick={() => setPretty((p) => !p)}
+          >
+            Pretty
+          </button>
+        )}
         <span className="spacer" />
         <span>{entry?.name ?? ""}</span>
         <button
@@ -588,7 +622,11 @@ export function QuickView() {
             }}
           />
         ) : preview.kind === "text" ? (
-          <pre>{preview.text}</pre>
+          prettyText !== null ? (
+            <JsonPreview text={prettyText} />
+          ) : (
+            <pre>{preview.text}</pre>
+          )
         ) : preview.kind === "hex" ? (
           <div className="qv-hex">
             <div className="qv-hex-head">{HEX_HEAD}</div>

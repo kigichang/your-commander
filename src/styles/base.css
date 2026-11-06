@@ -122,6 +122,11 @@ input:focus {
 .tbtn.accent {
   color: var(--color-accent);
 }
+/* Toggle button while switched on (e.g. Quick View "Pretty"). */
+.tbtn.on {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
 /* Lucide icons: sized by the component, aligned here. Inside flex buttons
  * they center themselves; in running text they sit on the baseline. */
 svg.li {
@@ -871,6 +876,32 @@ svg.li {
   word-break: break-all;
   user-select: text;
   overflow: auto;
+}
+/* Pretty JSON: syntax colors and bracket-depth colors from tokens.css. */
+.qv-json .key {
+  color: var(--syn-key);
+}
+.qv-json .str {
+  color: var(--syn-string);
+}
+.qv-json .num {
+  color: var(--syn-number);
+}
+.qv-json .lit {
+  color: var(--syn-literal);
+}
+.qv-json .b0 {
+  color: var(--syn-bracket-0);
+}
+.qv-json .b1 {
+  color: var(--syn-bracket-1);
+}
+.qv-json .b2 {
+  color: var(--syn-bracket-2);
+}
+/* Indent guide: a hairline at the start of each nested indent step. */
+.qv-json .g {
+  box-shadow: inset 1px 0 0 var(--color-divider);
 }
 .qv-hex {
   align-self: stretch;
