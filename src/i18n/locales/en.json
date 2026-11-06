@@ -393,6 +393,7 @@
     "pdfPages": "PDF · {{count}} pages",
     "noPreview": "No preview available",
     "prettyTitle": "Format the JSON; click again for the original text",
-    "invalidJson": "Not valid JSON — can't format"
+    "invalidJson": "Not valid JSON — can't format",
+    "htmlViewTitle": "Render the page (scripts and remote content stay off); click again for the source"
   }
 }

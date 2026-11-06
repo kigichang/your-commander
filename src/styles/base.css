@@ -877,6 +877,16 @@ svg.li {
   user-select: text;
   overflow: auto;
 }
+/* Rendered HTML: a white page like a browser tab, since most pages
+   assume a light canvas and set no background of their own. */
+.qv-html {
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
 /* Pretty JSON: syntax colors and bracket-depth colors from tokens.css. */
 .qv-json .key {
   color: var(--syn-key);
