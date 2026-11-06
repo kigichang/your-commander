@@ -27,6 +27,7 @@ export const defaultKeymap: Record<string, ActionId> = {
   Escape: "clearMarks",
 
   F3: "quickView",
+  "mod+F3": "quickViewHex",
   F4: "edit",
   F5: "copy",
   F6: "move",

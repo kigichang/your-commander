@@ -70,6 +70,8 @@ interface PanelsStore {
    *  While it is open it is that pane's content; switching the pane to a
    *  real tab closes it. */
   quickViewSide: Side | null;
+  /** Quick View shows a hex dump instead of the usual preview. */
+  quickViewHex: boolean;
 
   init: () => Promise<void>;
   activeTab: (side: Side) => TabState;
@@ -106,6 +108,8 @@ interface PanelsStore {
   /** Navigate to a folder and put the cursor on one of its entries. */
   revealEntry: (side: Side, path: string, name: string, location?: Location) => Promise<void>;
   toggleQuickView: () => void;
+  /** Opens Quick View in hex mode, or flips hex mode when it is open. */
+  toggleQuickViewHex: () => void;
   /** Close an SFTP connection and send every tab that used it back home. */
   disconnectSftp: (connId: number) => void;
 }
@@ -188,6 +192,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   ],
   activeSide: 0,
   quickViewSide: null,
+  quickViewHex: false,
 
   init: async () => {
     const home = await ipc.homeDir();
@@ -616,7 +621,16 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   toggleQuickView: () => {
     set((s) => ({
       quickViewSide: s.quickViewSide === null ? s.otherSide(s.activeSide) : null,
+      quickViewHex: false,
     }));
+  },
+
+  toggleQuickViewHex: () => {
+    set((s) =>
+      s.quickViewSide === null
+        ? { quickViewSide: s.otherSide(s.activeSide), quickViewHex: true }
+        : { quickViewHex: !s.quickViewHex },
+    );
   },
 
   disconnectSftp: (connId) => {
