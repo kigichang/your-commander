@@ -1,11 +1,12 @@
 use crate::keychain;
 use crate::platform::smb;
 use std::path::PathBuf;
+use super::blocking;
 
 /// The dialog's Test button: is anything listening on the SMB port?
 #[tauri::command]
 pub async fn smb_test(server: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    blocking(move || {
         use std::net::{TcpStream, ToSocketAddrs};
         use std::time::Duration;
         let addrs = format!("{server}:445")
@@ -18,7 +19,6 @@ pub async fn smb_test(server: String) -> Result<(), String> {
             .map_err(|e| format!("{server}: {e}"))
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Disk shares the server offers (share picker when none was given).
@@ -28,16 +28,12 @@ pub async fn smb_shares(
     username: String,
     password: String,
 ) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || smb::list_shares(&server, &username, &password))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || smb::list_shares(&server, &username, &password)).await
 }
 
 #[tauri::command]
 pub async fn smb_unmount(path: PathBuf) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || smb::unmount(&path))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || smb::unmount(&path)).await
 }
 
 /// Stored password for a saved SMB connection (Keychain).

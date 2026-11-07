@@ -1,5 +1,8 @@
 use super::queue::{cancelled_err, ConflictChoice, OpCtx};
+use super::transfer::total_bytes;
+use crate::fs::provider::FsEntry;
 use crate::fs::sftp::SftpConnection;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -24,58 +27,54 @@ fn remote_keep_both(conn: &SftpConnection, dest: &Path) -> PathBuf {
     dest.to_path_buf()
 }
 
-fn local_total_bytes(paths: &[PathBuf], follow: bool) -> u64 {
-    fn walk(path: &Path, follow: bool) -> u64 {
-        if path.is_symlink() && !(follow && path.is_file()) {
-            return 0;
-        }
-        if path.is_dir() {
-            std::fs::read_dir(path)
-                .map(|rd| rd.flatten().map(|e| walk(&e.path(), follow)).sum())
-                .unwrap_or(0)
-        } else {
-            path.metadata().map(|m| m.len()).unwrap_or(0)
-        }
+/// Remote counterpart of `transfer::total_bytes`: sum the sizes the
+/// download will actually stream, honoring the mask.
+fn remote_total_bytes(
+    ctx: &OpCtx,
+    conn: &SftpConnection,
+    paths: &[(PathBuf, bool, bool)],
+) -> u64 {
+    fn walk_dir(ctx: &OpCtx, conn: &SftpConnection, dir: &Path) -> u64 {
+        conn.list(dir)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|e| {
+                        if e.is_symlink {
+                            0
+                        } else if e.is_dir {
+                            walk_dir(ctx, conn, &e.path)
+                        } else if ctx.mask_matches(&e.name) {
+                            e.size
+                        } else {
+                            0
+                        }
+                    })
+                    .sum()
+            })
+            .unwrap_or(0)
     }
-    paths.iter().map(|p| walk(p, follow)).sum()
-}
-
-fn remote_total_bytes(conn: &SftpConnection, paths: &[(PathBuf, bool, bool)]) -> u64 {
-    fn walk(conn: &SftpConnection, path: &Path, is_dir: bool, is_symlink: bool) -> u64 {
-        if is_symlink {
+    // A file's size comes from its parent's listing. The selected files
+    // nearly always share one parent, so each parent is listed only once.
+    let mut listings: HashMap<&Path, Vec<FsEntry>> = HashMap::new();
+    let mut total = 0;
+    for (path, is_dir, is_symlink) in paths {
+        if *is_symlink {
             // Recreated as a link (or streamed, where size is unknown anyway).
-            return 0;
-        }
-        if is_dir {
-            conn.list(path)
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .map(|e| {
-                            if e.is_symlink {
-                                0
-                            } else if e.is_dir {
-                                walk(conn, &e.path, true, false)
-                            } else {
-                                e.size
-                            }
-                        })
-                        .sum()
-                })
-                .unwrap_or(0)
-        } else {
-            conn.exists(path)
-                .and_then(|_| conn.list(path.parent()?).ok())
-                .and_then(|entries| {
-                    entries
-                        .iter()
-                        .find(|e| e.path == path)
-                        .map(|e| e.size)
-                })
-                .unwrap_or(0)
+        } else if *is_dir {
+            total += walk_dir(ctx, conn, path);
+        } else if !ctx.mask_matches(&path.file_name().unwrap_or_default().to_string_lossy()) {
+            // Skipped by download_item, so not part of the total.
+        } else if let Some(parent) = path.parent() {
+            total += listings
+                .entry(parent)
+                .or_insert_with(|| conn.list(parent).unwrap_or_default())
+                .iter()
+                .find(|e| e.path == *path)
+                .map_or(0, |e| e.size);
         }
     }
-    paths.iter().map(|(p, d, s)| walk(conn, p, *d, *s)).sum()
+    total
 }
 
 /// Copy or move local `sources` into the remote directory `remote_dir`.
@@ -87,7 +86,7 @@ pub fn upload_op(
     remote_dir: PathBuf,
     remove_source: bool,
 ) -> Result<usize, String> {
-    ctx.total_bytes = local_total_bytes(&sources, ctx.options.follow_symlinks);
+    ctx.total_bytes = total_bytes(ctx, &sources);
     let mut count = 0usize;
     for src in &sources {
         if ctx.cancelled() {
@@ -181,7 +180,7 @@ pub fn download_op(
     local_dir: PathBuf,
     remove_source: bool,
 ) -> Result<usize, String> {
-    ctx.total_bytes = remote_total_bytes(&conn, &sources);
+    ctx.total_bytes = remote_total_bytes(ctx, &conn, &sources);
     let mut count = 0usize;
     for (src, is_dir, is_symlink) in &sources {
         if ctx.cancelled() {

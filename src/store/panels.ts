@@ -3,7 +3,7 @@ import * as ipc from "../ipc/commands";
 import type { FsEntry, Location } from "../ipc/types";
 import { baseName, parentPath } from "../lib/path";
 import { visibleEntries } from "../lib/selectors";
-import { useSettings } from "./settings";
+import { selectShowHidden, useSettings } from "./settings";
 
 export type Side = 0 | 1;
 export type SortKey = "name" | "ext" | "size" | "modified";
@@ -131,10 +131,6 @@ function updateTab(
   return next;
 }
 
-async function loadEntries(location: Location, path: string): Promise<FsEntry[]> {
-  return ipc.listDir(location, path);
-}
-
 /** Write both sides' local tabs, active tab, view mode, and active sort into
  *  the config. Called after any change worth restoring next launch. */
 function persistPanels() {
@@ -195,8 +191,9 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   quickViewHex: false,
 
   init: async () => {
-    const home = await ipc.homeDir();
-    const config = useSettings.getState().config;
+    const settings = useSettings.getState();
+    const home = settings.home ?? (await ipc.homeDir());
+    const config = settings.config;
     const restore = (
       paths: string[] | undefined,
       fallback: string | null | undefined,
@@ -270,7 +267,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
     return panel.tabs[panel.active];
   },
 
-  visible: (side) => visibleEntries(get().activeTab(side), useSettings.getState().showHidden),
+  visible: (side) => visibleEntries(get().activeTab(side), selectShowHidden(useSettings.getState())),
 
   otherSide: (side) => (((side ?? get().activeSide) === 0 ? 1 : 0) as Side),
 
@@ -291,7 +288,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       }),
     }));
     try {
-      const entries = await loadEntries(loc, path);
+      const entries = await ipc.listDir(loc, path);
       set((s) => ({
         panels: updateTab(s.panels, side, tab.id, {
           entries,
@@ -331,14 +328,14 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       set((s) => ({ panels: updateTab(s.panels, side, tab.id, { loading: true }) }));
     }
     try {
-      const entries = await loadEntries(tab.location, tab.path);
+      const entries = await ipc.listDir(tab.location, tab.path);
       set((s) => ({
         panels: updateTab(s.panels, side, tab.id, (t) => {
           // Keep the cursor on the same entry when it survived the refresh.
-          const prevVisible = visibleEntries(t, useSettings.getState().showHidden);
+          const prevVisible = visibleEntries(t, selectShowHidden(useSettings.getState()));
           const cursorName = prevVisible[t.cursor]?.name;
           const nextTabState = { ...t, entries };
-          const nextVisible = visibleEntries(nextTabState, useSettings.getState().showHidden);
+          const nextVisible = visibleEntries(nextTabState, selectShowHidden(useSettings.getState()));
           const idx = cursorName ? nextVisible.findIndex((e) => e.name === cursorName) : -1;
           const names = new Set(entries.map((e) => e.name));
           return {

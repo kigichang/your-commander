@@ -14,7 +14,7 @@ import { JsonPreview } from "./JsonPreview";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
 import { useRepair } from "../store/repair";
-import { useSettings } from "../store/settings";
+import { selectShowHidden, useSettings } from "../store/settings";
 import { Icon } from "./icons";
 
 // pdf.js is ~450 KB; load it only when the first PDF is previewed.
@@ -285,7 +285,7 @@ export function QuickView() {
   const config = useSettings((s) => s.config);
   const browseSide = usePanels((s) => s.otherSide(s.quickViewSide ?? 0));
   const tab = usePanels((s) => s.panels[browseSide].tabs[s.panels[browseSide].active]);
-  const showHidden = useSettings((s) => s.showHidden);
+  const showHidden = useSettings(selectShowHidden);
   const entry = useMemo(() => {
     if (!tab) return undefined;
     return visibleEntries(tab, showHidden)[tab.cursor];

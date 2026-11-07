@@ -2,19 +2,9 @@ use crate::fs::provider::FsEntry;
 use crate::fs::{archive_fs, local};
 use crate::ops::transfer;
 use crate::state::{AppState, Location, Resolved};
+use super::blocking;
 use std::path::PathBuf;
 use tauri::State;
-
-/// Run blocking file-system work off the async runtime's core threads.
-async fn blocking<T, F>(work: F) -> Result<T, String>
-where
-    T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
-{
-    tauri::async_runtime::spawn_blocking(work)
-        .await
-        .map_err(|e| e.to_string())?
-}
 
 #[tauri::command]
 pub async fn list_dir(

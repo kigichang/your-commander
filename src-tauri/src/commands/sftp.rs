@@ -1,6 +1,7 @@
 use crate::fs::sftp::{self, SshAuth};
 use crate::state::AppState;
 use std::path::PathBuf;
+use super::blocking;
 use tauri::State;
 
 /// Usable (non-wildcard) Host entry from ~/.ssh/config.
@@ -103,7 +104,7 @@ pub async fn sftp_connect(
     state: State<'_, AppState>,
     params: SftpConnectParams,
 ) -> Result<SftpConnected, String> {
-    let (conn, home) = tauri::async_runtime::spawn_blocking(move || {
+    let (conn, home) = blocking(move || {
         let auth = auth_of(&params);
         let conn = sftp::connect(&params.host, params.port, &params.username, &auth)?;
         // Land in start_in when it exists as a folder, else in home.
@@ -113,8 +114,7 @@ pub async fn sftp_connect(
         };
         Ok::<_, String>((conn, home))
     })
-    .await
-    .map_err(|e| e.to_string())??;
+    .await?;
     let label = conn.label.clone();
     let conn_id = state.add_connection(conn);
     Ok(SftpConnected {
@@ -127,12 +127,11 @@ pub async fn sftp_connect(
 /// Dial, authenticate, and hang up — the dialog's Test button.
 #[tauri::command]
 pub async fn sftp_test(params: SftpConnectParams) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    blocking(move || {
         let auth = auth_of(&params);
         sftp::connect(&params.host, params.port, &params.username, &auth).map(|_| ())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

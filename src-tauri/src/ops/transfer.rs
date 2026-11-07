@@ -6,7 +6,7 @@ const CHUNK: usize = 1024 * 1024;
 
 /// Walk sources and sum file sizes so progress has a denominator, honoring
 /// the mask and follow-symlinks options.
-fn total_bytes(ctx: &OpCtx, paths: &[PathBuf]) -> u64 {
+pub(super) fn total_bytes(ctx: &OpCtx, paths: &[PathBuf]) -> u64 {
     fn walk(ctx: &OpCtx, path: &Path) -> u64 {
         if path.is_symlink() && !(ctx.options.follow_symlinks && path.is_file()) {
             return 0;

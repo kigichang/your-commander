@@ -14,7 +14,7 @@ import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useKeymap } from "../store/keymapStore";
 import { useOps } from "../store/ops";
-import { useSettings } from "../store/settings";
+import { selectFkeysWithoutFn, selectShowHidden, useSettings } from "../store/settings";
 import { Icon } from "./icons";
 import { Overlay } from "./Overlay";
 import appIcon from "../../src-tauri/icons/128x128@2x.png";
@@ -110,8 +110,8 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
 
 function GeneralPane() {
   const { t } = useTranslation();
-  const showHidden = useSettings((s) => s.showHidden);
-  const fkeysOn = useSettings((s) => s.fkeysWithoutFn);
+  const showHidden = useSettings(selectShowHidden);
+  const fkeysOn = useSettings(selectFkeysWithoutFn);
   const fkeysAvailable = useSettings((s) => s.fkeysAvailable);
   const config = useSettings((s) => s.config);
 

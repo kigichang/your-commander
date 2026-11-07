@@ -7,6 +7,7 @@ use crate::state::AppState;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::sync::Arc;
+use super::blocking;
 use tauri::State;
 
 /// PlantUML's own base64 variant for URL text encoding.
@@ -222,7 +223,7 @@ pub async fn render_plantuml(
         return Ok(svg.as_ref().clone());
     }
 
-    let svg = tauri::async_runtime::spawn_blocking(move || {
+    let svg = blocking(move || {
         let uml = with_start_end(&code);
         if mode == "jar" {
             render_via_jar(&java, &jar, &uml)
@@ -230,8 +231,7 @@ pub async fn render_plantuml(
             render_via_server(&server, &uml)
         }
     })
-    .await
-    .map_err(|e| e.to_string())??;
+    .await?;
 
     state
         .plantuml_cache

@@ -13,7 +13,7 @@ import { useOps } from "../store/ops";
 import type { Side } from "../store/panels";
 import { usePanels } from "../store/panels";
 import { useKeymap } from "../store/keymapStore";
-import { useSettings } from "../store/settings";
+import { selectShowHidden, useSettings } from "../store/settings";
 import { isTrashDir } from "../lib/path";
 
 interface CtxState {
@@ -64,7 +64,7 @@ function Menu({ x, y, side, kind }: NonNullable<CtxState["menu"]>) {
   const { t } = useTranslation();
   const close = useCtxMenu((s) => s.close);
   const keymap = useKeymap((s) => s.map);
-  const showHidden = useSettings((s) => s.showHidden);
+  const showHidden = useSettings(selectShowHidden);
   const config = useSettings((s) => s.config);
   const trashDir = useSettings((s) => s.trashDir);
   const ref = useRef<HTMLDivElement>(null);

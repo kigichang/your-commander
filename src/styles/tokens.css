@@ -52,30 +52,13 @@
   --color-danger: #e08a8a;
   --color-divider: color-mix(in srgb, #dcdde0 15%, transparent);
 
-  --color-neutral-100: #f4f5f6;
-  --color-neutral-200: #e6e7e9;
   --color-neutral-300: #cbccd0;
-  --color-neutral-400: #aeafb4;
-  --color-neutral-500: #8f9095;
   --color-neutral-600: #707176;
-  --color-neutral-700: #55565b;
-  --color-neutral-800: #3b3c40;
   --color-neutral-900: #26272a;
-
-  --color-accent-100: #f7f7f8;
-  --color-accent-200: #ececee;
-  --color-accent-300: #d9dadd;
-  --color-accent-400: #bdbec3;
-  --color-accent-500: #9fa0a6;
-  --color-accent-600: #7f8086;
-  --color-accent-700: #606167;
-  --color-accent-800: #434449;
-  --color-accent-900: #2c2d31;
 
   --font-body: "Inter", system-ui, sans-serif;
   --font-heading: "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-heading-weight: 500;
   /* Multiplier on every font size; Settings → Appearance sets it. */
   --font-scale: 1;
 
@@ -84,7 +67,6 @@
   --space-3: 8.4px;
   --space-4: 11.2px;
   --space-6: 16.8px;
-  --space-8: 22.4px;
 
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -92,7 +74,6 @@
 
   --shadow-sm: 0 0 0 1px #3b3c40;
   --shadow-md: 0 0 0 1px #55565b, 0 6px 18px rgba(0, 0, 0, 0.55);
-  --shadow-lg: 0 0 0 1px #8f9095, 0 16px 40px rgba(0, 0, 0, 0.65);
 
   /* Syntax colors (Quick View pretty JSON). */
   --syn-key: #3dc28f;
@@ -111,7 +92,7 @@
   --text-faint: color-mix(in srgb, var(--color-text) 38%, transparent);
 }
 
-/* Light palette: the neutral/accent ramps flip so "100 = strongest contrast
+/* Light palette: the neutral ramp flips so "100 = strongest contrast
    against the background" keeps meaning the same thing in both themes. */
 :root[data-theme="light"] {
   color-scheme: light;
@@ -128,29 +109,12 @@
   --color-danger: #b43d3d;
   --color-divider: color-mix(in srgb, #202124 14%, transparent);
 
-  --color-neutral-100: #232428;
-  --color-neutral-200: #3a3b3f;
   --color-neutral-300: #55565b;
-  --color-neutral-400: #77787d;
-  --color-neutral-500: #98999e;
   --color-neutral-600: #b5b6ba;
-  --color-neutral-700: #cfd0d3;
-  --color-neutral-800: #e0e1e3;
   --color-neutral-900: #ebecee;
-
-  --color-accent-100: #2a2b2f;
-  --color-accent-200: #434449;
-  --color-accent-300: #606167;
-  --color-accent-400: #7f8086;
-  --color-accent-500: #9fa0a6;
-  --color-accent-600: #bdbec3;
-  --color-accent-700: #d9dadd;
-  --color-accent-800: #ececee;
-  --color-accent-900: #f4f4f6;
 
   --shadow-sm: 0 0 0 1px #dddee1;
   --shadow-md: 0 0 0 1px #c9cacd, 0 6px 18px rgba(20, 22, 26, 0.14);
-  --shadow-lg: 0 0 0 1px #aeafb4, 0 16px 40px rgba(20, 22, 26, 0.2);
   --syn-key: #0e8a5c;
   --syn-string: #1f5fcf;
   --syn-number: #b56500;
@@ -178,29 +142,12 @@
     --color-danger: #b43d3d;
     --color-divider: color-mix(in srgb, #202124 14%, transparent);
 
-    --color-neutral-100: #232428;
-    --color-neutral-200: #3a3b3f;
     --color-neutral-300: #55565b;
-    --color-neutral-400: #77787d;
-    --color-neutral-500: #98999e;
     --color-neutral-600: #b5b6ba;
-    --color-neutral-700: #cfd0d3;
-    --color-neutral-800: #e0e1e3;
     --color-neutral-900: #ebecee;
-
-    --color-accent-100: #2a2b2f;
-    --color-accent-200: #434449;
-    --color-accent-300: #606167;
-    --color-accent-400: #7f8086;
-    --color-accent-500: #9fa0a6;
-    --color-accent-600: #bdbec3;
-    --color-accent-700: #d9dadd;
-    --color-accent-800: #ececee;
-    --color-accent-900: #f4f4f6;
 
     --shadow-sm: 0 0 0 1px #dddee1;
     --shadow-md: 0 0 0 1px #c9cacd, 0 6px 18px rgba(20, 22, 26, 0.14);
-    --shadow-lg: 0 0 0 1px #aeafb4, 0 16px 40px rgba(20, 22, 26, 0.2);
     --syn-key: #0e8a5c;
     --syn-string: #1f5fcf;
     --syn-number: #b56500;

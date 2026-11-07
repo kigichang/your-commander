@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use crate::stream_protocol::{mime_for, parse_range};
+use crate::commands::blocking;
 
 /// Served files kept registered; older registrations age out so a long
 /// session doesn't accumulate tokens (one preview plays at a time).
@@ -184,9 +185,7 @@ fn status_line(
 /// support. Used by Quick View on Linux in place of stream://.
 #[tauri::command]
 pub async fn media_url(path: PathBuf) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || url_for(&path))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || url_for(&path)).await
 }
 
 #[cfg(test)]

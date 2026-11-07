@@ -16,7 +16,7 @@ import { openPath, startDrag } from "../ipc/commands";
 import { actions } from "../keymap/actions";
 import type { ColKey, ColWidths, Side, SortKey, TabState, ViewMode } from "../store/panels";
 import { usePanels } from "../store/panels";
-import { useSettings } from "../store/settings";
+import { selectShowHidden, useSettings } from "../store/settings";
 import { useCtxMenu } from "./ContextMenu";
 import { FileIcon, iconKey } from "./FileIcon";
 import { Icon } from "./icons";
@@ -89,7 +89,7 @@ export function FileTable({
   viewMode: ViewMode;
 }) {
   const { t } = useTranslation();
-  const showHidden = useSettings((s) => s.showHidden);
+  const showHidden = useSettings(selectShowHidden);
   const visible = useMemo(() => visibleEntries(tab, showHidden), [tab, showHidden]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const iconView = viewMode === "icon";
@@ -301,7 +301,7 @@ function armDragOut(e: React.MouseEvent, side: Side, entry: FsEntry) {
     disarm();
     const tab = usePanels.getState().activeTab(side);
     const items = tab.marked.has(entry.name)
-      ? targetEntries(tab, visibleEntries(tab, useSettings.getState().showHidden))
+      ? targetEntries(tab, visibleEntries(tab, selectShowHidden(useSettings.getState())))
       : [entry];
     if (items.length === 0) return;
     startDrag(
