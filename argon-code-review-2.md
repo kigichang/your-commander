@@ -91,6 +91,15 @@
   2. 當 `dest` 為指向既有檔案的 symlink 且使用者選擇 `Overwrite` 時，第 174 行 `std::fs::File::create(&dest)` 會截斷並覆寫 **symlink 指向的目標檔案**，而非取代 symlink 本身（與 `ops/remote.rs:285-293` 及 `fs/archive_fs.rs:286` 使用 `replace_file_nofollow` 的行為不一致）。
 - **修正建議**：
   - 將第 144 行改為 `if dest.exists() || dest.is_symlink()`，並將第 174 行的 `std::fs::File::create(&dest)` 改為 `super::safe_path::replace_file_nofollow(&dest)`。
+- **處理結果**（Claude，2026-11-07）：兩點皆成立，已依建議修正，另補上兩處同類問題。
+  1. **懸空 symlink**：`dest.exists()` 跟隨 link，懸空時為 false，不詢問就以 `File::create` 在 link 指向處建立檔案。改為 `dest.exists() || dest.is_symlink()`，懸空 link 也算衝突。
+  2. **覆寫穿透**：選 Overwrite 時 `File::create` 會截斷 link 指向的目標檔。改用 `replace_file_nofollow`：link 本身被取代，期間才出現的 link 則讓 `O_NOFOLLOW` 開檔失敗；與下載、壓縮檔 F5 的行為一致。
+  - **另補（同類）**：
+    - 同裝置移動的 `rename` 快速路徑原本只看 `!dest.exists()`，遇懸空 link 會不詢問就以 rename 蓋掉它；改為同時排除 `is_symlink()`，交由一般流程詢問。
+    - 重建 symlink 的分支原本以 `dest.exists()` 決定是否先刪除目的地；懸空 link 不會被刪，選 Overwrite 後 symlink 以 EEXIST 失敗。改為同樣判斷。
+  - **連帶受益**：本機→本機同步（1.2 提到的 `sync_op`）走 `copy_file`，同樣不再寫穿 link。衝突對話框只顯示路徑、不讀 metadata，懸空 link 可正常顯示；「取代較舊」讀不到懸空 link 的時間時會改為詢問。
+  - **未變更**：複製資料夾時，目的地若是指向資料夾的 symlink，仍會合併進 link 指向的資料夾——那是使用者自己放的 link，理由同 1.1 第 2 點。
+  - **測試**：新增 `dangling_link_at_dest_is_a_conflict_not_a_way_out`（詢問時取消不寫任何檔、Overwrite 取代 link、同裝置移動也會詢問）與 `overwrite_replaces_a_link_instead_of_writing_through_it`（link 指向的檔案不被改寫、link 覆蓋懸空 link）；兩者在舊程式碼上皆失敗。
 
 ### 1.5 `[Medium-High]` PlantUML 預覽未啟用 `SANDBOX` 安全模式（`!include` 本機敏感檔案洩漏與 SSRF）
 - **檔案位置**：

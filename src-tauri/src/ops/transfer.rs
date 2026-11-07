@@ -82,8 +82,13 @@ fn copy_item(ctx: &mut OpCtx, src: &Path, dest: &Path, remove_source: bool) -> R
         return Err(cancelled_err());
     }
 
-    // Fast path for move on the same device: a rename is instant.
-    if remove_source && !dest.exists() && same_device(src, dest.parent().unwrap_or(dest)) {
+    // Fast path for move on the same device: a rename is instant. Not over
+    // a dangling link either: rename would replace it without asking.
+    if remove_source
+        && !dest.exists()
+        && !dest.is_symlink()
+        && same_device(src, dest.parent().unwrap_or(dest))
+    {
         ctx.report(&src.to_string_lossy());
         if std::fs::rename(src, dest).is_ok() {
             return Ok(());
@@ -141,7 +146,9 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), 
         return Ok(());
     }
     let mut dest = dest.to_path_buf();
-    if dest.exists() {
+    // exists() follows links: a dangling one would raise no conflict, and
+    // the write below would then create whatever file it points at.
+    if dest.exists() || dest.is_symlink() {
         match ctx.ask_conflict(src, &dest) {
             ConflictChoice::Overwrite => {}
             ConflictChoice::Skip => {
@@ -160,7 +167,7 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), 
     // streamed like regular files (directory links always stay links).
     if src.is_symlink() && !(ctx.options.follow_symlinks && src.is_file()) {
         let target = std::fs::read_link(src).map_err(|e| format!("{}: {e}", src.display()))?;
-        if dest.exists() {
+        if dest.exists() || dest.is_symlink() {
             let _ = std::fs::remove_file(&dest);
         }
         std::os::unix::fs::symlink(&target, &dest)
@@ -170,8 +177,9 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), 
 
     let mut reader =
         std::fs::File::open(src).map_err(|e| format!("{}: {e}", src.display()))?;
-    let mut writer =
-        std::fs::File::create(&dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    // Overwrite replaces a link at `dest` rather than writing into the file
+    // it points at; one that appears meanwhile fails the open.
+    let mut writer = super::safe_path::replace_file_nofollow(&dest)?;
     let mut buf = vec![0u8; CHUNK];
     loop {
         if ctx.cancelled() {
@@ -606,5 +614,67 @@ mod tests {
         for d in [&src_root, &dest_root] {
             let _ = std::fs::remove_dir_all(d);
         }
+    }
+
+    #[test]
+    fn dangling_link_at_dest_is_a_conflict_not_a_way_out() {
+        let work = tmp("dangle");
+        let src = work.join("src");
+        let dest = work.join("dest");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(src.join("a.txt"), b"new").unwrap();
+        let target = work.join("planted.txt");
+        std::os::unix::fs::symlink(&target, dest.join("a.txt")).unwrap();
+
+        // Cancel at the prompt: the prompt was raised, nothing was written.
+        let err = copy_op(&mut test_ctx(), vec![src.join("a.txt")], dest.clone(), false)
+            .unwrap_err();
+        assert_eq!(err, cancelled_err());
+        assert!(!target.exists(), "no file created at the link's target");
+
+        // Overwrite replaces the link itself.
+        let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+        copy_op(&mut ctx, vec![src.join("a.txt")], dest.clone(), false).unwrap();
+        assert!(!target.exists());
+        assert!(!dest.join("a.txt").is_symlink());
+        assert_eq!(std::fs::read(dest.join("a.txt")).unwrap(), b"new");
+
+        // A move on the same device asks too, rather than renaming over it.
+        std::fs::remove_file(dest.join("a.txt")).unwrap();
+        std::os::unix::fs::symlink(&target, dest.join("a.txt")).unwrap();
+        let err = copy_op(&mut test_ctx(), vec![src.join("a.txt")], dest.clone(), true)
+            .unwrap_err();
+        assert_eq!(err, cancelled_err());
+        assert!(dest.join("a.txt").is_symlink(), "the link is left alone");
+        assert!(src.join("a.txt").exists(), "the source stays");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn overwrite_replaces_a_link_instead_of_writing_through_it() {
+        let work = tmp("through");
+        let src = work.join("src");
+        let dest = work.join("dest");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(src.join("a.txt"), b"new").unwrap();
+        let victim = work.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+        std::os::unix::fs::symlink(&victim, dest.join("a.txt")).unwrap();
+
+        let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+        copy_op(&mut ctx, vec![src.join("a.txt")], dest.clone(), false).unwrap();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        assert!(!dest.join("a.txt").is_symlink());
+        assert_eq!(std::fs::read(dest.join("a.txt")).unwrap(), b"new");
+
+        // A link copied over a dangling link replaces it too.
+        std::os::unix::fs::symlink("elsewhere", src.join("l")).unwrap();
+        std::os::unix::fs::symlink(work.join("gone2"), dest.join("l")).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+        copy_op(&mut ctx, vec![src.join("l")], dest.clone(), false).unwrap();
+        assert_eq!(std::fs::read_link(dest.join("l")).unwrap(), PathBuf::from("elsewhere"));
+        let _ = std::fs::remove_dir_all(&work);
     }
 }
