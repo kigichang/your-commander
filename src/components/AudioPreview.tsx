@@ -192,22 +192,32 @@ export function AudioPreview({
     };
   }, [data]);
 
-  // The playhead follows playback with rAF; left is a percentage so the
-  // canvases can stretch freely.
-  useEffect(() => {
-    let raf = 0;
+  // The playhead follows playback with rAF only while the audio plays;
+  // paused, it moves on seeks/time updates alone. left is a percentage so
+  // the canvases can stretch freely.
+  const rafRef = useRef(0);
+  const placeHead = () => {
+    const a = audioRef.current;
+    const pct =
+      a && Number.isFinite(a.duration) && a.duration > 0
+        ? `${(a.currentTime / a.duration) * 100}%`
+        : "0%";
+    if (waveheadRef.current) waveheadRef.current.style.left = pct;
+    if (specheadRef.current) specheadRef.current.style.left = pct;
+  };
+  const stopFollowing = () => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
+  };
+  const startFollowing = () => {
+    if (rafRef.current) return;
     const tick = () => {
-      const a = audioRef.current;
-      if (a && Number.isFinite(a.duration) && a.duration > 0) {
-        const pct = `${(a.currentTime / a.duration) * 100}%`;
-        if (waveheadRef.current) waveheadRef.current.style.left = pct;
-        if (specheadRef.current) specheadRef.current.style.left = pct;
-      }
-      raf = requestAnimationFrame(tick);
+      placeHead();
+      rafRef.current = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+    rafRef.current = requestAnimationFrame(tick);
+  };
+  useEffect(() => stopFollowing, []);
 
   // A detached <audio> keeps its player and stream:// loads alive until
   // GC; release them when Quick View moves on. src is set here (not as a
@@ -242,7 +252,20 @@ export function AudioPreview({
         onLoadedMetadata={(e) => {
           const a = e.currentTarget;
           if (Number.isFinite(a.duration)) onDuration(a.duration);
+          placeHead();
         }}
+        onPlay={startFollowing}
+        onPause={() => {
+          stopFollowing();
+          placeHead();
+        }}
+        onEnded={stopFollowing}
+        onEmptied={() => {
+          stopFollowing();
+          placeHead();
+        }}
+        onSeeked={placeHead}
+        onTimeUpdate={placeHead}
       />
       <div className="qa-block" onClick={seek}>
         <div className="qa-title">{t("quickview.waveform")}</div>

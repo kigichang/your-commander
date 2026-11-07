@@ -312,6 +312,11 @@
   - 只要在 Quick View 開啟音訊檔案預覽，`useEffect` 就會啟動無限循環的 `requestAnimationFrame(tick)`（每秒 60 次），即使音訊處於暫停或根本尚未播放，仍持續輪詢 `audioRef.current` 並更新 DOM。
 - **修正建議**：
   - 改在 `<audio>` 的 `onPlay` 事件啟動 `requestAnimationFrame`，於 `onPause` / `onEnded` 取消 rAF，並在 `onTimeUpdate` / `onSeeked` 更新單次播放頭位置。
+- **處理結果**（Claude，2026-11-07）：成立，已修。
+  - 原本只要 Quick View 顯示音訊，rAF 就每格執行一次、寫兩個播放頭的 `style.left`，暫停或從未播放時也一樣（視窗在背景時瀏覽器才會暫停 rAF）。
+  - 改為：`onPlay` 啟動 rAF（已在跑就不重複啟動），`onPause`／`onEnded`／`onEmptied` 停止；暫停時播放頭只在 `onSeeked`、`onTimeUpdate`、`onLoadedMetadata` 時更新一次。卸載時的 effect cleanup 也會取消 rAF。
+  - 一併修正：切換到另一個音訊檔時，`<audio>` 清空來源會觸發 `emptied`，播放頭歸零（原本要等新檔的 duration 可用、下一格 rAF 才歸零）。
+  - **測試**：前端沒有測試框架，僅以 `tsc` 驗證型別；未在 app 中實際操作驗證（播放／暫停／拖曳進度／換檔時播放頭位置）。
 
 ### 2.7 `[High]` `PdfPreview.tsx` 快速翻頁時未取消進行中的 `pdfPage.render()` 導致 Canvas 衝突報錯
 - **檔案位置**：
