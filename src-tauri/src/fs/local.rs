@@ -79,16 +79,48 @@ fn statfs(path: &Path) -> Option<(u64, u64)> {
     Some((stat.f_bavail * block, stat.f_blocks * block))
 }
 
-/// statfs with a deadline: a sleeping disk or a dead network mount can hang
-/// the syscall for tens of seconds, which must not stall the drives menu.
-/// On timeout the stuck thread finishes (and is discarded) on its own.
-fn statfs_timeout(path: &Path, ms: u64) -> Option<(u64, u64)> {
+/// statfs for every mount at once under one shared deadline: a sleeping
+/// disk or a dead network mount can hang the syscall for tens of seconds,
+/// which must not stall the drives menu, and three dead mounts must cost
+/// one timeout, not three. Stuck threads finish (and are discarded) on
+/// their own.
+fn statfs_all(paths: &[PathBuf], ms: u64) -> Vec<Option<(u64, u64)>> {
+    stat_all_with(paths, ms, statfs)
+}
+
+fn stat_all_with(
+    paths: &[PathBuf],
+    ms: u64,
+    stat: fn(&Path) -> Option<(u64, u64)>,
+) -> Vec<Option<(u64, u64)>> {
     let (tx, rx) = std::sync::mpsc::channel();
-    let p = path.to_path_buf();
-    std::thread::spawn(move || {
-        let _ = tx.send(statfs(&p));
-    });
-    rx.recv_timeout(std::time::Duration::from_millis(ms)).ok()?
+    for (i, path) in paths.iter().enumerate() {
+        let (tx, path) = (tx.clone(), path.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send((i, stat(&path)));
+        });
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+    let mut out = vec![None; paths.len()];
+    for _ in 0..paths.len() {
+        let wait = deadline.saturating_duration_since(std::time::Instant::now());
+        match rx.recv_timeout(wait) {
+            Ok((i, result)) => out[i] = result,
+            Err(_) => break,
+        }
+    }
+    out
+}
+
+/// Free/total space for each volume; one that doesn't answer in 800 ms
+/// stays not ready.
+fn fill_space(volumes: &mut [VolumeInfo]) {
+    let paths: Vec<PathBuf> = volumes.iter().map(|v| v.path.clone()).collect();
+    for (v, stat) in volumes.iter_mut().zip(statfs_all(&paths, 800)) {
+        if let Some((free, total)) = stat {
+            (v.free, v.total, v.ready) = (free, total, true);
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -108,19 +140,17 @@ pub fn volumes() -> Vec<VolumeInfo> {
             let is_system = std::fs::read_link(&path)
                 .map(|t| t == Path::new("/"))
                 .unwrap_or(false);
-            let stat = statfs_timeout(&path, 800);
-            let ready = stat.is_some();
-            let (free, total) = stat.unwrap_or((0, 0));
             out.push(VolumeInfo {
                 name,
                 path,
-                free,
-                total,
-                ready,
+                free: 0,
+                total: 0,
+                ready: false,
                 is_system,
             });
         }
     }
+    fill_space(&mut out);
     out.sort_by_key(|v| v.name.to_lowercase());
     out
 }
@@ -132,13 +162,16 @@ pub fn volumes() -> Vec<VolumeInfo> {
     found.extend(gvfs_mounts());
     let mut out: Vec<VolumeInfo> = found
         .into_iter()
-        .map(|(name, path, is_system)| {
-            let stat = statfs_timeout(&path, 800);
-            let ready = stat.is_some();
-            let (free, total) = stat.unwrap_or((0, 0));
-            VolumeInfo { name, path, free, total, ready, is_system }
+        .map(|(name, path, is_system)| VolumeInfo {
+            name,
+            path,
+            free: 0,
+            total: 0,
+            ready: false,
+            is_system,
         })
         .collect();
+    fill_space(&mut out);
     // The root filesystem first, then the rest alphabetical.
     out.sort_by_key(|v| (!v.is_system, v.name.to_lowercase()));
     out
@@ -273,6 +306,29 @@ mod linux_volumes {
 
 #[cfg(test)]
 mod tests {
+    use super::stat_all_with;
+    use std::path::Path;
+
+    #[test]
+    fn stuck_mounts_share_one_deadline() {
+        fn fake(path: &Path) -> Option<(u64, u64)> {
+            if path.to_string_lossy().starts_with("/dead") {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+            }
+            Some((path.as_os_str().len() as u64, 1))
+        }
+        let paths: Vec<PathBuf> = ["/dead1", "/ok", "/dead22", "/dead333", "/fine"]
+            .iter()
+            .map(PathBuf::from)
+            .collect();
+        let start = std::time::Instant::now();
+        let got = stat_all_with(&paths, 300, fake);
+        // One shared 300 ms deadline, not 300 ms per dead mount (900 ms).
+        assert!(start.elapsed() < std::time::Duration::from_millis(700), "{:?}", start.elapsed());
+        assert_eq!(got, vec![None, Some((3, 1)), None, None, Some((5, 1))]);
+        assert_eq!(stat_all_with(&[], 300, fake), vec![]);
+    }
+
     use super::linux_volumes::{gvfs_display_name, parse_mountinfo};
     use std::path::PathBuf;
 

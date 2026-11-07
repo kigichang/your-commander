@@ -298,6 +298,13 @@ export function QuickView() {
   const [dims, setDims] = useState<string | null>(null);
   /** Video duration, already formatted. */
   const [duration, setDuration] = useState<string | null>(null);
+
+  // The poster's blob URL lives as long as it is the preview shown.
+  useEffect(() => {
+    if (preview.kind !== "video-poster") return;
+    const url = preview.url;
+    return () => URL.revokeObjectURL(url);
+  }, [preview]);
   /** Local helpers for undecodable videos (player app, ffmpeg). */
   const [tools, setTools] = useState<{ player: string | null; ffmpeg: boolean }>({
     player: null,
@@ -353,12 +360,8 @@ export function QuickView() {
       .videoPoster(path)
       .then((buf) => {
         if (isStale() || entryRef.current !== path) return; // cursor moved on
-        const bytes = new Uint8Array(buf);
-        let bin = "";
-        for (let i = 0; i < bytes.length; i += 0x8000) {
-          bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-        }
-        setPreview({ kind: "video-poster", url: `data:image/jpeg;base64,${btoa(bin)}` });
+        const url = URL.createObjectURL(new Blob([buf], { type: "image/jpeg" }));
+        setPreview({ kind: "video-poster", url });
       })
       .catch(() => {});
   };

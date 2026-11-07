@@ -23,6 +23,18 @@ fn runtime() -> &'static tokio::runtime::Runtime {
     RT.get_or_init(|| tokio::runtime::Runtime::new().expect("tokio runtime"))
 }
 
+/// See [`SftpConnection::open_reader`]. Call from a blocking thread only.
+/// Dropping it closes the remote handle (a queued, non-blocking request).
+pub struct SftpReader {
+    file: russh_sftp::client::fs::File,
+}
+
+impl Read for SftpReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        runtime().block_on(self.file.read(buf))
+    }
+}
+
 pub enum SshAuth {
     Password(String),
     Key {
@@ -476,6 +488,15 @@ impl SftpConnection {
         }
     }
 
+    /// A blocking reader over a remote file, one SFTP read per `read` call
+    /// (content search streams through it instead of buffering the file).
+    pub fn open_reader(&self, remote: &Path) -> Result<SftpReader, String> {
+        let file = runtime()
+            .block_on(self.session.open_with_flags(rp(remote), OpenFlags::READ))
+            .map_err(|e| format!("{}: {e}", remote.display()))?;
+        Ok(SftpReader { file })
+    }
+
     /// Read up to `max_bytes` of a remote file into memory (previews).
     pub fn read_limited(&self, remote: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
         runtime().block_on(async {
@@ -591,6 +612,55 @@ mod tests {
 
     fn key(s: &str) -> PublicKey {
         PublicKey::from_openssh(s).unwrap()
+    }
+
+    /// Opt-in: `YC_SFTP_TEST=user:password@host:port:/writable/dir`, e.g.
+    /// against `docker run -p 127.0.0.1:2222:22 atmoz/sftp tester:pass:::upload`
+    /// with `tester:pass@127.0.0.1:2222:/upload`.
+    #[test]
+    fn reader_streams_a_remote_file_from_a_plain_thread() {
+        let Ok(spec) = std::env::var("YC_SFTP_TEST") else {
+            return;
+        };
+        let (cred, rest) = spec.split_once('@').unwrap();
+        let (user, pass) = cred.split_once(':').unwrap();
+        let mut parts = rest.splitn(3, ':');
+        let (host, port, dir) = (
+            parts.next().unwrap(),
+            parts.next().unwrap().parse::<u16>().unwrap(),
+            PathBuf::from(parts.next().unwrap()),
+        );
+        let known = tmp("reader").join("known_hosts");
+        let auth = SshAuth::Password(pass.to_string());
+        let conn = connect_checked(&known, host, port, user, &auth, true).unwrap();
+        let path = dir.join("yc_reader_test.bin");
+        let body: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
+        runtime().block_on(async {
+            let mut f = conn.session.create(rp(&path)).await.unwrap();
+            f.write_all(&body).await.unwrap();
+            f.shutdown().await.unwrap();
+        });
+        // Search threads are plain std threads: no tokio context there, for
+        // the reads or for the drop that closes the remote handle.
+        let worker = conn.clone();
+        let remote = path.clone();
+        let (whole, head) = std::thread::spawn(move || {
+            let mut whole = Vec::new();
+            worker.open_reader(&remote).unwrap().read_to_end(&mut whole).unwrap();
+            let mut head = vec![0u8; 1000];
+            let mut partial = worker.open_reader(&remote).unwrap();
+            partial.read_exact(&mut head).unwrap();
+            drop(partial); // abandoned mid-file, as on a match or cancel
+            (whole, head)
+        })
+        .join()
+        .unwrap();
+        assert_eq!(whole, body);
+        assert_eq!(head, body[..1000]);
+        // The session is still usable after both handles were closed
+        // (`exists` answers "is it a folder": Some(false) is a file).
+        assert_eq!(conn.exists(&path), Some(false));
+        runtime().block_on(conn.session.remove_file(rp(&path))).unwrap();
     }
 
     fn tmp(name: &str) -> PathBuf {

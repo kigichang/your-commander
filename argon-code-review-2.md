@@ -372,6 +372,22 @@
   - `src-tauri/src/fs/local.rs:83-90`：對每個掛載點循序執行 800ms timeout 的 `statfs_timeout`，若有多個無回應的網路磁碟會累加延遲，建議改為平行檢查。
   - `src-tauri/src/platform/linux/mod.rs:453-486`：Linux 每次圖示快取未命中都會啟動 `gsettings` 子行程查詢 `icon-theme`，建議以 `OnceLock` 快取。
   - `src-tauri/src/fs/sftp.rs:20-23`：透過 `OnceLock` 額外建立了一個 multi-thread `tokio::runtime::Runtime`，可直接改用 Tauri 內建的 `tauri::async_runtime::block_on`。
+- **處理結果**（Claude，2026-11-07）：9 小項中 8 項成立並已修，「改用 Tauri 內建 runtime」不採納。
+  1. **FindDialog 啟動／關閉競態：成立，已修。** 除了 Argon 說的「`await` 期間關閉或再按一次無法取消」，還有一個更實際的情況：小資料夾的搜尋可能在 `start_find` 回傳前就送出 `Done`，之後才把 id 寫入 `findIdRef`，按鈕就一直停在「停止」。改為：`runRef` 世代號（開始、停止、卸載都會遞增），舊世代的事件直接丟棄、id 一到就 `cancelFind`；`busyRef` 讓快速連按也能看到「正在啟動」；`Done` 先到時不記錄 id。`findId` state 改為 `running` 布林值。
+  2. **FileTable 拖曳欄寬重繪所有列：成立，已修。** 欄寬模板改放在 `.ftable` 的 CSS 變數 `--grid-cols`，表頭與 `Row` 用 `var(--grid-cols)`，`Row` 不再接收 `cols` prop——拖曳時 store 照常更新，但 memo 化的列一個都不會重新 render。store 仍是唯一的資料來源，沒有改成直接操作 DOM。
+  3. **MultiRenameDialog 預覽未虛擬化：成立，已修。** 改用 `useVirtualizer`（與 FindDialog 相同寫法，列高 `useScaled(20)`），`.mr-row` 改為絕對定位。
+  4. **影片截圖 Base64：成立，已修。** 改用 `URL.createObjectURL(new Blob([buf], { type: "image/jpeg" }))`，並新增一個 effect：截圖不再是目前的預覽時 `revokeObjectURL`。收益小（截圖只有幾十 KB），但程式碼也更簡單。
+  5. **`repair_video` stderr 死結：成立，已修。** 抽出 `run_with_progress(command, on_line)`：stderr 由另一個執行緒讀完，stdout 逐行回報進度。stdout 迴圈改用 `read_until` 搭配 lossy 轉換——原本的 `lines()` 遇到非 UTF-8 位元組就會結束迴圈，stdout 沒讀完，是同一種死結的另一邊。
+  6. **搜尋內容的 buffer 與 SFTP：成立，已修。** `Search` 持有一個 `buf`，每次搜尋只配置一次。SFTP 改為串流：新增 `SftpConnection::open_reader` 回傳 `SftpReader`（實作 `std::io::Read`，每次 `read` 是一次 `block_on` 的 SFTP read），搜尋時找到相符內容或使用者取消就停止下載，不再先把最多 64 MB 讀進記憶體。本機檔案也加上 `take(CONTENT_MAX)`。
+  7. **磁碟列表循序 statfs：成立，已修。** `statfs_all` 先為每個掛載點各開一個執行緒，再共用一個 800 ms 的截止時間收結果；macOS 與 Linux 的 `volumes()` 都改用共用的 `fill_space`。多個無回應的網路磁碟只等一次 800 ms，不再逐一累加。
+  8. **Linux `gsettings` 重複呼叫：成立，已修。** `icon_theme()` 以 `OnceLock` 快取。圖示本身本來就快取到 app 結束，所以切換主題需要重開 app 才生效，這點不變。
+  9. **另建 tokio runtime：不採納。** 收益只是少幾個閒置的 worker 執行緒；而獨立的 runtime 讓 russh 的連線背景工作（keepalive、封包收發）不會被 Tauri 指令 runtime 上的工作拖慢，也避免更動已驗證過的連線行為。從 Tauri runtime 的 async 環境呼叫 `block_on` 都會 panic，這點兩種做法相同，換了也沒有好處。
+  - **測試**：新增 4 個後端測試：
+    - `content_scan_reuses_its_buffer_without_carrying_bytes_over`：跨 chunk 邊界的相符內容仍找得到；前一個檔案結尾的 "nee" 與下一個檔案開頭的 "dle" 不會因重複使用 buffer 而湊成相符；buffer 只配置一次。
+    - `progress_runs_survive_a_child_flooding_stderr`：子行程往 stderr 寫 1 MiB、stdout 夾帶非 UTF-8 行；舊的讀取順序在此測試會卡死（以 20 秒逾時確認失敗），新程式立即完成且收到全部進度行。
+    - `stuck_mounts_share_one_deadline`：3 個卡住 3 秒的掛載點加上 2 個正常的，在 300 ms 截止時間下總共 < 700 ms 完成，正常的結果正確。
+    - `reader_streams_a_remote_file_from_a_plain_thread`（opt-in，需設 `YC_SFTP_TEST`）：用 `atmoz/sftp` Docker 容器實測，從沒有 tokio context 的一般執行緒完整串流讀取 3 MB 檔案、讀到一半丟棄 reader，之後連線仍可使用。
+    - macOS 105 個測試全部通過（含 SFTP opt-in）；Linux Docker 容器中 106 個測試通過；`tsc` 通過；clippy 沒有新增警告。前端（FindDialog、FileTable、MultiRename、截圖）沒有測試框架，未在 app 中實際操作驗證。
 
 ---
 
