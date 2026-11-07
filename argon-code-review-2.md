@@ -325,6 +325,11 @@
   - 當使用者快速連按上一頁／下一頁時，前一次 `useEffect` 的 cleanup 只設定了 `gone = true`，並未對 `pdfPage.render(...)` 回傳的 `RenderTask` 呼叫 `.cancel()`。當新頁碼的 `useEffect` 立即在同一個 `canvasRef.current` 上呼叫 `pdfPage.render()` 時，PDF.js 會拋出 `Error: Cannot use the same canvas during multiple render() operations`，並被新 effect 的 `catch` 捕獲而顯示錯誤訊息。
 - **修正建議**：
   - 保存 `const renderTask = pdfPage.render(...)`，在 cleanup 中呼叫 `renderTask.cancel()`，並在 `catch` 中忽略 `RenderingCancelledException`。
+- **處理結果**（Claude，2026-11-07）：成立，已修。
+  - 確認 pdfjs-dist 6.4.299 的行為：`render({ canvas })` 會把 canvas 加入 `InternalRenderTask.#canvasInUse`，在 `initializeGraphics` 時若已存在就丟出 `Cannot use the same canvas during multiple render() operations`；`cancel()` 會同步將它移出。原本 cleanup 只設 `gone = true`，進行中的 render 繼續佔用 canvas，新頁的 render 因此失敗，錯誤被新 effect 的 `catch` 接住，整個預覽變成錯誤訊息。
+  - **重現**：以 Node（fake canvas／2d context，補上 Node 24 缺少的 `Uint8Array.toHex`、`Map.getOrInsertComputed`、`Path2D`）對同一個 canvas 連續 render 兩頁：不 cancel 時第二頁失敗並得到上述錯誤；先 `cancel()` 第一個 task 則第二頁正常完成。
+  - **修正**：`PdfPreview.tsx` 保存 `pdfPage.render(...)` 回傳的 `RenderTask`，cleanup 時呼叫 `render?.cancel()`（React 會在下一個 effect 執行前跑 cleanup，所以 canvas 已釋放）；`catch` 忽略 `pdfjs.RenderingCancelledException`。卸載元件、換檔（`pages` 歸零）時也會取消進行中的 render。
+  - **測試**：前端沒有測試框架，上述 Node 重現腳本放在 scratchpad 未納入專案；`tsc` 通過。未在 app 中實際快速翻頁驗證。
 
 ### 2.8 `[Medium-High]` `App.tsx` 在 `React.StrictMode` 下洩漏 `fs:changed` 事件監聽器
 - **檔案位置**：
