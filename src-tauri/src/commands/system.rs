@@ -7,6 +7,11 @@ use tauri::Manager;
 
 pub use crate::platform::OpenApp;
 
+/// Smallest window the layout fits (tauri.conf.json's minWidth/minHeight
+/// say the same for the first window).
+pub const MIN_WIDTH: f64 = 800.0;
+pub const MIN_HEIGHT: f64 = 500.0;
+
 /// Open another main window — an independent workspace. Labels run
 /// "main", "main-2", "main-3", … and share the "main*" capability.
 /// Must run on the main thread (IPC commands and menu actions both do).
@@ -27,8 +32,8 @@ pub fn open_new_window(app: &tauri::AppHandle) -> Result<(), String> {
 
     let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::default())
         .title("Your Commander")
-        .inner_size(f64::from(w.max(800.0)), f64::from(h.max(500.0)))
-        .min_inner_size(800.0, 500.0);
+        .inner_size(f64::from(w).max(MIN_WIDTH), f64::from(h).max(MIN_HEIGHT))
+        .min_inner_size(MIN_WIDTH, MIN_HEIGHT);
     // Overlay title bar with repositioned traffic lights; elsewhere the
     // window keeps its native decorations.
     #[cfg(target_os = "macos")]

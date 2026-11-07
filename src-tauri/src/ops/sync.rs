@@ -8,7 +8,6 @@ use crate::ops::queue::{cancelled_err, ConflictChoice, OpCtx};
 use crate::ops::safe_path::is_listing_name;
 use crate::ops::transfer;
 use std::collections::{BTreeMap, HashSet};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -92,27 +91,7 @@ fn collect_remote(
 }
 
 fn files_equal(a: &Path, b: &Path) -> Result<bool, String> {
-    let mut fa = std::fs::File::open(a).map_err(|e| format!("{}: {e}", a.display()))?;
-    let mut fb = std::fs::File::open(b).map_err(|e| format!("{}: {e}", b.display()))?;
-    let mut ba = vec![0u8; 256 * 1024];
-    let mut bb = vec![0u8; 256 * 1024];
-    loop {
-        let na = fa.read(&mut ba).map_err(|e| e.to_string())?;
-        let mut filled = 0;
-        while filled < na {
-            let n = fb.read(&mut bb[filled..na]).map_err(|e| e.to_string())?;
-            if n == 0 {
-                return Ok(false);
-            }
-            filled += n;
-        }
-        if ba[..na] != bb[..na] {
-            return Ok(false);
-        }
-        if na == 0 {
-            return Ok(fb.read(&mut bb[..1]).map_err(|e| e.to_string())? == 0);
-        }
-    }
+    super::transfer::same_contents(a, b, &|| false)
 }
 
 pub fn compare(

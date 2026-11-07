@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { Location } from "../ipc/types";
 import { useScaled } from "../lib/fontScale";
+import { joinPath, parentPath } from "../lib/path";
 import type { CaseMode, RenameRules } from "../lib/renameMask";
 import { DEFAULT_RULES, previewRenames } from "../lib/renameMask";
 import type { Dialog } from "../store/dialogs";
@@ -58,11 +59,10 @@ export function MultiRenameDialog({ d }: { d: Extract<Dialog, { type: "multiRena
     try {
       const count = await ipc.batchRename(tab.location, items);
       // Remember the reverse mapping for undo: new path → old name.
-      const dir = (p: string) => p.slice(0, p.lastIndexOf("/") + 1);
       lastBatch = {
         location: tab.location,
         items: changed.map((r) => ({
-          path: dir(r.entry.path) + r.newName,
+          path: joinPath(parentPath(r.entry.path) ?? "/", r.newName),
           newName: r.entry.name,
         })),
       };

@@ -8,6 +8,14 @@ use std::path::{Path, PathBuf};
 pub mod smb;
 mod trash;
 
+/// An autoreleased NSString (dock menu titles, icon lookups). Call with an
+/// autorelease pool in place, i.e. on the main thread.
+pub(crate) fn ns_string(s: &str) -> *mut objc2::runtime::AnyObject {
+    use objc2::{class, msg_send};
+    let c = std::ffi::CString::new(s).unwrap_or_default();
+    unsafe { msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()] }
+}
+
 /// The user's Trash folder. Listing it needs Full Disk Access: macOS
 /// privacy protection answers EPERM ("Operation not permitted") otherwise.
 pub fn trash_dir() -> Result<PathBuf, String> {

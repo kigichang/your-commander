@@ -18,15 +18,8 @@ const FALLBACK_IMAGE: &[u8] = include_bytes!("../../icons/32x32.png");
 /// which wants the plain path.
 #[cfg(target_os = "linux")]
 fn gtk_uri_path(p: PathBuf) -> PathBuf {
-    use std::path::Component;
-    let mut out = String::new();
-    for c in p.components() {
-        if let Component::Normal(seg) = c {
-            out.push('/');
-            out.push_str(&urlencoding::encode(&seg.to_string_lossy()));
-        }
-    }
-    PathBuf::from(if out.is_empty() { "/".into() } else { out })
+    let uri = crate::platform::file_uri(&p);
+    PathBuf::from(uri.strip_prefix("file://").unwrap_or(&uri))
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -91,4 +84,18 @@ pub async fn start_drag(
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::gtk_uri_path;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn gtk_paths_are_percent_encoded_per_segment() {
+        let enc = |p: &str| gtk_uri_path(PathBuf::from(p));
+        assert_eq!(enc("/home/k/My Files/a#1%.txt"), Path::new("/home/k/My%20Files/a%231%25.txt"));
+        assert_eq!(enc("/home/k/中文.md"), Path::new("/home/k/%E4%B8%AD%E6%96%87.md"));
+        assert_eq!(enc("/"), Path::new("/"));
+    }
 }

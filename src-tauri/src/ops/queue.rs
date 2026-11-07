@@ -270,6 +270,13 @@ impl OpCtx {
 
 /// Find a free "name 2.ext"-style path next to `dest`.
 pub fn keep_both_path(dest: &Path) -> PathBuf {
+    // Not exists(): a dangling link still takes the name.
+    keep_both_with(dest, |candidate| candidate.symlink_metadata().is_ok())
+}
+
+/// "name 2.ext", "name 3.ext", … — the first candidate `taken` says is
+/// free (local `keep_both_path`, or a probe of the SFTP server).
+pub fn keep_both_with(dest: &Path, taken: impl Fn(&Path) -> bool) -> PathBuf {
     let parent = dest.parent().unwrap_or_else(|| Path::new(""));
     let stem = dest
         .file_stem()
@@ -282,8 +289,7 @@ pub fn keep_both_path(dest: &Path) -> PathBuf {
             None => format!("{stem} {n}"),
         };
         let candidate = parent.join(name);
-        // Not exists(): a dangling link still takes the name.
-        if candidate.symlink_metadata().is_err() {
+        if !taken(&candidate) {
             return candidate;
         }
     }
@@ -333,5 +339,16 @@ mod tests {
         let alt2 = keep_both_path(&base);
         assert_eq!(alt2.file_name().unwrap().to_string_lossy(), "file 3.txt");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn keep_both_with_asks_the_given_probe() {
+        // The remote variant's shape: names come from a probe, not the disk.
+        let taken = ["/r/a.tar.gz", "/r/a.tar 2.gz", "/r/notes"];
+        let probe = |p: &Path| taken.iter().any(|t| Path::new(t) == p);
+        assert_eq!(keep_both_with(Path::new("/r/a.tar.gz"), probe), Path::new("/r/a.tar 3.gz"));
+        assert_eq!(keep_both_with(Path::new("/r/notes"), probe), Path::new("/r/notes 2"));
+        // Nothing free: the original path comes back.
+        assert_eq!(keep_both_with(Path::new("/r/x"), |_| true), Path::new("/r/x"));
     }
 }

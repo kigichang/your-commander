@@ -433,7 +433,7 @@
   - **修正**：
     - `platform/linux/smb.rs`：`gvfs_dir`、`parse_smb_dir` 改為 `pub`，新增 `display_name(dir)`（以 `parse_smb_dir` 解析後組成「share on server」）。
     - `fs/local.rs::gvfs_mounts` 改用 `smb::gvfs_dir()` 與 `smb::display_name()`；刪除 `linux_volumes::gvfs_display_name` 及其測試 `gvfs_names`。
-  - **測試**：新增 `names_mounts_for_the_drives_menu`（含空白與中文的 share 名稱會解碼、帶 `user=` 欄位、非 SMB 與缺欄位回傳 None）。這個模組只在 Linux 編譯，所以測試在 Linux Docker 容器執行：108 個測試全部通過，clippy 沒有警告；macOS 106 個測試通過（少的那個就是移走的 `gvfs_names`）。未在 VM 上掛載含空白的分享實際確認選單顯示。
+  - **測試**：新增 `names_mounts_for_the_drives_menu`（含空白與中文的 share 名稱會解碼、帶 `user=` 欄位、非 SMB 與缺欄位回傳 None）。這個模組只在 Linux 編譯，所以測試在 Linux Docker 容器執行：108 個測試全部通過、編譯沒有警告（容器裡沒有安裝 clippy，3.7 時才發現，所以 Linux 端未跑 clippy）；macOS 106 個測試通過（少的那個就是移走的 `gvfs_names`）。未在 VM 上掛載含空白的分享實際確認選單顯示。
 
 ### 3.4 `fs/archive_fs.rs` 與 `ops/archive.rs` 重複實作 Zip／Tar 解壓縮迴圈
 - **檔案位置**：
@@ -489,3 +489,22 @@
     - `src/components/icons.tsx:4-5`（`ICON_SIZE`、`ICON_STROKE`）
     - `src/keymap/keymap.ts:8, 66, 95`（`defaultKeymap`、`finderDelta`、`PRESETS`）
     - `src/store/panels.ts:35-37`（`DEFAULT_COLS`、`COL_MIN`、`COL_MAX`）
+- **處理結果**（Claude，2026-11-07）：逐項確認皆成立，全部整併；「以其他程式開啟」只補 Escape，不合併兩個選單。
+  - **後端**：
+    - **逐位元組比對**：`transfer.rs` 新增 `same_contents(a, b, cancelled)`（回傳是否相同；取消時回傳一般的取消錯誤），`verify_copy` 與 `sync.rs::files_equal` 都改用它。
+    - **遞增檔名**：`queue.rs` 新增 `keep_both_with(dest, taken)`，由呼叫端提供「這個名字是否已被占用」的判斷；`keep_both_path`（本機，以 `symlink_metadata` 判斷，懸空 link 也算占用）與 `remote_keep_both`（`conn.exists`）都改用它。2.2 決定保留的逐一探測方式不變，只共用迴圈。
+    - **`file://` 編碼**：`drag.rs::gtk_uri_path`（Linux）改為取 `platform::file_uri` 去掉 `file://` 前綴。
+    - **刪除片段**：`safe_path.rs` 新增 `remove_nofollow(path)`（link 只刪 link 本身），`delete.rs` 與 `remote.rs` 兩處改用。`transfer.rs:93-102` 那段不算同一種寫法——它是依來源類型分別走 `copy_dir`/`copy_file` 之後才刪來源——所以沒改。
+    - **macOS NSString**：`dock.rs` 與 `icons.rs` 各自的 helper 合併為 `platform::macos::ns_string`。
+    - **視窗最小尺寸**：`commands/system.rs` 新增 `MIN_WIDTH`／`MIN_HEIGHT`，`open_new_window` 與 `lib.rs` 還原視窗尺寸時共用（`tauri.conf.json` 的 `minWidth`/`minHeight` 無法引用 Rust 常數，註解說明兩者需一致）。
+  - **前端**：
+    - **「以其他程式開啟」**：`ContextMenu` 是右鍵選單裡的子選單（作用於所有選取項目，走 `Section` 結構），`QuickView` 是獨立的下拉按鈕（單一檔案、第一次點擊才載入），兩者共用的只有一行 `appsForPath`／`openWith` 呼叫與標籤格式，合併不划算。補上缺少的 Escape：選單開啟時以 capture phase 攔截 Escape、只關閉選單（與 `ContextMenu`、`Panel` 磁碟選單相同寫法），不會連 Quick View 一起關掉。
+    - **MultiRename 路徑**：改用 `joinPath(parentPath(path) ?? "/", newName)`。
+    - **`tokens.css` 重複的淺色變數**：純 CSS 無法讓同一組規則同時掛在 selector 和 media query 下，所以改由新增的 `public/theme-boot.js`（`index.html` 的 `<head>` 中、同步執行的一般 script，CSP `'self'` 允許）在第一次繪製前依系統主題設定 `data-theme`，刪除 `@media (prefers-color-scheme: light) :root:not([data-theme])` 整段。行為與原本相同：設定載入前跟隨系統，之後由 `settings.ts` 套用使用者選擇。`vite build` 確認 `theme-boot.js` 有複製到 `dist/`，且排在 module script 之前。
+    - **多餘的 `export`**：9 個符號確認只在各自的模組內使用，已移除 `export`。
+  - **測試**：新增 4 個後端測試：
+    - `same_contents_compares_bytes_and_length`：跨 chunk、最後一個位元組不同、長度不同（兩個方向）、取消、檔案不存在。
+    - `keep_both_with_asks_the_given_probe`。
+    - `remove_nofollow_takes_links_not_their_targets`：刪除指向資料夾的 link 時，資料夾內容保留。
+    - `gtk_paths_are_percent_encoded_per_segment`（Linux）：空白、`#`、`%`、中文、根目錄。
+    - macOS 111 個測試、Linux Docker 容器 114 個測試通過；macOS clippy 沒有新增警告，Linux 編譯沒有警告（容器裡沒有 clippy）；`tsc` 與 `vite build` 通過。未在 app 中實際確認淺色系統下啟動時沒有閃爍，也未確認 Quick View 的 Escape 行為。

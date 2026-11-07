@@ -1,5 +1,5 @@
 use super::queue::{cancelled_err, ConflictChoice, OpCtx};
-use super::safe_path::{create_dir_inside, is_plain_name, symlink_inside};
+use super::safe_path::{create_dir_inside, is_plain_name, remove_nofollow, symlink_inside};
 use super::transfer::total_bytes;
 use crate::fs::provider::FsEntry;
 use crate::fs::sftp::SftpConnection;
@@ -9,23 +9,7 @@ use std::sync::Arc;
 
 /// Remote counterpart of `keep_both_path`: probe the server for a free name.
 fn remote_keep_both(conn: &SftpConnection, dest: &Path) -> PathBuf {
-    let parent = dest.parent().unwrap_or_else(|| Path::new(""));
-    let stem = dest
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let ext = dest.extension().map(|e| e.to_string_lossy().to_string());
-    for n in 2..10_000 {
-        let name = match &ext {
-            Some(e) => format!("{stem} {n}.{e}"),
-            None => format!("{stem} {n}"),
-        };
-        let candidate = parent.join(name);
-        if conn.exists(&candidate).is_none() {
-            return candidate;
-        }
-    }
-    dest.to_path_buf()
+    super::queue::keep_both_with(dest, |candidate| conn.exists(candidate).is_some())
 }
 
 /// Remote counterpart of `transfer::total_bytes`: sum the sizes the
@@ -96,12 +80,7 @@ pub fn upload_op(
         let Some(name) = src.file_name() else { continue };
         upload_item(ctx, &conn, src, &remote_dir.join(name))?;
         if remove_source {
-            let result = if src.is_dir() && !src.is_symlink() {
-                std::fs::remove_dir_all(src)
-            } else {
-                std::fs::remove_file(src)
-            };
-            result.map_err(|e| format!("{}: {e}", src.display()))?;
+            remove_nofollow(src)?;
         }
         count += 1;
     }
@@ -233,14 +212,7 @@ fn download_item(
         let mut dest = dest.to_path_buf();
         if dest.exists() || dest.is_symlink() {
             match ctx.ask_conflict(src, &dest) {
-                ConflictChoice::Overwrite => {
-                    if dest.is_dir() && !dest.is_symlink() {
-                        std::fs::remove_dir_all(&dest)
-                    } else {
-                        std::fs::remove_file(&dest)
-                    }
-                    .map_err(|e| format!("{}: {e}", dest.display()))?;
-                }
+                ConflictChoice::Overwrite => remove_nofollow(&dest)?,
                 ConflictChoice::Skip => return Ok(()),
                 ConflictChoice::KeepBoth => dest = super::queue::keep_both_path(&dest),
                 ConflictChoice::CancelOp => return Err(cancelled_err()),

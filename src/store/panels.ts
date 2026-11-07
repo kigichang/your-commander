@@ -32,9 +32,9 @@ export interface TabState {
 export type ColKey = "ext" | "size" | "date";
 export type ColWidths = Record<ColKey, number>;
 
-export const DEFAULT_COLS: ColWidths = { ext: 64, size: 84, date: 118 };
-export const COL_MIN = 36;
-export const COL_MAX = 280;
+const DEFAULT_COLS: ColWidths = { ext: 64, size: 84, date: 118 };
+const COL_MIN = 36;
+const COL_MAX = 280;
 
 export interface PanelState {
   tabs: TabState[];

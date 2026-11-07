@@ -54,7 +54,7 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
  *  "off" appends a settings hint and leaves the source visible. Caching is
  *  the backend's alone (keyed by source and the PlantUML settings), so a
  *  revisited diagram is one cheap IPC and a settings change re-renders. */
-export async function renderPlantumlBlocks(
+async function renderPlantumlBlocks(
   box: HTMLElement,
   isStale: () => boolean,
   hintText: string,

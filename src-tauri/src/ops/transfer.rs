@@ -228,31 +228,44 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), 
 
 /// Byte-compare source and destination after a copy.
 fn verify_copy(ctx: &OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
-    let fail = || format!("Verify failed: {}", dest.display());
-    let mut a = std::fs::File::open(src).map_err(|e| format!("{}: {e}", src.display()))?;
-    let mut b = std::fs::File::open(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    if same_contents(src, dest, &|| ctx.cancelled())? {
+        Ok(())
+    } else {
+        Err(format!("Verify failed: {}", dest.display()))
+    }
+}
+
+/// Byte-for-byte comparison of two local files (copy verification, sync's
+/// "compare by content"). `cancelled` is polled per chunk; a cancel is the
+/// usual cancel error.
+pub(crate) fn same_contents(
+    a: &Path,
+    b: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<bool, String> {
+    let mut fa = std::fs::File::open(a).map_err(|e| format!("{}: {e}", a.display()))?;
+    let mut fb = std::fs::File::open(b).map_err(|e| format!("{}: {e}", b.display()))?;
     let mut ba = vec![0u8; CHUNK];
     let mut bb = vec![0u8; CHUNK];
     loop {
-        if ctx.cancelled() {
+        if cancelled() {
             return Err(cancelled_err());
         }
-        let na = a.read(&mut ba).map_err(|e| e.to_string())?;
+        let na = fa.read(&mut ba).map_err(|e| e.to_string())?;
         let mut filled = 0;
         while filled < na {
-            let n = b.read(&mut bb[filled..na]).map_err(|e| e.to_string())?;
+            let n = fb.read(&mut bb[filled..na]).map_err(|e| e.to_string())?;
             if n == 0 {
-                return Err(fail());
+                return Ok(false);
             }
             filled += n;
         }
         if ba[..na] != bb[..na] {
-            return Err(fail());
+            return Ok(false);
         }
         if na == 0 {
-            // Source exhausted: destination must be too.
-            let n = b.read(&mut bb[..1]).map_err(|e| e.to_string())?;
-            return if n == 0 { Ok(()) } else { Err(fail()) };
+            // `a` exhausted: `b` must be too.
+            return Ok(fb.read(&mut bb[..1]).map_err(|e| e.to_string())? == 0);
         }
     }
 }
@@ -367,6 +380,33 @@ pub fn new_folder(dir: &Path, name: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::ops::queue::OpCtx;
+
+    #[test]
+    fn same_contents_compares_bytes_and_length() {
+        let dir = std::env::temp_dir().join(format!("yc_tr_same_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let big: Vec<u8> = (0..CHUNK * 2 + 7).map(|i| (i % 253) as u8).collect();
+        let write = |name: &str, data: &[u8]| {
+            let p = dir.join(name);
+            std::fs::write(&p, data).unwrap();
+            p
+        };
+        let a = write("a", &big);
+        let same = write("same", &big);
+        let mut flipped = big.clone();
+        *flipped.last_mut().unwrap() ^= 1;
+        let differs = write("differs", &flipped);
+        let longer = write("longer", &[&big[..], b"!"].concat());
+        let never = || false;
+        assert!(same_contents(&a, &same, &never).unwrap());
+        assert!(!same_contents(&a, &differs, &never).unwrap());
+        assert!(!same_contents(&a, &longer, &never).unwrap());
+        assert!(!same_contents(&longer, &a, &never).unwrap());
+        assert_eq!(same_contents(&a, &same, &|| true).unwrap_err(), cancelled_err());
+        assert!(same_contents(&a, &dir.join("missing"), &never).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn test_ctx() -> OpCtx {
         OpCtx::for_test(ConflictChoice::CancelOp)

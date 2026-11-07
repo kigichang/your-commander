@@ -13,21 +13,16 @@ pub use imp::install;
 
 #[cfg(target_os = "macos")]
 mod imp {
+    use crate::platform::ns_string;
     use crate::state::AppState;
     use objc2::runtime::{AnyClass, AnyObject, ClassBuilder, Sel};
     use objc2::{class, msg_send, sel};
-    use std::ffi::CString;
     use std::sync::OnceLock;
     use tauri::Manager;
 
     static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
     /// Raw +1 NSMenu pointer; the menu (and its target) live for the whole app.
     static MENU: OnceLock<usize> = OnceLock::new();
-
-    fn ns_string(s: &str) -> *mut AnyObject {
-        let c = CString::new(s).unwrap_or_default();
-        unsafe { msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()] }
-    }
 
     extern "C-unwind" fn dock_menu(
         _this: &AnyObject,

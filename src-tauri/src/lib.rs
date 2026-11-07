@@ -90,7 +90,9 @@ pub fn run() {
                 .unwrap()
                 .window_size;
             if let (Some((w, h)), Some(window)) = (size, app.get_webview_window("main")) {
-                let _ = window.set_size(LogicalSize::new(w.max(800.0), h.max(500.0)));
+                use commands::system::{MIN_HEIGHT, MIN_WIDTH};
+                let (w, h) = (f64::from(w).max(MIN_WIDTH), f64::from(h).max(MIN_HEIGHT));
+                let _ = window.set_size(LogicalSize::new(w, h));
             }
             dock::install(app.handle());
             add_new_window_menu(app.handle())?;
