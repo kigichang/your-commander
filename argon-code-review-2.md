@@ -171,6 +171,17 @@
   - 在 `MarkdownPreview.tsx` 攔截 `onAuxClick` 與 `onDragStart`，並同時檢查 `href` 與 `xlink:href`。
   - 在 `QuickView.tsx` 的預覽 `<img>` 加上 `draggable={false}`。
   - 在 `NewFolderDialog`、`RenameDialog`、`CompressDialog` 禁止名稱包含 `/`、`\0`、`.` 或 `..`。
+- **處理結果**（Claude，2026-11-07）：三點描述的導覽都已被既有機制擋下；只做兩項低成本加固，嚴重度應下修為 Low。
+  - **查證**（Tauri 2.12.5／tauri-runtime-wry 2.12.3／wry 0.57.1 原始碼；app 未設定 `on_navigation`、`on_new_window`，也未關閉 `dragDropEnabled`）：
+    - **中鍵點擊**：中鍵開連結是「開新視窗」。macOS 上 wry 的 `createWebViewWithConfiguration` 在沒有 new-window handler 時回傳 `None`（拒絕）；Linux 上沒有 handler 就不連接 `create` 訊號，WebKitGTK 不建立視窗。主視窗不會被導覽。
+    - **拖放連結／圖片**：macOS 上 Tauri 的 drag-drop handler 對每個拖放事件都回傳 `true`，WebKit 收不到 drop，不會導覽。Linux 上只有 uri-list 類型的拖放會被吃掉（連結與圖片拖曳屬於此類），其他類型會交還 WebKit——保證較弱。
+    - **Mermaid 的 `xlink:href`**：`securityLevel: "strict"` 會停用 click／連結功能；就算出現 SVG `<a>`，`closest("a")` 也會找到它並 `preventDefault`（`xlink:href` 讀不到 `href`，因此不開啟任何東西）。
+    - **對話框名稱**：新增資料夾與改名的後端指令都會先呼叫 `transfer::check_name`，已拒絕空字串、`.`、`..`、`/`、NUL——**不成立**。壓縮檔名是使用者自己輸入的目的地（輸入 `../out` 即是要放到上層），不是不可信輸入，不屬資安問題。
+  - **為何仍加固**：Quick View 的 SVG 以 `blob:` URL 顯示，而 blob URL 與 app 同源；若主視窗被導覽到它，SVG 會成為 app 同源文件。目前有兩層保護擋住（上述 Tauri 預設行為，加上主視窗 CSP 無 `'unsafe-inline'`，inline script 不會執行），但這條鏈後果嚴重，移除拖曳來源只需幾行。
+  - **已改**：
+    1. `QuickView.tsx` 的圖片與影片截圖 `<img>` 加上 `draggable={false}`。
+    2. `MarkdownPreview.tsx`：中鍵點擊連結與左鍵相同處理（`https?` 交給系統瀏覽器，其餘不動作），不再交由 webview 開新視窗；連結與圖片不能拖曳，選取的文字仍可拖曳。
+  - **未驗證**：這兩項是前端事件處理，專案沒有前端測試框架，也未在 app 中實際操作驗證；`npx tsc -b` 通過。
 
 ---
 

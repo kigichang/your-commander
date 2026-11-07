@@ -177,13 +177,21 @@ export function MarkdownPreview({ text }: { text: string }) {
     };
   }, [html, t]);
 
-  // Links open in the system browser; nothing navigates the webview.
+  // Links open in the system browser; nothing navigates the webview. A
+  // middle click opens them the same way rather than asking the webview
+  // for a new window. (closest("a") also finds SVG links in diagrams.)
   const onClick = (e: React.MouseEvent) => {
-    const anchor = (e.target as HTMLElement).closest("a");
+    if (e.button !== 0 && e.button !== 1) return;
+    const anchor = (e.target as Element).closest("a");
     if (!anchor) return;
     e.preventDefault();
     const href = anchor.getAttribute("href") ?? "";
     if (/^https?:\/\//i.test(href)) void ipc.openPath(href);
+  };
+  // Links and images are not drag sources: a drop is the other way a URL
+  // could reach a navigation. Selected text still drags.
+  const onDragStart = (e: React.DragEvent) => {
+    if ((e.target as Element).closest?.("a, img")) e.preventDefault();
   };
 
   return (
@@ -191,6 +199,8 @@ export function MarkdownPreview({ text }: { text: string }) {
       ref={boxRef}
       className="markdown-body"
       onClick={onClick}
+      onAuxClick={onClick}
+      onDragStart={onDragStart}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

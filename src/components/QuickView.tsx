@@ -600,7 +600,7 @@ export function QuickView() {
         ) : preview.kind === "video-failed" || preview.kind === "video-poster" ? (
           <div className="qv-fail">
             {preview.kind === "video-poster" ? (
-              <img className="qv-poster" src={preview.url} alt={entry.name} />
+              <img className="qv-poster" src={preview.url} alt={entry.name} draggable={false} />
             ) : null}
             <span className="none">{t("quickview.videoUnsupported")}</span>
             <div className="qv-fail-actions">
@@ -626,9 +626,13 @@ export function QuickView() {
             onDuration={(secs) => setDuration((d) => d ?? formatDuration(secs))}
           />
         ) : preview.kind === "image" ? (
+          // Not draggable: the blob: URL is same-origin with the app, and
+          // nothing should ever carry it to a navigation (an SVG there would
+          // be a document of the app's own origin).
           <img
             src={preview.url}
             alt={entry.name}
+            draggable={false}
             onLoad={(e) => {
               const img = e.currentTarget;
               // SVGs without intrinsic size report 0 — show nothing then.
