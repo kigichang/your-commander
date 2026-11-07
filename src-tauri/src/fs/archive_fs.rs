@@ -4,7 +4,7 @@
 //! no leading slash ("" is the archive root).
 
 use crate::fs::provider::FsEntry;
-use crate::ops::archive::{classify, Extractable, Meter};
+use crate::ops::archive::{apply_mode, classify, Extractable, Meter};
 use crate::ops::queue::{cancelled_err, OpCtx};
 use crate::ops::safe_path::replace_file_nofollow;
 use crate::lru::Lru;
@@ -337,6 +337,7 @@ pub fn extract_entries(
                 // Overwrites (this copy-out never asks), but replaces a link
                 // at `out` rather than writing to wherever it points.
                 let mut writer = replace_file_nofollow(&out)?;
+                let mode = entry.unix_mode();
                 let mut buf = vec![0u8; CHUNK];
                 loop {
                     if ctx.cancelled() {
@@ -351,6 +352,7 @@ pub fn extract_entries(
                     ctx.done_bytes += n as u64;
                     ctx.report(&name);
                 }
+                apply_mode(&out, mode);
                 count += 1;
             }
         }
@@ -400,6 +402,7 @@ pub fn extract_entries(
                     // at `out` rather than writing to wherever it points.
                     let mut writer = replace_file_nofollow(&out)?;
                     std::io::copy(&mut entry, &mut writer).map_err(|e| e.to_string())?;
+                    apply_mode(&out, entry.header().mode().ok());
                     count += 1;
                 }
                 Ok::<_, String>(())
@@ -498,6 +501,46 @@ mod tests {
         let (mut ctx, _) = OpCtx::recording(Some(len / 3));
         let err = extract_entries(&mut ctx, &archive, wanted, &dir.join("out2")).unwrap_err();
         assert_eq!(err, cancelled_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn copy_out_keeps_permission_bits_but_not_setuid() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("yc_arfs_mode_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip_path = dir.join("m.zip");
+        {
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+            let opts = zip::write::SimpleFileOptions::default();
+            zip.start_file("run.sh", opts.unix_permissions(0o755)).unwrap();
+            zip.write_all(b"#!/bin/sh\n").unwrap();
+            zip.start_file("suid", opts.unix_permissions(0o4755)).unwrap();
+            zip.write_all(b"x").unwrap();
+            zip.finish().unwrap();
+        }
+        let tar_path = dir.join("m.tar");
+        {
+            let mut tar = tar::Builder::new(std::fs::File::create(&tar_path).unwrap());
+            for (name, mode) in [("run.sh", 0o755), ("suid", 0o4755)] {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(1);
+                header.set_mode(mode);
+                tar.append_data(&mut header, name, &b"x"[..]).unwrap();
+            }
+            tar.finish().unwrap();
+        }
+        for archive in [zip_path, tar_path] {
+            let out = dir.join(format!("out_{}", archive.extension().unwrap().to_string_lossy()));
+            let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+            let wanted = vec!["run.sh".to_string(), "suid".to_string()];
+            assert_eq!(extract_entries(&mut ctx, &archive, wanted, &out).unwrap(), 2);
+            let mode = |n: &str| out.join(n).metadata().unwrap().permissions().mode() & 0o7777;
+            assert_eq!(mode("run.sh"), 0o755, "{}", archive.display());
+            assert_eq!(mode("suid"), 0o755, "{}", archive.display());
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

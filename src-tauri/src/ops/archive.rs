@@ -432,13 +432,21 @@ fn extract_zip(
         };
         std::io::copy(&mut meter, &mut writer).map_err(|e| e.to_string())?;
         read = meter.read;
-        #[cfg(unix)]
-        if let Some(mode) = mode {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&out, std::fs::Permissions::from_mode(mode));
-        }
+        apply_mode(&out, mode);
     }
     Ok(())
+}
+
+/// Give a file just written from an archive the permission bits the
+/// archive recorded (the executable bit of a script, say). Only rwx: an
+/// archive's setuid/setgid/sticky bits are dropped, as tar's unpack does
+/// by default. Used by full extraction and by F5 copy-out of entries.
+pub(crate) fn apply_mode(path: &Path, mode: Option<u32>) {
+    #[cfg(unix)]
+    if let Some(mode) = mode {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o777));
+    }
 }
 
 fn extract_7z(
@@ -613,6 +621,27 @@ mod tests {
         assert!(link.is_symlink(), "zip must preserve symlinks");
         assert_eq!(std::fs::read_link(&link).unwrap(), PathBuf::from("real.txt"));
         assert_eq!(std::fs::read(&link).unwrap(), b"content");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn zip_extract_keeps_permission_bits() {
+        use std::os::unix::fs::PermissionsExt;
+        let work = tmp("zipmode");
+        let archive = work.join("m.zip");
+        {
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+            let opts = zip::write::SimpleFileOptions::default();
+            zip.start_file("run.sh", opts.unix_permissions(0o755)).unwrap();
+            zip.write_all(b"#!/bin/sh\n").unwrap();
+            zip.finish().unwrap();
+        }
+        let mut ctx = test_ctx();
+        extract_op(&mut ctx, vec![archive], work.join("x")).unwrap();
+        let mode = work.join("x/m/run.sh").metadata().unwrap().permissions().mode();
+        // (The zip writer itself drops setuid bits, so the rwx-only mask is
+        // covered by the tar case in archive_fs's copy-out test.)
+        assert_eq!(mode & 0o7777, 0o755);
         let _ = std::fs::remove_dir_all(&work);
     }
 

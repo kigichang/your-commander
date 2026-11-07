@@ -441,6 +441,16 @@
   - `src-tauri/src/ops/archive.rs:366-438, 475-506`（`extract_zip`、`extract_tar`）
 - **說明**：兩處各自維護一套 Zip 與 Tar/TarGz 解壓縮與進度回報邏輯，導致 `archive_fs::extract_entries` 漏掉了 Unix 權限還原、symlink 處理與 `create_dir_inside` 安全防護。
 - **建議**：將解壓縮邏輯統一收斂至 `ops/archive.rs`，透過參數或閉包支援「完整解壓縮」與「指定項目解壓縮」。
+- **處理結果**（Claude，2026-11-07）：部分成立。合併迴圈不採納；只補上「權限沒還原」這一個真正的缺口。
+  - **三個「遺漏」逐一確認**：
+    - **symlink 處理、`create_dir_inside`：刻意的差異，不是遺漏。** 1.1 已說明：F5 複製出壓縮檔內容是寫進使用者既有的資料夾，這條路徑從不建立 symlink（tar 的非一般檔案略過、zip 的 link 寫成一般檔案），entry 路徑也已排除 `..` 與 `.`，所以不需要 `create_dir_inside`；改用它反而會在使用者自己有同名 symlink 資料夾時拒絕複製。完整解壓縮則是寫進全新資料夾、會重建 symlink，所以才需要 root 檢查。
+    - **Unix 權限還原：成立，已修。** 從壓縮檔 F5 複製出 script 時執行權限會遺失（一般檔案複製會保留權限），與完整解壓縮的結果不一致。
+  - **合併兩套迴圈：不採納。** 兩者語意不同：目的地（既有資料夾 vs. 全新資料夾）、路徑對應（選取項目重新定位到 parent vs. 原樣）、symlink 政策（從不建立 vs. 檢查後重建）、覆寫（直接取代 vs. 全新資料夾不會衝突）、進度（單一壓縮檔 vs. 多個壓縮檔累加 `base`）。共用一個迴圈需要把這五個差異都參數化，反而更難看出每條路徑的安全保證；真正共用的部分（`Meter`、`classify`、`replace_file_nofollow`）早已共用。
+  - **修正**：`ops/archive.rs` 新增 `apply_mode(path, mode)`（只套用 rwx 位元，丟棄壓縮檔裡的 setuid/setgid/sticky，與 tar 預設的 unpack 行為一致），完整解壓縮的 zip 與 `archive_fs::extract_entries` 的 zip/tar 都改用它。完整解壓縮原本會照壓縮檔記錄的完整 mode 設定，現在也一併只保留 rwx。
+  - **測試**：
+    - `copy_out_keeps_permission_bits_but_not_setuid`：zip 與 tar 各含 0o755 與 0o4755 的檔案，F5 複製出來都是 0o755；拿掉修正後失敗（已實測）。
+    - `zip_extract_keeps_permission_bits`：完整解壓縮保留 0o755。zip crate 寫檔時本身就會丟掉 setuid，所以 rwx 遮罩的部分由上一個測試的 tar 案例涵蓋。
+    - macOS 108 個測試、Linux Docker 容器 110 個測試全部通過；clippy 沒有新增警告。
 
 ### 3.5 `SettingsDialog.tsx` 中已無作用的 `READY` 集合與 `disabled` 判斷
 - **檔案位置**：
