@@ -167,6 +167,12 @@ fn render_via_jar(java_override: &str, jar: &str, uml: &str) -> Result<String, S
     let mut child = std::process::Command::new(&java)
         .args([
             "-Djava.awt.headless=true",
+            // Quick View renders whatever file is under the cursor, so the
+            // diagram text is untrusted. PlantUML's default (LEGACY) profile
+            // lets it !include any local file into the SVG and fetch URLs;
+            // SANDBOX allows neither. The bundled stdlib (<C4/...>) still
+            // works: it lives inside the jar.
+            "-DPLANTUML_SECURITY_PROFILE=SANDBOX",
             "-jar",
             jar,
             "-pipe",
@@ -279,6 +285,29 @@ mod tests {
             .bytes()
             .all(|c| PLANTUML_ALPHABET.contains(&c)));
         assert_eq!(decode(&encoded), uml.as_bytes());
+    }
+
+    /// Opt-in: needs Java and a plantuml.jar, named by YC_PLANTUML_JAR.
+    #[test]
+    fn jar_rendering_cannot_include_local_files() {
+        let Ok(jar) = std::env::var("YC_PLANTUML_JAR") else {
+            eprintln!("skipped: set YC_PLANTUML_JAR");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("yc_puml_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let secret = dir.join("secret.txt");
+        std::fs::write(&secret, "A -> B : SECRETFILE42").unwrap();
+        let uml = format!("@startuml\n!include {}\nC -> D\n@enduml", secret.display());
+        let svg = render_via_jar("", &jar, &uml).unwrap();
+        assert!(!svg.contains("SECRETFILE42"), "local file leaked into the SVG");
+        // Plain diagrams and the stdlib bundled in the jar still render.
+        let svg = render_via_jar("", &jar, "@startuml\nAlice -> Bob : hi\n@enduml").unwrap();
+        assert!(svg.contains("Alice"));
+        let c4 = "@startuml\n!include <C4/C4_Context>\nPerson(u, \"Visitor\")\n@enduml";
+        assert!(render_via_jar("", &jar, c4).unwrap().contains("Visitor"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

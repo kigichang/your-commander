@@ -112,6 +112,17 @@
 - **修正建議**：
   - 在 `render_via_jar` 傳入 `"-DPLANTUML_SECURITY_PROFILE=SANDBOX"`。
   - 在 `render_via_server` 驗證 `server.starts_with("https://") || server.starts_with("http://")`，並使用 `.into_reader().take(4 * 1024 * 1024)` 限制回應大小。
+- **處理結果**（Claude，2026-11-07）：jar 模式的部分成立，已修；server 模式的兩點已由 ureq 涵蓋，不需修。
+  - **查證**（官方文件 plantuml.com/security，並以本機 `plantuml-mit-1.2026.9.jar` + Homebrew openjdk 實測）：
+    - 未指定 profile 時預設為 `LEGACY`（文件：「full access to local files and full access to URL」）。實測 `!include <本機檔案>` 會把檔案內容原樣畫進 SVG——**成立**。Quick View 在游標移到 `.puml`／`.md` 時自動渲染，所以只要瀏覽到一個不可信的檔案就會觸發。
+    - 同版本 LEGACY 下 `%getenv` 回傳空字串；`!include http://127.0.0.1:18765/...` 未發出請求（本機 HTTP 伺服器無紀錄）。文件說 LEGACY 可存取任意 URL；80/443 未實測（需對外連線）。
+    - `SANDBOX`（文件：「cannot have any access to local files or URL」）：實測本機 include 被擋，一般圖與 jar 內建 stdlib（`!include <C4/C4_Context>`）照常渲染。
+  - **已修**：`render_via_jar` 傳入 `-DPLANTUML_SECURITY_PROFILE=SANDBOX`（JVM system property，須在 `-jar` 之前）。
+  - **代價**：圖中以絕對路徑 `!include` 本機檔案的寫法不再生效。相對路徑 include 原本就無法使用——`-pipe` 模式下相對路徑是以 app 行程的工作目錄（Finder 啟動時為 `/`）解析，而非檔案所在資料夾。
+  - **不需修**（server 模式）：
+    - URL scheme：ureq 2.12.1 在連線時只接受 `http`／`https`，其餘回傳 `UnknownScheme`；且 server URL 是使用者自己的設定。
+    - 回應大小：ureq 2.12.1 的 `into_string` 內建 10 MB 上限（`INTO_STRING_LIMIT`），超過即回錯。
+  - **測試**：新增 opt-in 測試 `jar_rendering_cannot_include_local_files`（設定 `YC_PLANTUML_JAR` 才執行，作法同既有的 `YC_TEST_SSHD_PORT` sshd 測試）：本機檔案內容不得出現在 SVG、一般圖與 C4 stdlib 仍可渲染。拿掉 SANDBOX 時失敗。
 
 ### 1.6 `[Medium]` IPC 路徑與外部工具參數驗證（`finish_repair`、`ffmpeg`、`ffprobe`、`stream_protocol`）
 - **檔案位置**：
