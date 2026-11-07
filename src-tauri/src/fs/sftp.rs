@@ -12,6 +12,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const CHUNK: usize = 256 * 1024;
 
+/// Symlink targets stat'ed at once while listing a folder. Each is a round
+/// trip; one after another, a folder of links (/usr/bin, node_modules/.bin)
+/// costs a full RTT per link on a slow connection.
+const STAT_CONCURRENCY: usize = 16;
+
 fn runtime() -> &'static tokio::runtime::Runtime {
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RT.get_or_init(|| tokio::runtime::Runtime::new().expect("tokio runtime"))
@@ -314,25 +319,34 @@ fn rp(path: &Path) -> String {
 
 impl SftpConnection {
     pub fn list(&self, path: &Path) -> std::io::Result<Vec<FsEntry>> {
+        use futures::stream::{self, StreamExt};
         runtime().block_on(async {
             let dir = self
                 .session
                 .read_dir(rp(path))
                 .await
                 .map_err(std::io::Error::other)?;
-            let mut out = Vec::new();
-            for entry in dir {
+            // READDIR attrs are an lstat: follow symlinks so a link to a
+            // directory can be entered; broken links keep the link's data.
+            // The stats run concurrently (SFTP multiplexes requests by id);
+            // `buffered` keeps the server's order.
+            let resolved: Vec<_> = stream::iter(dir.map(|entry| async move {
                 let name = entry.file_name();
                 let mut meta = entry.metadata();
                 let is_symlink = meta.is_symlink();
                 let full = path.join(&name);
-                // READDIR attrs are an lstat: follow symlinks so a link to a
-                // directory can be entered; broken links keep the link's data.
                 if is_symlink
                     && let Ok(target) = self.session.metadata(rp(&full)).await
                 {
                     meta = target;
                 }
+                (name, full, is_symlink, meta)
+            }))
+            .buffered(STAT_CONCURRENCY)
+            .collect()
+            .await;
+            let mut out = Vec::with_capacity(resolved.len());
+            for (name, full, is_symlink, meta) in resolved {
                 let is_dir = meta.is_dir();
                 let ext = if is_dir {
                     String::new()
@@ -651,6 +665,50 @@ mod tests {
         std::fs::write(&kh, format!("[127.0.0.1]:{port} {KEY_B}\n")).unwrap();
         for trust in [false, true] {
             assert!(matches!(fail(trust), ConnectError::HostKeyChanged { .. }));
+        }
+    }
+
+    /// Against a real sshd (`YC_TEST_SSHD_PORT`, `YC_TEST_SSH_KEY`) and a
+    /// folder on it (`YC_TEST_SFTP_DIR`) holding `realdir/`, links `dl*`
+    /// to it, broken links `broken*` and plain files `f*`.
+    #[test]
+    fn list_resolves_symlinks_against_live_sshd() {
+        let (Ok(port), Ok(key_path), Ok(dir)) = (
+            std::env::var("YC_TEST_SSHD_PORT"),
+            std::env::var("YC_TEST_SSH_KEY"),
+            std::env::var("YC_TEST_SFTP_DIR"),
+        ) else {
+            eprintln!("skipped: set YC_TEST_SSHD_PORT, YC_TEST_SSH_KEY, YC_TEST_SFTP_DIR");
+            return;
+        };
+        let auth = SshAuth::Key {
+            path: Some(PathBuf::from(key_path)),
+            passphrase: None,
+        };
+        let kh = tmp("list").join("known_hosts");
+        let user = std::env::var("USER").unwrap();
+        let conn = connect_checked(&kh, "127.0.0.1", port.parse().unwrap(), &user, &auth, true)
+            .unwrap_or_else(|e| panic!("{e}"));
+        let t = std::time::Instant::now();
+        let entries = conn.list(Path::new(&dir)).unwrap();
+        eprintln!("listed {} entries in {:?}", entries.len(), t.elapsed());
+
+        let local: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(entries.len(), local.len());
+        for e in &entries {
+            let n = e.name.as_str();
+            if n.starts_with("dl") {
+                assert!(e.is_symlink && e.is_dir, "{n}: link to a folder is enterable");
+            } else if n.starts_with("broken") {
+                assert!(e.is_symlink && !e.is_dir, "{n}: broken link keeps its own data");
+            } else if n == "realdir" {
+                assert!(!e.is_symlink && e.is_dir);
+            } else {
+                assert!(!e.is_symlink && !e.is_dir, "{n}");
+            }
         }
     }
 
