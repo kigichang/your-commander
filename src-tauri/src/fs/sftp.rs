@@ -92,8 +92,22 @@ fn judge_host_key(
     let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
     match check_known_hosts_path(host, port, key, known_hosts) {
         Ok(true) => Ok(()),
-        Ok(false) if trust_new => learn_known_hosts_path(host, port, key, known_hosts)
-            .map_err(|e| format!("{}: {e}", known_hosts.display()).into()),
+        Ok(false) if trust_new => {
+            // russh would create a missing ~/.ssh with default permissions;
+            // make it private, as ssh does.
+            if let Some(dir) = known_hosts.parent()
+                && !dir.exists()
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                std::fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(dir)
+                    .map_err(|e| format!("{}: {e}", dir.display()))?;
+            }
+            learn_known_hosts_path(host, port, key, known_hosts)
+                .map_err(|e| format!("{}: {e}", known_hosts.display()).into())
+        }
         Ok(false) => Err(ConnectError::UnknownHostKey {
             key_type,
             fingerprint,
@@ -169,7 +183,7 @@ pub fn connect(
 }
 
 /// `connect` against a given known_hosts file.
-fn connect_checked(
+pub(crate) fn connect_checked(
     known_hosts: &Path,
     host: &str,
     port: u16,
@@ -524,8 +538,9 @@ impl SftpConnection {
         remote: &Path,
         local: &Path,
     ) -> Result<(), String> {
-        let mut writer =
-            std::fs::File::create(local).map_err(|e| format!("{}: {e}", local.display()))?;
+        // Never through a link at `local`: the caller removes one it means
+        // to overwrite, and one that appears meanwhile fails the open.
+        let mut writer = crate::ops::safe_path::create_file_nofollow(local)?;
         runtime().block_on(async {
             let mut file = self
                 .session
@@ -601,6 +616,17 @@ mod tests {
         judge_host_key(&kh, "box", 22, &key(KEY_A), false).unwrap();
         // Same host on another port is a different entry.
         assert!(judge_host_key(&kh, "box", 2222, &key(KEY_A), false).is_err());
+    }
+
+    #[test]
+    fn missing_ssh_folder_is_created_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tmp("nossh");
+        let kh = base.join(".ssh").join("known_hosts");
+        judge_host_key(&kh, "box", 22, &key(KEY_A), true).unwrap();
+        assert!(kh.is_file());
+        let mode = std::fs::metadata(base.join(".ssh")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
     }
 
     #[test]

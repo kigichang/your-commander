@@ -281,9 +281,16 @@ fn download_item(
             return Ok(());
         }
         let mut dest = dest.to_path_buf();
-        if dest.exists() {
+        // exists() follows links: a dangling one still takes the name.
+        if dest.exists() || dest.is_symlink() {
             match ctx.ask_conflict(src, &dest) {
-                ConflictChoice::Overwrite => {}
+                ConflictChoice::Overwrite => {
+                    // Overwriting replaces a link; it never writes through.
+                    if dest.is_symlink() {
+                        std::fs::remove_file(&dest)
+                            .map_err(|e| format!("{}: {e}", dest.display()))?;
+                    }
+                }
                 ConflictChoice::Skip => return Ok(()),
                 ConflictChoice::KeepBoth => dest = super::queue::keep_both_path(&dest),
                 ConflictChoice::CancelOp => return Err(cancelled_err()),
@@ -309,4 +316,77 @@ pub fn delete_remote_op(
         conn.remove_recursive(item)?;
     }
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::download_op;
+    use crate::fs::sftp::{connect_checked, SshAuth};
+    use crate::ops::queue::{ConflictChoice, OpCtx};
+    use std::path::PathBuf;
+
+    /// Against a real sshd (`YC_TEST_SSHD_PORT`, `YC_TEST_SSH_KEY`) serving
+    /// this machine's files: downloading over a local link replaces the
+    /// link (Overwrite) and a dangling link counts as a conflict (Skip).
+    #[test]
+    fn downloads_never_write_through_local_links() {
+        let (Ok(port), Ok(key_path)) = (
+            std::env::var("YC_TEST_SSHD_PORT"),
+            std::env::var("YC_TEST_SSH_KEY"),
+        ) else {
+            eprintln!("skipped: set YC_TEST_SSHD_PORT and YC_TEST_SSH_KEY");
+            return;
+        };
+        let work = fresh_dir(std::env::temp_dir().join(format!("yc_dl_ln_{}", std::process::id())));
+        let remote = work.join("remote");
+        std::fs::create_dir_all(&remote).unwrap();
+        std::fs::write(remote.join("a.txt"), b"remote").unwrap();
+        std::fs::write(remote.join("b.txt"), b"remote").unwrap();
+        let victim = work.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+
+        let auth = SshAuth::Key {
+            path: Some(PathBuf::from(key_path)),
+            passphrase: None,
+        };
+        let user = std::env::var("USER").unwrap();
+        let conn = connect_checked(
+            &work.join("known_hosts"),
+            "127.0.0.1",
+            port.parse().unwrap(),
+            &user,
+            &auth,
+            true,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+
+        // Overwrite onto a link to an existing file: the link goes, the
+        // file it pointed at stays.
+        let local = work.join("local1");
+        std::fs::create_dir_all(&local).unwrap();
+        std::os::unix::fs::symlink(&victim, local.join("a.txt")).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+        download_op(&mut ctx, conn.clone(), vec![(remote.join("a.txt"), false, false)], local.clone(), false)
+            .unwrap();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        assert!(!local.join("a.txt").is_symlink());
+        assert_eq!(std::fs::read(local.join("a.txt")).unwrap(), b"remote");
+
+        // A dangling link is a conflict; skipping leaves its target uncreated.
+        let local = work.join("local2");
+        std::fs::create_dir_all(&local).unwrap();
+        std::os::unix::fs::symlink("../made.txt", local.join("b.txt")).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::Skip);
+        download_op(&mut ctx, conn, vec![(remote.join("b.txt"), false, false)], local.clone(), false)
+            .unwrap();
+        assert!(!work.join("made.txt").exists(), "nothing written through the link");
+        assert!(local.join("b.txt").is_symlink());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    fn fresh_dir(dir: PathBuf) -> PathBuf {
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.canonicalize().unwrap()
+    }
 }

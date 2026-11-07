@@ -6,6 +6,7 @@
 use crate::fs::provider::FsEntry;
 use crate::ops::archive::{classify, Extractable, Meter};
 use crate::ops::queue::{cancelled_err, OpCtx};
+use crate::ops::safe_path::replace_file_nofollow;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -280,8 +281,9 @@ pub fn extract_entries(
                 if let Some(parent) = out.parent() {
                     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                 }
-                let mut writer = std::fs::File::create(&out)
-                    .map_err(|e| format!("{}: {e}", out.display()))?;
+                // Overwrites (this copy-out never asks), but replaces a link
+                // at `out` rather than writing to wherever it points.
+                let mut writer = replace_file_nofollow(&out)?;
                 let mut buf = vec![0u8; CHUNK];
                 loop {
                     if ctx.cancelled() {
@@ -341,8 +343,9 @@ pub fn extract_entries(
                     if let Some(parent) = out.parent() {
                         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                     }
-                    let mut writer = std::fs::File::create(&out)
-                        .map_err(|e| format!("{}: {e}", out.display()))?;
+                    // Overwrites (this copy-out never asks), but replaces a link
+                    // at `out` rather than writing to wherever it points.
+                    let mut writer = replace_file_nofollow(&out)?;
                     std::io::copy(&mut entry, &mut writer).map_err(|e| e.to_string())?;
                     count += 1;
                 }
@@ -442,6 +445,37 @@ mod tests {
         let (mut ctx, _) = OpCtx::recording(Some(len / 3));
         let err = extract_entries(&mut ctx, &archive, wanted, &dir.join("out2")).unwrap_err();
         assert_eq!(err, cancelled_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn copy_out_replaces_links_instead_of_writing_through() {
+        let dir = std::env::temp_dir().join(format!("yc_arfs_ln_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip_path = make_zip(&dir);
+        let tar_path = dir.join("t.tar");
+        {
+            let mut tar = tar::Builder::new(std::fs::File::create(&tar_path).unwrap());
+            let mut header = tar::Header::new_gnu();
+            header.set_size(4);
+            header.set_mode(0o644);
+            tar.append_data(&mut header, "root.txt", &b"root"[..]).unwrap();
+            tar.finish().unwrap();
+        }
+        let victim = dir.join("victim.txt");
+        for (n, archive) in [zip_path, tar_path].into_iter().enumerate() {
+            std::fs::write(&victim, b"keep").unwrap();
+            let out = dir.join(format!("out{n}"));
+            std::fs::create_dir_all(&out).unwrap();
+            std::os::unix::fs::symlink(&victim, out.join("root.txt")).unwrap();
+            let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+            extract_entries(&mut ctx, &archive, vec!["root.txt".into()], &out).unwrap();
+            assert_eq!(std::fs::read(&victim).unwrap(), b"keep", "{}", archive.display());
+            let written = out.join("root.txt");
+            assert!(!written.is_symlink(), "the link was replaced");
+            assert_eq!(std::fs::read(&written).unwrap(), b"root");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

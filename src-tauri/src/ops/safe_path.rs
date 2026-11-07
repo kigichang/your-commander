@@ -121,6 +121,16 @@ pub fn create_file_nofollow(path: &Path) -> Result<std::fs::File, String> {
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// Like `create_file_nofollow`, for a destination the user already chose to
+/// overwrite: a symlink there is replaced by the new file, not written
+/// through.
+pub fn replace_file_nofollow(path: &Path) -> Result<std::fs::File, String> {
+    if path.is_symlink() {
+        std::fs::remove_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    create_file_nofollow(path)
+}
+
 /// A directory-entry name as a single path piece: no separators, not
 /// `.`/`..`, not empty. Guards `dir.join(name)` against names a remote
 /// server made up.

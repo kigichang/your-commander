@@ -282,7 +282,8 @@ pub fn keep_both_path(dest: &Path) -> PathBuf {
             None => format!("{stem} {n}"),
         };
         let candidate = parent.join(name);
-        if !candidate.exists() {
+        // Not exists(): a dangling link still takes the name.
+        if candidate.symlink_metadata().is_err() {
             return candidate;
         }
     }
@@ -291,6 +292,17 @@ pub fn keep_both_path(dest: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn keep_both_skips_names_taken_by_dangling_links() {
+        let dir = std::env::temp_dir().join(format!("yc_q_kb_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), b"x").unwrap();
+        std::os::unix::fs::symlink("missing", dir.join("a 2.txt")).unwrap();
+        assert_eq!(keep_both_path(&dir.join("a.txt")), dir.join("a 3.txt"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
 
     #[test]
