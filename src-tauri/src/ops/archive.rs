@@ -1,4 +1,5 @@
 use super::queue::{cancelled_err, keep_both_path, OpCtx};
+use super::safe_path::{create_dir_inside, create_file_nofollow, link_inside, symlink_inside};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -307,6 +308,9 @@ fn extract_zip(ctx: &mut OpCtx, archive: &Path, dest: &Path) -> Result<(), Strin
     let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     let total = zip.len();
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    // Directories are created and files written only where the real
+    // (symlink-resolved) path is still under this root.
+    let root = dest.canonicalize().map_err(|e| e.to_string())?;
     for i in 0..total {
         if ctx.cancelled() {
             return Err(cancelled_err());
@@ -321,25 +325,25 @@ fn extract_zip(ctx: &mut OpCtx, archive: &Path, dest: &Path) -> Result<(), Strin
         ctx.total_bytes = total as u64;
         ctx.report(&rel.to_string_lossy());
         if entry.is_dir() {
-            std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+            create_dir_inside(&root, &out)?;
             continue;
         }
         if let Some(parent) = out.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            create_dir_inside(&root, parent)?;
         }
         if entry.is_symlink() {
-            // The entry's data is the link target, verbatim.
+            // The entry's data is the link target, verbatim. A target that
+            // leaves `dest` is refused so later entries cannot write
+            // through it.
             let mut target = String::new();
             entry
                 .read_to_string(&mut target)
                 .map_err(|e| e.to_string())?;
             let _ = std::fs::remove_file(&out);
-            std::os::unix::fs::symlink(&target, &out)
-                .map_err(|e| format!("{}: {e}", out.display()))?;
+            symlink_inside(dest, &out, &target)?;
             continue;
         }
-        let mut writer = std::fs::File::create(&out)
-            .map_err(|e| format!("{}: {e}", out.display()))?;
+        let mut writer = create_file_nofollow(&out)?;
         std::io::copy(&mut entry, &mut writer).map_err(|e| e.to_string())?;
         #[cfg(unix)]
         if let Some(mode) = entry.unix_mode() {
@@ -362,7 +366,24 @@ fn extract_tar<R: Read>(ctx: &mut OpCtx, reader: R, dest: &Path) -> Result<(), S
         if let Ok(path) = entry.path() {
             ctx.report(&path.to_string_lossy());
         }
-        // unpack_in refuses paths that escape `dest`.
+        // unpack_in refuses paths that escape `dest` and resolves the real
+        // parent before writing, but creates symlinks with any target:
+        // refuse those that point outside `dest`.
+        if entry.header().entry_type().is_symlink() {
+            let link = entry.path().map_err(|e| e.to_string())?;
+            let link = dest.join(link);
+            let target = entry
+                .link_name()
+                .map_err(|e| e.to_string())?
+                .unwrap_or_default();
+            if link_inside(dest, &link, &target.to_string_lossy()).is_none() {
+                return Err(format!(
+                    "{}: symlink to {} escapes the destination folder",
+                    link.display(),
+                    target.display()
+                ));
+            }
+        }
         entry.unpack_in(dest).map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -472,6 +493,85 @@ mod tests {
         assert!(link.is_symlink(), "zip must preserve symlinks");
         assert_eq!(std::fs::read_link(&link).unwrap(), PathBuf::from("real.txt"));
         assert_eq!(std::fs::read(&link).unwrap(), b"content");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// A zip whose symlink points outside the extraction folder, followed
+    /// by a file entry under that link.
+    fn hostile_zip(path: &Path, target: &str) {
+        let file = std::fs::File::create(path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.add_symlink("esc", target, opts).unwrap();
+        zip.start_file("esc/evil.txt", opts).unwrap();
+        zip.write_all(b"owned").unwrap();
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn zip_symlink_escaping_dest_is_refused() {
+        for (name, target) in [("abs", "/tmp"), ("rel", "../../..")] {
+            let work = tmp(&format!("zipesc_{name}"));
+            let archive = work.join("bad.zip");
+            hostile_zip(&archive, target);
+            let extract_to = work.join("x");
+            let mut ctx = test_ctx();
+            let err = extract_op(&mut ctx, vec![archive], extract_to.clone()).unwrap_err();
+            assert!(err.contains("escapes"), "{err}");
+            assert!(!extract_to.join("bad/esc").is_symlink(), "link not created");
+            assert!(!work.join("evil.txt").exists() && !work.join("x/evil.txt").exists());
+            let _ = std::fs::remove_dir_all(&work);
+        }
+    }
+
+    #[test]
+    fn zip_file_is_not_written_through_a_link_to_outside() {
+        // Even if a link to outside existed under dest, a file entry
+        // beneath it must not be written through it.
+        let work = tmp("zipthru");
+        let outside = work.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let archive = work.join("t.zip");
+        {
+            let file = std::fs::File::create(&archive).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            let opts = zip::write::SimpleFileOptions::default();
+            zip.start_file("esc/evil.txt", opts).unwrap();
+            zip.write_all(b"owned").unwrap();
+            zip.finish().unwrap();
+        }
+        let extract_to = work.join("x");
+        std::fs::create_dir_all(extract_to.join("t")).unwrap();
+        std::os::unix::fs::symlink(&outside, extract_to.join("t/esc")).unwrap();
+        let mut ctx = test_ctx();
+        // "t" exists, so extraction lands in "t 2" — a fresh folder.
+        extract_op(&mut ctx, vec![archive], extract_to.clone()).unwrap();
+        assert!(!outside.join("evil.txt").exists());
+        assert_eq!(
+            std::fs::read(extract_to.join("t 2/esc/evil.txt")).unwrap(),
+            b"owned"
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn tar_symlink_escaping_dest_is_refused() {
+        let work = tmp("taresc");
+        let archive = work.join("bad.tar");
+        {
+            let file = std::fs::File::create(&archive).unwrap();
+            let mut tar = tar::Builder::new(file);
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_size(0);
+            tar.append_link(&mut header, "esc", "../../..").unwrap();
+            tar.finish().unwrap();
+        }
+        let extract_to = work.join("x");
+        let mut ctx = test_ctx();
+        let err = extract_op(&mut ctx, vec![archive], extract_to.clone()).unwrap_err();
+        assert!(err.contains("escapes"), "{err}");
+        assert!(!extract_to.join("bad/esc").is_symlink());
         let _ = std::fs::remove_dir_all(&work);
     }
 }

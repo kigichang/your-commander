@@ -1,4 +1,5 @@
 use super::queue::{cancelled_err, ConflictChoice, OpCtx};
+use super::safe_path::{create_dir_inside, is_plain_name, symlink_inside};
 use super::transfer::total_bytes;
 use crate::fs::provider::FsEntry;
 use crate::fs::sftp::SftpConnection;
@@ -181,13 +182,27 @@ pub fn download_op(
     remove_source: bool,
 ) -> Result<usize, String> {
     ctx.total_bytes = remote_total_bytes(ctx, &conn, &sources);
+    // Everything the server sends lands under this folder: symlinks it
+    // reports must point inside it, and nothing is written through one
+    // that does not.
+    let root = local_dir
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", local_dir.display()))?;
     let mut count = 0usize;
     for (src, is_dir, is_symlink) in &sources {
         if ctx.cancelled() {
             return Err(cancelled_err());
         }
         let Some(name) = src.file_name() else { continue };
-        download_item(ctx, &conn, src, *is_dir, *is_symlink, &local_dir.join(name))?;
+        download_item(
+            ctx,
+            &conn,
+            &root,
+            src,
+            *is_dir,
+            *is_symlink,
+            &root.join(name),
+        )?;
         if remove_source {
             conn.remove_recursive(src)?;
         }
@@ -199,6 +214,7 @@ pub fn download_op(
 fn download_item(
     ctx: &mut OpCtx,
     conn: &SftpConnection,
+    root: &Path,
     src: &Path,
     is_dir: bool,
     is_symlink: bool,
@@ -232,18 +248,27 @@ fn download_item(
             }
         }
         ctx.report(&src.to_string_lossy());
-        return std::os::unix::fs::symlink(&target, &dest)
-            .map_err(|e| format!("{}: {e}", dest.display()));
+        return symlink_inside(root, &dest, &target);
     }
     if is_dir {
-        std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+        create_dir_inside(root, dest)?;
         let entries = conn
             .list(src)
             .map_err(|e| format!("{}: {e}", src.display()))?;
         for entry in entries {
+            // A hostile server can name entries anything; only a plain
+            // name may be joined onto the local folder.
+            if !is_plain_name(&entry.name) {
+                return Err(format!(
+                    "{}: refusing entry name {:?}",
+                    src.display(),
+                    entry.name
+                ));
+            }
             download_item(
                 ctx,
                 conn,
+                root,
                 &entry.path,
                 entry.is_dir,
                 entry.is_symlink,
