@@ -8,8 +8,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// The directory GVfs exposes FUSE mounts in.
-fn gvfs_dir() -> PathBuf {
+/// The directory GVfs exposes FUSE mounts in (also read by the drives
+/// menu, `fs::local::volumes`).
+pub fn gvfs_dir() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", unsafe { libc::getuid() })))
@@ -18,7 +19,7 @@ fn gvfs_dir() -> PathBuf {
 
 /// `smb-share:server=nas,share=media[,user=kigi]` → (server, share), both
 /// %XX-decoded. Anything else (sftp:…, mtp:…) is None.
-fn parse_smb_dir(name: &str) -> Option<(String, String)> {
+pub fn parse_smb_dir(name: &str) -> Option<(String, String)> {
     let rest = name.strip_prefix("smb-share:")?;
     let mut server = None;
     let mut share = None;
@@ -34,6 +35,13 @@ fn parse_smb_dir(name: &str) -> Option<(String, String)> {
         }
     }
     Some((server?, share?))
+}
+
+/// The drives-menu name of a GVfs mount directory: "media on nas" for
+/// `smb-share:server=nas,share=media`; None for anything not SMB.
+pub fn display_name(dir: &str) -> Option<String> {
+    let (server, share) = parse_smb_dir(dir)?;
+    Some(format!("{share} on {server}"))
 }
 
 /// Where is `//server/share` mounted, if at all?
@@ -199,7 +207,7 @@ pub fn unmount(path: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_share_list, parse_smb_dir};
+    use super::{display_name, parse_share_list, parse_smb_dir};
 
     #[test]
     fn parses_gvfs_dir_names() {
@@ -213,6 +221,22 @@ mod tests {
         );
         assert_eq!(parse_smb_dir("sftp:host=box,user=kigi"), None);
         assert_eq!(parse_smb_dir("smb-share:server=nas"), None);
+    }
+
+    #[test]
+    fn names_mounts_for_the_drives_menu() {
+        assert_eq!(display_name("smb-share:server=nas,share=media").as_deref(), Some("media on nas"));
+        // Decoded like find_mount sees them, not "My%20Photos on nas".
+        assert_eq!(
+            display_name("smb-share:server=nas,share=My%20Photos,user=kigi").as_deref(),
+            Some("My Photos on nas")
+        );
+        assert_eq!(
+            display_name("smb-share:server=nas,share=%E5%BD%B1%E7%89%87").as_deref(),
+            Some("影片 on nas")
+        );
+        assert_eq!(display_name("sftp:host=box"), None);
+        assert_eq!(display_name("smb-share:server=nas"), None);
     }
 
     #[test]

@@ -181,17 +181,14 @@ pub fn volumes() -> Vec<VolumeInfo> {
 /// $XDG_RUNTIME_DIR/gvfs, one directory per mount.
 #[cfg(target_os = "linux")]
 fn gvfs_mounts() -> Vec<(String, PathBuf, bool)> {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", unsafe { libc::getuid() })))
-        .join("gvfs");
-    let Ok(read) = std::fs::read_dir(&base) else {
+    use crate::platform::smb;
+    let Ok(read) = std::fs::read_dir(smb::gvfs_dir()) else {
         return vec![];
     };
     read.flatten()
         .map(|entry| {
             let dir = entry.file_name().to_string_lossy().to_string();
-            let name = linux_volumes::gvfs_display_name(&dir).unwrap_or_else(|| dir.clone());
+            let name = smb::display_name(&dir).unwrap_or_else(|| dir.clone());
             (name, entry.path(), false)
         })
         .collect()
@@ -287,21 +284,6 @@ mod linux_volumes {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "System".to_string())
     }
-
-    /// "smb-share:server=nas,share=media" → "media on nas".
-    pub fn gvfs_display_name(dir: &str) -> Option<String> {
-        let rest = dir.strip_prefix("smb-share:")?;
-        let mut server = None;
-        let mut share = None;
-        for kv in rest.split(',') {
-            match kv.split_once('=') {
-                Some(("server", v)) => server = Some(v),
-                Some(("share", v)) => share = Some(v),
-                _ => {}
-            }
-        }
-        Some(format!("{} on {}", share?, server?))
-    }
 }
 
 #[cfg(test)]
@@ -329,7 +311,7 @@ mod tests {
         assert_eq!(stat_all_with(&[], 300, fake), vec![]);
     }
 
-    use super::linux_volumes::{gvfs_display_name, parse_mountinfo};
+    use super::linux_volumes::parse_mountinfo;
     use std::path::PathBuf;
 
     // Trimmed from a real Ubuntu 24.04 desktop: root ext4, snap squashfs
@@ -369,20 +351,6 @@ mod tests {
     fn parse_mountinfo_tolerates_garbage() {
         assert!(parse_mountinfo("").is_empty());
         assert!(parse_mountinfo("not a mountinfo line\nanother - one two\n").is_empty());
-    }
-
-    #[test]
-    fn gvfs_names() {
-        assert_eq!(
-            gvfs_display_name("smb-share:server=nas,share=media"),
-            Some("media on nas".to_string())
-        );
-        assert_eq!(
-            gvfs_display_name("smb-share:server=nas,share=media,user=kigi"),
-            Some("media on nas".to_string())
-        );
-        assert_eq!(gvfs_display_name("sftp:host=box"), None);
-        assert_eq!(gvfs_display_name("smb-share:server=nas"), None);
     }
 
     #[test]

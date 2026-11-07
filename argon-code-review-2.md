@@ -428,6 +428,12 @@
   - `src-tauri/src/platform/linux/smb.rs:12-36`（`gvfs_dir`、`parse_smb_dir`）
 - **說明**：兩處重複實作了 `$XDG_RUNTIME_DIR/gvfs` 路徑推導與 `smb-share:server=...,share=...` 字串解析；而且 `linux/smb.rs::parse_smb_dir` 有呼叫 `urlencoding::decode`，`local.rs::gvfs_display_name` 卻漏掉，導致含空白或非 ASCII 字元的 SMB 分享在磁碟選單顯示為 `%20` 編碼字串。
 - **建議**：共用 `platform::smb` 中的 `gvfs_dir` 與 `parse_smb_dir`。
+- **處理結果**（Claude，2026-11-07）：成立，已修（採用建議）。
+  - 確認：`local.rs::gvfs_display_name` 沒有做 `%XX` 解碼，GVfs 目錄名稱 `smb-share:server=nas,share=My%20Photos` 在磁碟選單會顯示成「My%20Photos on nas」；`linux/smb.rs::parse_smb_dir` 有解碼，所以掛載和尋找掛載點都正常，只有顯示名稱錯。`$XDG_RUNTIME_DIR/gvfs` 的推導也確實重複兩份。
+  - **修正**：
+    - `platform/linux/smb.rs`：`gvfs_dir`、`parse_smb_dir` 改為 `pub`，新增 `display_name(dir)`（以 `parse_smb_dir` 解析後組成「share on server」）。
+    - `fs/local.rs::gvfs_mounts` 改用 `smb::gvfs_dir()` 與 `smb::display_name()`；刪除 `linux_volumes::gvfs_display_name` 及其測試 `gvfs_names`。
+  - **測試**：新增 `names_mounts_for_the_drives_menu`（含空白與中文的 share 名稱會解碼、帶 `user=` 欄位、非 SMB 與缺欄位回傳 None）。這個模組只在 Linux 編譯，所以測試在 Linux Docker 容器執行：108 個測試全部通過，clippy 沒有警告；macOS 106 個測試通過（少的那個就是移走的 `gvfs_names`）。未在 VM 上掛載含空白的分享實際確認選單顯示。
 
 ### 3.4 `fs/archive_fs.rs` 與 `ops/archive.rs` 重複實作 Zip／Tar 解壓縮迴圈
 - **檔案位置**：
