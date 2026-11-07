@@ -118,6 +118,10 @@ pub struct OpCtx {
     pub options: CopyOptions,
     /// Lower-cased mask patterns compiled from `options.mask`.
     mask: Vec<Vec<u8>>,
+    /// Progress so far out of `total_bytes`. The unit is the op's own —
+    /// bytes for transfers and archives, items for delete/restore — and
+    /// only ever compared within one op (fraction, rate, ETA), never shown
+    /// as a size.
     pub done_bytes: u64,
     pub total_bytes: u64,
     sink: Box<dyn OpSink>,
@@ -218,6 +222,10 @@ impl OpSink for TestSink {
     }
 }
 
+/// Every (done, total) progress report an `OpCtx::recording` saw.
+#[cfg(test)]
+pub type Reports = Arc<std::sync::Mutex<Vec<(u64, u64)>>>;
+
 #[cfg(test)]
 impl OpCtx {
     /// Context for unit tests: no cancellation, conflicts answered by `choice`.
@@ -227,6 +235,36 @@ impl OpCtx {
             Arc::new(AtomicBool::new(false)),
             Box::new(TestSink(choice)),
         )
+    }
+
+    /// Context that records every (done, total) report, and cancels itself
+    /// once `cancel_at` units are done.
+    pub fn recording(cancel_at: Option<u64>) -> (Self, Reports) {
+        struct Recorder {
+            seen: Arc<std::sync::Mutex<Vec<(u64, u64)>>>,
+            cancel: Arc<AtomicBool>,
+            cancel_at: Option<u64>,
+        }
+        impl OpSink for Recorder {
+            fn progress(&self, _detail: &str, _fraction: f32, done: u64, total: u64) {
+                self.seen.lock().unwrap().push((done, total));
+                if self.cancel_at.is_some_and(|at| done >= at) {
+                    self.cancel.store(true, Ordering::Relaxed);
+                }
+            }
+            fn conflict(&self, _: &Path, _: &Path) -> ConflictChoice {
+                ConflictChoice::CancelOp
+            }
+        }
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let sink = Recorder {
+            seen: seen.clone(),
+            cancel: cancel.clone(),
+            cancel_at,
+        };
+        let ctx = Self::new(cancel, Arc::new(AtomicBool::new(false)), Box::new(sink));
+        (ctx, seen)
     }
 }
 

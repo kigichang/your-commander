@@ -1,7 +1,9 @@
 use super::queue::{cancelled_err, keep_both_path, OpCtx};
 use super::safe_path::{create_dir_inside, create_file_nofollow, link_inside, symlink_inside};
+use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 const CHUNK: usize = 1024 * 1024;
 
@@ -239,6 +241,42 @@ fn gz_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<String, String> {
         .to_string())
 }
 
+/// Progress for reading one archive, fed from inside the decoder: bytes
+/// pulled through it advance `ctx.done_bytes`, scaled into this archive's
+/// slice `[base, base + len)` of the op total, and a cancel turns into a
+/// read error. Units inside the archive are whatever `total` counts
+/// (compressed bytes for tar/gz streams, uncompressed bytes for zip and
+/// 7z entries); the op total is always on-disk archive bytes, so rate and
+/// ETA stay meaningful across several archives of mixed formats.
+pub(crate) struct Meter<'a, R> {
+    pub inner: R,
+    pub ctx: &'a mut OpCtx,
+    pub base: u64,
+    pub len: u64,
+    pub read: u64,
+    pub total: u64,
+    /// What the progress line shows (current entry or archive name).
+    pub detail: Rc<RefCell<String>>,
+}
+
+impl<R: Read> Read for Meter<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.ctx.cancelled() {
+            return Err(std::io::Error::other(cancelled_err()));
+        }
+        let n = self.inner.read(buf)?;
+        self.read += n as u64;
+        let part = if self.total > 0 {
+            (self.len as u128 * self.read.min(self.total) as u128 / self.total as u128) as u64
+        } else {
+            0
+        };
+        self.ctx.done_bytes = self.base + part;
+        self.ctx.report(&self.detail.borrow());
+        Ok(n)
+    }
+}
+
 /// Extract each archive into its own folder under `dest_dir`. Returns the
 /// number of archives extracted.
 pub fn extract_op(
@@ -246,8 +284,15 @@ pub fn extract_op(
     archives: Vec<PathBuf>,
     dest_dir: PathBuf,
 ) -> Result<usize, String> {
+    let lens: Vec<u64> = archives
+        .iter()
+        .map(|a| a.metadata().map(|m| m.len()).unwrap_or(0))
+        .collect();
+    ctx.total_bytes = lens.iter().sum();
+    ctx.done_bytes = 0;
+    let mut base = 0u64;
     let mut count = 0usize;
-    for archive in &archives {
+    for (archive, &len) in archives.iter().zip(&lens) {
         if ctx.cancelled() {
             return Err(cancelled_err());
         }
@@ -264,54 +309,79 @@ pub fn extract_op(
         }
 
         ctx.report(&name);
-        match kind {
-            Extractable::Zip => extract_zip(ctx, archive, &target)?,
-            Extractable::SevenZ => {
-                sevenz_rust2::decompress_file(archive, &target).map_err(|e| e.to_string())?;
-            }
-            Extractable::TarGz => {
+        let detail = Rc::new(RefCell::new(name.clone()));
+        let result = match kind {
+            Extractable::Zip => extract_zip(ctx, archive, &target, base, len),
+            Extractable::SevenZ => extract_7z(ctx, archive, &target, base, len),
+            Extractable::TarGz | Extractable::Tar => (|| {
                 let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
-                let dec = flate2::read::GzDecoder::new(file);
-                extract_tar(ctx, dec, &target)?;
-            }
-            Extractable::Tar => {
-                let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
-                extract_tar(ctx, file, &target)?;
-            }
-            Extractable::Gz => {
+                let meter = Meter {
+                    inner: file,
+                    ctx: &mut *ctx,
+                    base,
+                    len,
+                    read: 0,
+                    total: len,
+                    detail: detail.clone(),
+                };
+                if kind == Extractable::TarGz {
+                    extract_tar(flate2::read::GzDecoder::new(meter), &target, &detail)
+                } else {
+                    extract_tar(meter, &target, &detail)
+                }
+            })(),
+            Extractable::Gz => (|| {
                 // Single gzip-compressed file: decompress next to the others.
                 std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
                 let out = target.join(stem);
                 let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
-                let mut dec = flate2::read::GzDecoder::new(file);
+                let mut dec = flate2::read::GzDecoder::new(Meter {
+                    inner: file,
+                    ctx: &mut *ctx,
+                    base,
+                    len,
+                    read: 0,
+                    total: len,
+                    detail: detail.clone(),
+                });
                 let mut writer = std::fs::File::create(&out).map_err(|e| e.to_string())?;
-                let mut buf = vec![0u8; CHUNK];
-                loop {
-                    if ctx.cancelled() {
-                        return Err(cancelled_err());
-                    }
-                    let n = dec.read(&mut buf).map_err(|e| e.to_string())?;
-                    if n == 0 {
-                        break;
-                    }
-                    writer.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-                }
-            }
+                std::io::copy(&mut dec, &mut writer).map_err(|e| e.to_string())?;
+                Ok(())
+            })(),
+        };
+        // A cancel inside a decoder surfaces as an I/O error; report it as
+        // the cancel it was.
+        if ctx.cancelled() {
+            return Err(cancelled_err());
         }
+        result?;
+        base += len;
+        ctx.done_bytes = base;
+        ctx.report(&name);
         count += 1;
     }
     Ok(count)
 }
 
-fn extract_zip(ctx: &mut OpCtx, archive: &Path, dest: &Path) -> Result<(), String> {
+fn extract_zip(
+    ctx: &mut OpCtx,
+    archive: &Path,
+    dest: &Path,
+    base: u64,
+    len: u64,
+) -> Result<(), String> {
     let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
-    let total = zip.len();
+    // Progress inside this archive counts uncompressed bytes written.
+    let total: u64 = (0..zip.len())
+        .filter_map(|i| zip.by_index_raw(i).ok().map(|e| e.size()))
+        .sum();
+    let mut read = 0u64;
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     // Directories are created and files written only where the real
     // (symlink-resolved) path is still under this root.
     let root = dest.canonicalize().map_err(|e| e.to_string())?;
-    for i in 0..total {
+    for i in 0..zip.len() {
         if ctx.cancelled() {
             return Err(cancelled_err());
         }
@@ -321,9 +391,8 @@ fn extract_zip(ctx: &mut OpCtx, archive: &Path, dest: &Path) -> Result<(), Strin
             continue;
         };
         let out = dest.join(&rel);
-        ctx.done_bytes = i as u64;
-        ctx.total_bytes = total as u64;
-        ctx.report(&rel.to_string_lossy());
+        let shown = rel.to_string_lossy().to_string();
+        ctx.report(&shown);
         if entry.is_dir() {
             create_dir_inside(&root, &out)?;
             continue;
@@ -344,9 +413,20 @@ fn extract_zip(ctx: &mut OpCtx, archive: &Path, dest: &Path) -> Result<(), Strin
             continue;
         }
         let mut writer = create_file_nofollow(&out)?;
-        std::io::copy(&mut entry, &mut writer).map_err(|e| e.to_string())?;
+        let mode = entry.unix_mode();
+        let mut meter = Meter {
+            inner: &mut entry,
+            ctx: &mut *ctx,
+            base,
+            len,
+            read,
+            total,
+            detail: Rc::new(RefCell::new(shown)),
+        };
+        std::io::copy(&mut meter, &mut writer).map_err(|e| e.to_string())?;
+        read = meter.read;
         #[cfg(unix)]
-        if let Some(mode) = entry.unix_mode() {
+        if let Some(mode) = mode {
             use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(&out, std::fs::Permissions::from_mode(mode));
         }
@@ -354,17 +434,49 @@ fn extract_zip(ctx: &mut OpCtx, archive: &Path, dest: &Path) -> Result<(), Strin
     Ok(())
 }
 
-fn extract_tar<R: Read>(ctx: &mut OpCtx, reader: R, dest: &Path) -> Result<(), String> {
+fn extract_7z(
+    ctx: &mut OpCtx,
+    archive: &Path,
+    dest: &Path,
+    base: u64,
+    len: u64,
+) -> Result<(), String> {
+    // Progress inside this archive counts uncompressed bytes written.
+    let total: u64 = sevenz_rust2::Archive::open(archive)
+        .map_err(|e| e.to_string())?
+        .files
+        .iter()
+        .map(|f| f.size)
+        .sum();
+    let mut read = 0u64;
+    sevenz_rust2::decompress_file_with_extract_fn(archive, dest, |entry, reader, path| {
+        let mut meter = Meter {
+            inner: reader,
+            ctx: &mut *ctx,
+            base,
+            len,
+            read,
+            total,
+            detail: Rc::new(RefCell::new(entry.name().to_string())),
+        };
+        let more = sevenz_rust2::default_entry_extract_fn(entry, &mut meter, path)?;
+        read = meter.read;
+        Ok(more)
+    })
+    .map_err(|e| e.to_string())
+}
+
+/// Unpack a tar stream into `dest`. Cancelling and progress happen in the
+/// reader (a `Meter` under any decompressor); `detail` is set to each
+/// entry's path so the progress line names it.
+fn extract_tar<R: Read>(reader: R, dest: &Path, detail: &RefCell<String>) -> Result<(), String> {
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     let mut tar = tar::Archive::new(reader);
     let entries = tar.entries().map_err(|e| e.to_string())?;
     for entry in entries {
-        if ctx.cancelled() {
-            return Err(cancelled_err());
-        }
         let mut entry = entry.map_err(|e| e.to_string())?;
         if let Ok(path) = entry.path() {
-            ctx.report(&path.to_string_lossy());
+            *detail.borrow_mut() = path.to_string_lossy().to_string();
         }
         // unpack_in refuses paths that escape `dest` and resolves the real
         // parent before writing, but creates symlinks with any target:
@@ -572,6 +684,103 @@ mod tests {
         let err = extract_op(&mut ctx, vec![archive], extract_to.clone()).unwrap_err();
         assert!(err.contains("escapes"), "{err}");
         assert!(!extract_to.join("bad/esc").is_symlink());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// Two incompressible files, big enough that progress lands between
+    /// the start and the end of every format.
+    fn noisy_tree(work: &Path) -> PathBuf {
+        let src = work.join("proj");
+        std::fs::create_dir_all(src.join("sub")).unwrap();
+        let mut x: u32 = 1;
+        let mut noise = |n: usize| -> Vec<u8> {
+            (0..n)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 17;
+                    x ^= x << 5;
+                    x as u8
+                })
+                .collect()
+        };
+        std::fs::write(src.join("a.bin"), noise(3 << 20)).unwrap();
+        std::fs::write(src.join("sub/b.bin"), noise(2 << 20)).unwrap();
+        src
+    }
+
+    fn archives(work: &Path) -> Vec<PathBuf> {
+        let src = noisy_tree(work);
+        let mut out = Vec::new();
+        for (name, fmt) in [
+            ("t.zip", ArchiveFormat::Zip),
+            ("t.tar", ArchiveFormat::Tar),
+            ("t.tar.gz", ArchiveFormat::TarGz),
+        ] {
+            let dest = work.join(name);
+            compress_op(&mut test_ctx(), vec![src.clone()], dest.clone(), fmt).unwrap();
+            out.push(dest);
+        }
+        let dest = work.join("a.bin.gz");
+        compress_op(&mut test_ctx(), vec![src.join("a.bin")], dest.clone(), ArchiveFormat::Gz)
+            .unwrap();
+        out.push(dest);
+        let dest = work.join("t.7z");
+        sevenz_rust2::compress_to_path(&src, &dest).unwrap();
+        out.push(dest);
+        out
+    }
+
+    #[test]
+    fn extract_progress_counts_archive_bytes_for_every_format() {
+        let work = tmp("prog");
+        for archive in archives(&work) {
+            let len = archive.metadata().unwrap().len();
+            let (mut ctx, seen) = OpCtx::recording(None);
+            let out = work.join(format!("x_{}", archive.file_name().unwrap().to_string_lossy()));
+            extract_op(&mut ctx, vec![archive.clone()], out).unwrap();
+            let seen = seen.lock().unwrap();
+            let name = archive.display();
+            assert!(seen.iter().all(|&(_, t)| t == len), "{name}: total is the archive size");
+            assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0), "{name}: never goes back");
+            assert_eq!(seen.last().unwrap().0, len, "{name}: ends at 100%");
+            assert!(
+                seen.iter().any(|&(d, _)| d > 0 && d < len),
+                "{name}: reports progress along the way"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn extract_progress_spans_several_archives() {
+        let work = tmp("prog_multi");
+        let all = archives(&work);
+        let lens: Vec<u64> = all.iter().map(|a| a.metadata().unwrap().len()).collect();
+        let (mut ctx, seen) = OpCtx::recording(None);
+        extract_op(&mut ctx, all, work.join("x")).unwrap();
+        let seen = seen.lock().unwrap();
+        let total: u64 = lens.iter().sum();
+        assert!(seen.iter().all(|&(_, t)| t == total));
+        assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0));
+        // Each archive boundary is reached exactly.
+        let mut edge = 0;
+        for len in lens {
+            edge += len;
+            assert!(seen.iter().any(|&(d, _)| d == edge), "boundary {edge}");
+        }
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn extract_cancels_midway_in_every_format() {
+        let work = tmp("prog_cancel");
+        for archive in archives(&work) {
+            let len = archive.metadata().unwrap().len();
+            let (mut ctx, _) = OpCtx::recording(Some(len / 3));
+            let out = work.join(format!("c_{}", archive.file_name().unwrap().to_string_lossy()));
+            let err = extract_op(&mut ctx, vec![archive.clone()], out).unwrap_err();
+            assert_eq!(err, cancelled_err(), "{}", archive.display());
+        }
         let _ = std::fs::remove_dir_all(&work);
     }
 }

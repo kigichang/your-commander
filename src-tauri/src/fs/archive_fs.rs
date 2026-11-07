@@ -4,10 +4,12 @@
 //! no leading slash ("" is the archive root).
 
 use crate::fs::provider::FsEntry;
-use crate::ops::archive::{classify, Extractable};
+use crate::ops::archive::{classify, Extractable, Meter};
 use crate::ops::queue::{cancelled_err, OpCtx};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::io::Read;
+use std::rc::Rc;
 use std::path::{Path, PathBuf};
 
 const CHUNK: usize = 1024 * 1024;
@@ -294,40 +296,64 @@ pub fn extract_entries(
             }
         }
         Kind::Tar | Kind::TarGz => {
+            // A tar stream has no index: progress is the share of the
+            // archive file read so far, and the reader handles cancel.
             let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
+            let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+            ctx.total_bytes = len;
+            let detail = Rc::new(RefCell::new(String::new()));
+            let meter = Meter {
+                inner: file,
+                ctx: &mut *ctx,
+                base: 0,
+                len,
+                read: 0,
+                total: len,
+                detail: detail.clone(),
+            };
             let reader: Box<dyn Read> = match kind_of(archive)? {
-                Kind::TarGz => Box::new(flate2::read::GzDecoder::new(file)),
-                _ => Box::new(file),
+                Kind::TarGz => Box::new(flate2::read::GzDecoder::new(meter)),
+                _ => Box::new(meter),
             };
             let mut tar = tar::Archive::new(reader);
-            for entry in tar.entries().map_err(|e| err(&e))?.flatten() {
-                if ctx.cancelled() {
-                    return Err(cancelled_err());
+            let result = (|| {
+                for entry in tar.entries().map_err(|e| err(&e))?.flatten() {
+                    let Ok(path) = entry.path() else { continue };
+                    let name = path
+                        .to_string_lossy()
+                        .trim_start_matches("./")
+                        .trim_matches('/')
+                        .to_string();
+                    let Some(out) = out_path(&name) else { continue };
+                    *detail.borrow_mut() = name;
+                    let mut entry = entry;
+                    if entry.header().entry_type().is_dir() {
+                        std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+                        continue;
+                    }
+                    if !entry.header().entry_type().is_file() {
+                        continue;
+                    }
+                    if let Some(parent) = out.parent() {
+                        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                    }
+                    let mut writer = std::fs::File::create(&out)
+                        .map_err(|e| format!("{}: {e}", out.display()))?;
+                    std::io::copy(&mut entry, &mut writer).map_err(|e| e.to_string())?;
+                    count += 1;
                 }
-                let Ok(path) = entry.path() else { continue };
-                let name = path
-                    .to_string_lossy()
-                    .trim_start_matches("./")
-                    .trim_matches('/')
-                    .to_string();
-                let Some(out) = out_path(&name) else { continue };
-                ctx.report(&name);
-                let mut entry = entry;
-                if entry.header().entry_type().is_dir() {
-                    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
-                    continue;
-                }
-                if !entry.header().entry_type().is_file() {
-                    continue;
-                }
-                if let Some(parent) = out.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                }
-                let mut writer = std::fs::File::create(&out)
-                    .map_err(|e| format!("{}: {e}", out.display()))?;
-                std::io::copy(&mut entry, &mut writer).map_err(|e| e.to_string())?;
-                count += 1;
+                Ok::<_, String>(())
+            })();
+            drop(tar);
+            // A cancel inside the reader surfaces as an I/O error (or an
+            // early end of entries); report it as the cancel it was.
+            if ctx.cancelled() {
+                return Err(cancelled_err());
             }
+            result?;
+            // The end-of-archive padding is never read: finish at 100%.
+            ctx.done_bytes = len;
+            ctx.report("");
         }
     }
     Ok(count)
@@ -378,6 +404,40 @@ mod tests {
         let n = extract_entries(&mut ctx, &zip_path, vec!["sub".into()], &out).unwrap();
         assert_eq!(n, 1);
         assert_eq!(std::fs::read(out.join("sub/inner.txt")).unwrap(), b"inner");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tar_extract_entries_reports_progress_and_cancels() {
+        let dir = std::env::temp_dir().join(format!("yc_arfs_tar_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("t.tar");
+        {
+            let mut tar = tar::Builder::new(std::fs::File::create(&archive).unwrap());
+            for name in ["a.bin", "b.bin"] {
+                let data = vec![7u8; 1 << 20];
+                let mut header = tar::Header::new_gnu();
+                header.set_size(data.len() as u64);
+                header.set_mode(0o644);
+                tar.append_data(&mut header, name, &data[..]).unwrap();
+            }
+            tar.finish().unwrap();
+        }
+        let len = archive.metadata().unwrap().len();
+        let wanted = vec!["a.bin".to_string(), "b.bin".to_string()];
+
+        let (mut ctx, seen) = OpCtx::recording(None);
+        let n = extract_entries(&mut ctx, &archive, wanted.clone(), &dir.join("out")).unwrap();
+        assert_eq!(n, 2);
+        let seen = seen.lock().unwrap();
+        assert!(seen.iter().all(|&(_, t)| t == len));
+        assert!(seen.iter().any(|&(d, _)| d > 0 && d < len), "{seen:?}");
+        assert_eq!(seen.last().unwrap().0, len);
+
+        let (mut ctx, _) = OpCtx::recording(Some(len / 3));
+        let err = extract_entries(&mut ctx, &archive, wanted, &dir.join("out2")).unwrap_err();
+        assert_eq!(err, cancelled_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
