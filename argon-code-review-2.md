@@ -233,6 +233,11 @@
 - **修正建議**：
   - 在 `sync_op` 維護一個 `HashSet<PathBuf>` 傳入 `ensure_remote_parents`，確保每個遠端父目錄最多只檢查／建立一次。
   - 在 `SyncItem` 結構中加入 `size: u64` 欄位以支援遠端同步進度計算。
+- **處理結果**（Claude，2026-11-07）：前兩點成立，已修；第三點不採納。
+  1. **`ensure_remote_parents` 重複檢查：已修。** 新增純函式 `unchecked_parents`，以整次 sync 共用的 `HashSet<PathBuf>` 記錄已確認的遠端資料夾，只回傳尚未確認者；每個遠端資料夾在一次同步中最多檢查／建立一次。原本 500 個檔案、深 4 層會做 2,000 次 `exists`（每次為 LSTAT，遇 symlink 再加 STAT），現在為 4 次——測試 `each_remote_folder_is_checked_once_per_sync` 直接驗證此數字。
+  2. **遠端來源沒有進度：已修。** 比對結果的每一列本來就帶有兩側的大小，因此 `SyncItem` 新增選填的 `size`（`#[serde(default)]`），前端 `SyncDialog` 傳入來源側的大小；遠端來源的總量改用它，不需額外的網路往返。本機來源維持當場 `stat`（資料較新）。
+  3. **`remote_keep_both` 逐一探測：不採納。** 只在使用者對衝突選「保留兩者」時呼叫，從 `name 2` 起探測，通常第一個就空著，只花一次往返；改成先列出父資料夾需要一次 READDIR 加上 `list()` 對 symlink 的 STAT，大資料夾反而更慢。
+  - **未驗證**：未對真實 SFTP 伺服器實測（既有的 sshd 測試為 opt-in，本次未執行）；`ensure_remote_parents` 的邏輯以純函式的單元測試涵蓋，進度總量的前端傳遞以 `tsc` 型別檢查涵蓋。
 
 ### 2.3 `[High]` 瀏覽壓縮檔內部時，每次切換子目錄都從頭完整解壓／掃描整個壓縮檔
 - **檔案位置**：

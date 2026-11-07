@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowLeftRight, ArrowRight, Minus } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
-import type { SyncDirection, SyncRow } from "../ipc/types";
+import type { SyncActionItem, SyncDirection, SyncRow } from "../ipc/types";
 import { useScaled } from "../lib/fontScale";
 import { formatDate } from "../lib/format";
 import type { Dialog } from "../store/dialogs";
@@ -98,9 +98,12 @@ export function SyncDialog({ d }: { d: Extract<Dialog, { type: "sync" }> }) {
 
   const synchronize = () => {
     if (!rows || stats.total === 0) return;
-    const items = rows
-      .map((r) => ({ rel: r.rel, direction: actions.get(r.rel) }))
-      .filter((i): i is { rel: string; direction: SyncDirection } => i.direction !== "skip" && i.direction !== undefined);
+    const items = rows.flatMap((r): SyncActionItem[] => {
+      const direction = actions.get(r.rel);
+      if (direction !== "ltr" && direction !== "rtl") return [];
+      const source = direction === "ltr" ? r.left : r.right;
+      return [{ rel: r.rel, direction, size: source?.size }];
+    });
     close();
     useOps.getState().run(
       t("sync.label"),
