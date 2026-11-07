@@ -2,7 +2,8 @@ use crate::config::{Config, SshConnection};
 use crate::keychain;
 use crate::state::AppState;
 use serde_json::{Map, Value};
-use tauri::{AppHandle, Emitter, State};
+use super::blocking;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Event every window hears after the config changes: the changed fields
 /// only, and which window changed them (that window already has them).
@@ -54,14 +55,16 @@ pub fn apply_patch(
     Ok(())
 }
 
+/// Async, so the file write runs off the main (UI) thread; every
+/// navigation saves the panel state through here.
 #[tauri::command]
-pub fn update_config(
+pub async fn update_config(
     app: AppHandle,
     window: tauri::Window,
-    state: State<'_, AppState>,
     patch: Map<String, Value>,
 ) -> Result<(), String> {
-    apply_patch(&app, &state, window.label(), patch)
+    let source = window.label().to_string();
+    blocking(move || apply_patch(&app, &app.state::<AppState>(), &source, patch)).await
 }
 
 /// May a password saved under the old port-less key (`ssh://user@host`)
@@ -74,24 +77,17 @@ fn owns_legacy_key(conns: &[SshConnection], username: &str, host: &str, port: u1
     port != 22 && matches!((same.next(), same.next()), (Some(c), None) if c.port == port)
 }
 
-/// SSH password/passphrase storage, keyed by user, host and port (see
-/// `keychain::ssh_account`).
-#[tauri::command]
-pub fn ssh_saved_password(
-    state: State<'_, AppState>,
-    username: String,
-    host: String,
-    port: u16,
-) -> Option<String> {
-    let account = keychain::ssh_account(&username, &host, port);
+fn saved_ssh_password(app: &AppHandle, username: &str, host: &str, port: u16) -> Option<String> {
+    let account = keychain::ssh_account(username, host, port);
     if let Some(password) = keychain::load(&account) {
         return Some(password);
     }
     // One-time move of a password saved before ports were part of the key.
-    let legacy = keychain::ssh_account(&username, &host, 22);
+    let legacy = keychain::ssh_account(username, host, 22);
     let owned = {
+        let state = app.state::<AppState>();
         let config = state.config.lock().unwrap();
-        owns_legacy_key(&config.ssh_connections, &username, &host, port)
+        owns_legacy_key(&config.ssh_connections, username, host, port)
     };
     if !owned {
         return None;
@@ -103,19 +99,42 @@ pub fn ssh_saved_password(
     Some(password)
 }
 
+// The credential store can block (the Keychain or Secret Service asking
+// to be unlocked), so these run off the main thread like file I/O.
+
+/// SSH password/passphrase storage, keyed by user, host and port (see
+/// `keychain::ssh_account`).
 #[tauri::command]
-pub fn ssh_store_password(
+pub async fn ssh_saved_password(
+    app: AppHandle,
+    username: String,
+    host: String,
+    port: u16,
+) -> Option<String> {
+    blocking(move || Ok::<_, String>(saved_ssh_password(&app, &username, &host, port)))
+        .await
+        .ok()
+        .flatten()
+}
+
+#[tauri::command]
+pub async fn ssh_store_password(
     username: String,
     host: String,
     port: u16,
     password: String,
 ) -> Result<(), String> {
-    keychain::store(&keychain::ssh_account(&username, &host, port), &password)
+    blocking(move || keychain::store(&keychain::ssh_account(&username, &host, port), &password))
+        .await
 }
 
 #[tauri::command]
-pub fn ssh_forget_password(username: String, host: String, port: u16) {
-    keychain::remove(&keychain::ssh_account(&username, &host, port));
+pub async fn ssh_forget_password(username: String, host: String, port: u16) {
+    let _ = blocking(move || {
+        keychain::remove(&keychain::ssh_account(&username, &host, port));
+        Ok::<_, String>(())
+    })
+    .await;
 }
 
 #[cfg(test)]

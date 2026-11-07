@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as ipc from "../ipc/commands";
-import type { FsEntry, Location } from "../ipc/types";
+import type { Config, FsEntry, Location } from "../ipc/types";
 import { baseName, parentPath } from "../lib/path";
 import { visibleEntries } from "../lib/selectors";
 import { selectShowHidden, useSettings } from "./settings";
@@ -132,8 +132,9 @@ function updateTab(
 }
 
 /** Write both sides' local tabs, active tab, view mode, and active sort into
- *  the config. Called after any change worth restoring next launch. */
-function persistPanels() {
+ *  the config. Called after any change worth restoring next launch. `extra`
+ *  rides along in the same save (one write and one IPC, not two). */
+function persistPanels(extra: Partial<Config> = {}) {
   const s = usePanels.getState();
   const settings = useSettings.getState();
   if (!settings.config) return;
@@ -178,6 +179,7 @@ function persistPanels() {
           ...(right.path ? { right_path: right.path } : {}),
         }
       : {}),
+    ...extra,
   });
 }
 
@@ -298,19 +300,20 @@ export const usePanels = create<PanelsStore>((set, get) => ({
           marked: new Set<string>(),
         }),
       }));
+      // Saved together with the panel state below: one config write.
+      let extra: Partial<Config> = {};
       if (loc.kind === "local") {
         void ipc.watchDir(side, path);
         // Remember for the command palette's FOLDERS section.
         const settings = useSettings.getState();
-        const home = settings.home;
-        if (settings.config && path !== home) {
+        if (settings.config && path !== settings.home) {
           const recents = [path, ...settings.config.recent_dirs.filter((p) => p !== path)];
-          settings.save({ recent_dirs: recents.slice(0, 15) });
+          extra = { recent_dirs: recents.slice(0, 15) };
         }
       } else {
         void ipc.unwatch(side);
       }
-      persistPanels();
+      persistPanels(extra);
     } catch (e) {
       set((s) => ({
         panels: updateTab(s.panels, side, tab.id, {

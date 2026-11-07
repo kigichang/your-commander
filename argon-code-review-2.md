@@ -297,6 +297,13 @@
   - 在 `panels.ts` 將 `recent_dirs` 合併至 `persistPanels()` 中，每次導覽只呼叫一次 `settings.save()`。
   - 將 `update_config` 與 6 個 `*_password` Tauri 指令改為 `async fn` + `blocking(...)`。
   - 在 `Config::save` 先寫入暫存檔再 `rename` 原子替換，且不在持有 `state.config` Mutex 鎖的狀態下執行磁碟 I/O。
+- **處理結果**（Claude，2026-11-07）：三點皆成立，已修；唯「寫檔時不持有鎖」不採納。
+  1. **每次導覽存兩次：已修。** `persistPanels(extra)` 新增選填參數，`navigate` 把 `recent_dirs` 併入同一次 `save()`——每次導覽一次 IPC、一次寫檔、一次 `config-patched` 廣播。
+  2. **同步指令跑在主執行緒：已修。** Tauri 2 未標 `async` 的指令在主執行緒執行。`update_config` 與 6 個 `ssh_*`／`smb_*_password` 改為 `async fn` + `blocking(...)`；Keychain／Secret Service 跳出解鎖提示時 UI 不再卡住。`update_config` 改以 `app.state::<AppState>()` 在背景執行緒取得狀態。前端呼叫介面不變。
+  3. **原地截斷寫入：已修。** 新增 `config::write_replacing`：寫入同資料夾的 `config.toml.tmp`、`sync_all`、再 `rename` 覆蓋；失敗時刪除暫存檔。寫到一半當機或磁碟滿時，舊檔保持完整（原本會留下截斷的檔案，`load` 解析失敗就整份回到預設值）。
+  - **不採納**：「不在持有 `state.config` 鎖時寫檔」。`apply_patch` 刻意持有鎖直到寫完並送出事件，確保寫檔與 `config-patched` 的順序一致；若先放鎖再寫，兩個併發 patch 可能讓較舊的內容最後落地、蓋掉較新的。寫檔已移到背景執行緒，持有鎖只會讓其他背景工作等待約數毫秒。
+  - **維持原樣**：關窗時（`CloseRequested`）的儲存留在主執行緒——關窗前必須寫完；`fkeys_set` 只在使用者切換設定時呼叫。
+  - **測試**：新增 `config_writes_replace_the_file_whole`（覆蓋既有檔案、不留暫存檔；rename 失敗時清除暫存檔並回傳錯誤、原有內容不受影響）。全部 101 個測試通過、`tsc` 通過。未在 app 中實際操作驗證 Keychain 解鎖情境。
 
 ### 2.6 `[High]` `AudioPreview.tsx` 在音訊暫停或未播放時仍持續以 60fps 執行 `requestAnimationFrame`
 - **檔案位置**：
