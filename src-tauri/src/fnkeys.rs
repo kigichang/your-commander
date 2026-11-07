@@ -169,12 +169,10 @@ pub struct FnKeysState(pub Option<FnKeys>);
 /// Toggle the setting from the UI and apply it right away (the window is
 /// focused while the user clicks).
 #[tauri::command]
-pub fn fkeys_set(app: AppHandle, state: State<'_, AppState>, enabled: bool) {
-    {
-        let mut config = state.config.lock().unwrap();
-        config.fkeys_without_fn = enabled;
-        config.save();
-    }
+pub fn fkeys_set(app: AppHandle, window: tauri::Window, state: State<'_, AppState>, enabled: bool) {
+    let mut patch = serde_json::Map::new();
+    patch.insert("fkeys_without_fn".into(), enabled.into());
+    let _ = crate::commands::config::apply_patch(&app, &state, window.label(), patch);
     if let Some(fk) = &app.state::<FnKeysState>().0 {
         if enabled {
             fk.acquire();

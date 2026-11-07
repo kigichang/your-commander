@@ -155,8 +155,10 @@ export const sshForgetPassword = (username: string, host: string) =>
   invoke<void>("ssh_forget_password", { username, host });
 
 export const getConfig = () => invoke<Config>("get_config");
-export const setConfig = (config: Config) =>
-  invoke<void>("set_config", { config });
+/** Save only the changed fields; the backend merges them into the shared
+ *  config and tells every window ("config-patched"). */
+export const updateConfig = (patch: Partial<Config>) =>
+  invoke<void>("update_config", { patch });
 
 export const fileIcon = async (key: string): Promise<ArrayBuffer> =>
   invoke("file_icon", { key });
