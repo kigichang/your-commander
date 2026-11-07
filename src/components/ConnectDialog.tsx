@@ -60,6 +60,13 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
   const [pwInput, setPwInput] = useState("");
   // Share picker shown when connecting with the share left empty.
   const [shareList, setShareList] = useState<string[] | null>(null);
+  // First-seen SSH host key awaiting the user's fingerprint check; `retry`
+  // is the action to repeat with the key trusted.
+  const [hostKey, setHostKey] = useState<{
+    keyType: string;
+    fingerprint: string;
+    retry: "test" | "connect";
+  } | null>(null);
 
   useEffect(() => {
     void ipc.sshHosts().then(setHosts);
@@ -67,7 +74,8 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
 
   // Escape backs out of the innermost prompt first.
   const onEscape = () => {
-    if (askPw) setAskPw(false);
+    if (hostKey) setHostKey(null);
+    else if (askPw) setAskPw(false);
     else if (shareList) setShareList(null);
     else close();
   };
@@ -156,7 +164,8 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     toast(t("connect.saved2"));
   };
 
-  const sftpParams = () => ({
+  const sftpParams = (trust?: boolean) => ({
+    trustHostKey: trust,
     host: ssh.host,
     port: ssh.port || 22,
     username: ssh.username,
@@ -168,18 +177,50 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     startIn: ssh.start_in || undefined,
   });
 
-  const test = async () => {
+  const errorText = (e: unknown) => {
+    if (!ipc.isConnectError(e)) return String(e);
+    if (e.kind === "other") return e.message;
+    if (e.kind === "hostKeyChanged") {
+      const port = ssh.port || 22;
+      return t("connect.hostKeyChanged", {
+        host: ssh.host,
+        keyType: e.keyType,
+        fingerprint: e.fingerprint,
+        entry: port === 22 ? ssh.host : `[${ssh.host}]:${port}`,
+      });
+    }
+    return t("connect.hostKeyTitle");
+  };
+
+  // A first-seen host key is a question, not an error: show its
+  // fingerprint and let the user repeat the action with it trusted.
+  const onSftpError = (e: unknown, retry: "test" | "connect") => {
+    if (ipc.isConnectError(e) && e.kind === "unknownHostKey") {
+      setHostKey({ keyType: e.keyType, fingerprint: e.fingerprint, retry });
+      return;
+    }
+    toast(errorText(e), "error");
+  };
+
+  const test = async (opts?: { trust?: boolean }) => {
     if (busy) return;
     setBusy("test");
     try {
-      if (protocol === "sftp") await ipc.sftpTest(sftpParams());
+      if (protocol === "sftp") await ipc.sftpTest(sftpParams(opts?.trust));
       else await ipc.smbTest(smb.server);
       toast(t("connect.testOk"));
     } catch (e) {
-      toast(String(e), "error");
+      onSftpError(e, "test");
     } finally {
       setBusy("");
     }
+  };
+
+  const trustHostKey = () => {
+    const retry = hostKey?.retry;
+    setHostKey(null);
+    if (retry === "test") void test({ trust: true });
+    else if (retry === "connect") void connect({ trust: true });
   };
 
   // Share left empty: ask the server for its share list and let the user pick.
@@ -227,12 +268,12 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     );
   };
 
-  const connect = async () => {
+  const connect = async (opts?: { trust?: boolean }) => {
     if (busy) return;
     setBusy("connect");
     try {
       if (protocol === "sftp") {
-        const res = await ipc.sftpConnect(sftpParams());
+        const res = await ipc.sftpConnect(sftpParams(opts?.trust));
         if (ssh.remember) save();
         close();
         toast(t("status.connected", { host: ssh.host }));
@@ -256,7 +297,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
         await mountSmb(pw);
       }
     } catch (e) {
-      toast(String(e), "error");
+      onSftpError(e, "connect");
       setBusy("");
     }
   };
@@ -554,6 +595,31 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
             <div className="buttons">
               <button className="btn" onClick={() => setShareList(null)}>
                 {t("dialog.cancel")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {hostKey && (
+        <div
+          className="overlay"
+          onMouseDown={(e) => e.target === e.currentTarget && setHostKey(null)}
+        >
+          <div className="dialog">
+            <h2>{t("connect.hostKeyTitle")}</h2>
+            <div className="settings-note">
+              {t("connect.hostKeyBody", { host: ssh.host, port: ssh.port || 22 })}
+            </div>
+            <div className="list">
+              <div>{`${hostKey.keyType} ${hostKey.fingerprint}`}</div>
+            </div>
+            <div className="settings-note">{t("connect.hostKeyHint")}</div>
+            <div className="buttons">
+              <button className="btn" autoFocus onClick={() => setHostKey(null)}>
+                {t("dialog.cancel")}
+              </button>
+              <button className="btn primary" onClick={trustHostKey}>
+                {t("connect.hostKeyTrust")}
               </button>
             </div>
           </div>

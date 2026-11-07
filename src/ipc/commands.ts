@@ -105,7 +105,18 @@ export interface SftpParams {
   identityFile?: string;
   passphrase?: string;
   startIn?: string;
+  /** The user confirmed a first-seen host key: record it in known_hosts. */
+  trustHostKey?: boolean;
 }
+
+/** Rejection value of sftp_connect / sftp_test. */
+export type ConnectError =
+  | { kind: "unknownHostKey"; keyType: string; fingerprint: string }
+  | { kind: "hostKeyChanged"; keyType: string; fingerprint: string }
+  | { kind: "other"; message: string };
+
+export const isConnectError = (e: unknown): e is ConnectError =>
+  typeof e === "object" && e !== null && typeof (e as { kind?: unknown }).kind === "string";
 
 export const sftpConnect = (params: SftpParams) =>
   invoke<{ connId: number; label: string; home: string }>("sftp_connect", {
