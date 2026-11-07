@@ -397,9 +397,12 @@ fn extract_zip(
             create_dir_inside(&root, &out)?;
             continue;
         }
-        if let Some(parent) = out.parent() {
-            create_dir_inside(&root, parent)?;
-        }
+        // From here on, work in the entry's real folder: the one checked
+        // to be inside root, whatever links lead to it.
+        let (Some(parent), Some(file_name)) = (out.parent(), out.file_name()) else {
+            continue;
+        };
+        let out = create_dir_inside(&root, parent)?.join(file_name);
         if entry.is_symlink() {
             // The entry's data is the link target, verbatim. A target that
             // leaves `dest` is refused so later entries cannot write
@@ -409,7 +412,7 @@ fn extract_zip(
                 .read_to_string(&mut target)
                 .map_err(|e| e.to_string())?;
             let _ = std::fs::remove_file(&out);
-            symlink_inside(dest, &out, &target)?;
+            symlink_inside(&root, &out, &target)?;
             continue;
         }
         let mut writer = create_file_nofollow(&out)?;
@@ -471,6 +474,7 @@ fn extract_7z(
 /// entry's path so the progress line names it.
 fn extract_tar<R: Read>(reader: R, dest: &Path, detail: &RefCell<String>) -> Result<(), String> {
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    let root = dest.canonicalize().map_err(|e| e.to_string())?;
     let mut tar = tar::Archive::new(reader);
     let entries = tar.entries().map_err(|e| e.to_string())?;
     for entry in entries {
@@ -488,7 +492,7 @@ fn extract_tar<R: Read>(reader: R, dest: &Path, detail: &RefCell<String>) -> Res
                 .link_name()
                 .map_err(|e| e.to_string())?
                 .unwrap_or_default();
-            if link_inside(dest, &link, &target.to_string_lossy()).is_none() {
+            if link_inside(&root, &link, &target.to_string_lossy()).is_none() {
                 return Err(format!(
                     "{}: symlink to {} escapes the destination folder",
                     link.display(),
@@ -821,6 +825,114 @@ mod tests {
             assert_eq!(err, cancelled_err(), "{name}");
             let written = std::fs::metadata(out.join("big.bin")).map(|m| m.len()).unwrap_or(0);
             assert!(written < data.len() as u64, "{name}: stopped mid-file ({written})");
+        }
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// Every symlink under `root`, resolved by the OS, must land inside it.
+    fn assert_no_link_escapes(root: &Path) {
+        let canon = root.canonicalize().unwrap();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for e in std::fs::read_dir(&dir).unwrap().flatten() {
+                let p = e.path();
+                let meta = std::fs::symlink_metadata(&p).unwrap();
+                if meta.is_symlink() {
+                    // Resolve the link's directory for real, then the target
+                    // the way the kernel would (missing tails allowed).
+                    let real_dir = p.parent().unwrap().canonicalize().unwrap();
+                    let target = std::fs::read_link(&p).unwrap();
+                    let mut at = real_dir.clone();
+                    for c in target.components() {
+                        match c {
+                            std::path::Component::ParentDir => {
+                                at.pop();
+                            }
+                            std::path::Component::Normal(n) => {
+                                at.push(n);
+                                if let Ok(r) = at.canonicalize() {
+                                    at = r;
+                                }
+                            }
+                            std::path::Component::RootDir => at = PathBuf::from("/"),
+                            _ => {}
+                        }
+                    }
+                    assert!(at.starts_with(&canon), "{} -> {} lands at {}", p.display(), target.display(), at.display());
+                } else if meta.is_dir() {
+                    stack.push(p);
+                }
+            }
+        }
+    }
+
+    fn zip_of_links(path: &Path, links: &[(&str, &str)]) {
+        let file = std::fs::File::create(path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default();
+        for (name, target) in links {
+            zip.add_symlink(*name, *target, opts).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    fn tar_of_links(path: &Path, links: &[(&str, &str)]) {
+        let mut tar = tar::Builder::new(std::fs::File::create(path).unwrap());
+        for (name, target) in links {
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_size(0);
+            tar.append_link(&mut header, name, target).unwrap();
+        }
+        tar.finish().unwrap();
+    }
+
+    /// Links that only look inside when resolved by text: one created
+    /// through a link-to-parent folder, and a target that climbs after
+    /// passing through such a link.
+    #[test]
+    fn chained_symlinks_cannot_escape() {
+        let chains: [&[(&str, &str)]; 2] = [
+            &[("a/b", ".."), ("a/b/esc", "..")],
+            &[("a/b", ".."), ("x", "a/b/../..")],
+        ];
+        for (i, links) in chains.iter().enumerate() {
+            let work = tmp(&format!("chain{i}"));
+            for (kind, archive) in [("zip", work.join("t.zip")), ("tar", work.join("t.tar"))] {
+                if kind == "zip" {
+                    zip_of_links(&archive, links);
+                } else {
+                    tar_of_links(&archive, links);
+                }
+                let out = work.join(format!("x_{kind}"));
+                let result = extract_op(&mut test_ctx(), vec![archive], out.clone());
+                assert!(result.is_err(), "chain {i} {kind}: extraction should refuse");
+                assert_no_link_escapes(&out);
+            }
+            let _ = std::fs::remove_dir_all(&work);
+        }
+    }
+
+    #[test]
+    fn ordinary_relative_links_still_extract() {
+        let work = tmp("links_ok");
+        let links: &[(&str, &str)] = &[
+            ("lib/libfoo.so", "libfoo.so.1"),
+            ("bin/tool", "../lib/libfoo.so"),
+            ("share/doc/a/link", "../../../bin/tool"),
+            ("self", "."),
+        ];
+        for (kind, archive) in [("zip", work.join("t.zip")), ("tar", work.join("t.tar"))] {
+            if kind == "zip" {
+                zip_of_links(&archive, links);
+            } else {
+                tar_of_links(&archive, links);
+            }
+            let out = work.join(format!("x_{kind}"));
+            extract_op(&mut test_ctx(), vec![archive], out.clone()).unwrap();
+            assert!(out.join("t/bin/tool").is_symlink(), "{kind}");
+            assert!(out.join("t/share/doc/a/link").is_symlink(), "{kind}");
+            assert_no_link_escapes(&out);
         }
         let _ = std::fs::remove_dir_all(&work);
     }

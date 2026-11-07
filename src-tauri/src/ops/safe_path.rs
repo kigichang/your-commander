@@ -9,19 +9,45 @@ fn escape_err(path: &Path) -> String {
     format!("{}: path escapes the destination folder", path.display())
 }
 
-/// Where a symlink at `link` pointing to `target` would land, resolved
-/// lexically from `root`. `None` when the target is absolute, or climbs
-/// above `root` via `..` — the link must not be created in that case.
-pub fn link_inside(root: &Path, link: &Path, target: &str) -> Option<PathBuf> {
-    let parent = link.parent()?.strip_prefix(root).ok()?;
-    let target = Path::new(target);
-    let mut cur = root.to_path_buf();
-    for c in parent.components().chain(target.components()) {
+/// `path` as the OS would reach it: the deepest existing ancestor with
+/// every symlink resolved, then the missing tail as given. The tail is
+/// created later as plain folders, so text is the truth for it.
+fn real_path(path: &Path) -> Option<PathBuf> {
+    let mut existing = path;
+    let mut tail = Vec::new();
+    while std::fs::symlink_metadata(existing).is_err() {
+        match existing.components().next_back()? {
+            Component::Normal(name) => tail.push(name),
+            _ => return None,
+        }
+        existing = existing.parent()?;
+    }
+    let mut real = existing.canonicalize().ok()?;
+    real.extend(tail.iter().rev());
+    Some(real)
+}
+
+/// Where a link in the real folder `dir` pointing to `target` lands, if
+/// that is inside the canonical `root`. `..` may only lead the target:
+/// from a real folder each one is the true parent, but after a name that
+/// is itself a link it would climb from wherever that link points. With
+/// every link built this way, following names down from a link inside
+/// `root` can never leave it.
+fn resolve_target(root: &Path, dir: &Path, target: &str) -> Option<PathBuf> {
+    if !dir.starts_with(root) {
+        return None;
+    }
+    let mut cur = dir.to_path_buf();
+    let mut descended = false;
+    for c in Path::new(target).components() {
         match c {
-            Component::Normal(p) => cur.push(p),
+            Component::Normal(p) => {
+                cur.push(p);
+                descended = true;
+            }
             Component::CurDir => {}
             Component::ParentDir => {
-                if cur == root {
+                if descended || cur == root {
                     return None;
                 }
                 cur.pop();
@@ -32,15 +58,29 @@ pub fn link_inside(root: &Path, link: &Path, target: &str) -> Option<PathBuf> {
     Some(cur)
 }
 
-/// Create `link -> target` only when the target stays inside `root`.
+/// Where a symlink at `link` pointing to `target` would land, if inside
+/// the canonical `root`. The link's folder is resolved for real first, so
+/// a link created through another link (a/b -> .., then a/b/esc -> ..) is
+/// judged where it actually ends up. `None`: the link must not be made.
+pub fn link_inside(root: &Path, link: &Path, target: &str) -> Option<PathBuf> {
+    resolve_target(root, &real_path(link.parent()?)?, target)
+}
+
+/// Create `link -> target` only when the target stays inside the
+/// canonical `root`. The link is made in its real folder, the one
+/// that was checked.
 pub fn symlink_inside(root: &Path, link: &Path, target: &str) -> Result<(), String> {
-    if link_inside(root, link, target).is_none() {
-        return Err(format!(
+    let refuse = || {
+        format!(
             "{}: symlink to {target} escapes the destination folder",
             link.display()
-        ));
-    }
-    std::os::unix::fs::symlink(target, link).map_err(|e| format!("{}: {e}", link.display()))
+        )
+    };
+    let dir = link.parent().and_then(real_path).ok_or_else(refuse)?;
+    let name = link.file_name().ok_or_else(refuse)?;
+    resolve_target(root, &dir, target).ok_or_else(refuse)?;
+    let at = dir.join(name);
+    std::os::unix::fs::symlink(target, &at).map_err(|e| format!("{}: {e}", link.display()))
 }
 
 /// Create `dir` (and missing parents) under the canonical `root`, refusing
@@ -102,33 +142,47 @@ mod tests {
     #[test]
     fn link_targets_inside_root_resolve() {
         let root = Path::new("/r");
-        assert_eq!(
-            link_inside(root, Path::new("/r/a/l"), "../b"),
-            Some(PathBuf::from("/r/b"))
-        );
-        assert_eq!(
-            link_inside(root, Path::new("/r/l"), "."),
-            Some(PathBuf::from("/r"))
-        );
-        assert_eq!(
-            link_inside(root, Path::new("/r/l"), "x/./y"),
-            Some(PathBuf::from("/r/x/y"))
-        );
-        assert_eq!(
-            link_inside(root, Path::new("/r/a/l"), "b/../../c"),
-            Some(PathBuf::from("/r/c"))
-        );
+        let at = |dir: &str, t: &str| resolve_target(root, Path::new(dir), t);
+        assert_eq!(at("/r/a", "../b"), Some(PathBuf::from("/r/b")));
+        assert_eq!(at("/r", "."), Some(PathBuf::from("/r")));
+        assert_eq!(at("/r", "x/./y"), Some(PathBuf::from("/r/x/y")));
+        assert_eq!(at("/r/a/b", "./../../c"), Some(PathBuf::from("/r/c")));
     }
 
     #[test]
     fn link_targets_escaping_root_are_rejected() {
         let root = Path::new("/r");
-        assert_eq!(link_inside(root, Path::new("/r/l"), "/etc"), None);
-        assert_eq!(link_inside(root, Path::new("/r/l"), ".."), None);
-        assert_eq!(link_inside(root, Path::new("/r/a/l"), "../../.."), None);
-        assert_eq!(link_inside(root, Path::new("/r/l"), "x/../../y"), None);
+        let at = |dir: &str, t: &str| resolve_target(root, Path::new(dir), t);
+        assert_eq!(at("/r", "/etc"), None);
+        assert_eq!(at("/r", ".."), None);
+        assert_eq!(at("/r/a", "../../.."), None);
         // A link placed outside the root is never acceptable either.
-        assert_eq!(link_inside(root, Path::new("/other/l"), "x"), None);
+        assert_eq!(at("/other", "x"), None);
+        // ".." after a name could climb from wherever that name links to.
+        assert_eq!(at("/r", "x/../y"), None);
+        assert_eq!(at("/r/a", "b/../../c"), None);
+    }
+
+    #[test]
+    fn links_are_judged_in_their_real_folder() {
+        let work = tmp("real");
+        let root = work.join("root");
+        std::fs::create_dir_all(root.join("a")).unwrap();
+        let root = root.canonicalize().unwrap();
+        // a/b points back at root: a link "inside" a/b really sits in root.
+        symlink_inside(&root, &root.join("a/b"), "..").unwrap();
+        assert_eq!(link_inside(&root, &root.join("a/b/esc"), ".."), None);
+        assert!(symlink_inside(&root, &root.join("a/b/esc"), "..").is_err());
+        assert!(!root.join("esc").is_symlink());
+        // One level up from a/b's real folder (root) is outside.
+        assert!(symlink_inside(&root, &root.join("a/b/ok"), "a").is_ok());
+        assert!(root.join("ok").is_symlink(), "made in the real folder");
+        // A missing tail under a real folder resolves by text.
+        assert_eq!(
+            link_inside(&root, &root.join("new/deeper/l"), "../x"),
+            Some(root.join("new/x"))
+        );
+        let _ = std::fs::remove_dir_all(&work);
     }
 
     #[test]
@@ -185,6 +239,7 @@ mod tests {
         let work = tmp("ln");
         let root = work.join("root");
         std::fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
         assert!(symlink_inside(&root, &root.join("bad"), "/etc").is_err());
         assert!(!root.join("bad").is_symlink());
         assert!(symlink_inside(&root, &root.join("good"), "x/y").is_ok());
