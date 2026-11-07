@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import { useScaled } from "../lib/fontScale";
 import { humanSize } from "../lib/format";
+import { decodeText } from "../lib/text";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { Overlay } from "./Overlay";
@@ -19,10 +20,6 @@ type Row = {
   rn?: number;
   rt?: string;
 };
-
-function isBinary(buf: ArrayBuffer): boolean {
-  return new Uint8Array(buf, 0, Math.min(buf.byteLength, 8192)).includes(0);
-}
 
 function bytesEqual(a: ArrayBuffer, b: ArrayBuffer): boolean {
   if (a.byteLength !== b.byteLength) return false;
@@ -143,7 +140,9 @@ export function CompareDialog({ d }: { d: Extract<Dialog, { type: "compare" }> }
           ipc.readPreview(d.right.location, d.right.path, CMP_MAX),
         ]);
         if (stale) return;
-        if (isBinary(la) || isBinary(ra)) {
+        // Same sniff as Quick View: UTF-16 (BOM) files compare as text.
+        const [lt, rt] = [decodeText(la), decodeText(ra)];
+        if (lt === null || rt === null) {
           setState({
             phase: "binary",
             equal: bytesEqual(la, ra),
@@ -152,8 +151,7 @@ export function CompareDialog({ d }: { d: Extract<Dialog, { type: "compare" }> }
           });
           return;
         }
-        const dec = new TextDecoder();
-        const rows = diffRows(dec.decode(la).split("\n"), dec.decode(ra).split("\n"));
+        const rows = diffRows(lt.split("\n"), rt.split("\n"));
         setState({
           phase: "text",
           rows,

@@ -8,6 +8,7 @@ import { isJson, prettyJson } from "../lib/json";
 import { baseName, parentPath } from "../lib/path";
 import { isMac } from "../lib/platform";
 import { visibleEntries } from "../lib/selectors";
+import { decodeText } from "../lib/text";
 import { AudioPreview } from "./AudioPreview";
 import { HtmlPreview } from "./HtmlPreview";
 import { JsonPreview } from "./JsonPreview";
@@ -474,18 +475,8 @@ export function QuickView() {
         } else if (TEXT_EXTS.has(entry.ext) || (entry.ext === "" && entry.size <= TEXT_MAX)) {
           const buf = await ipc.readPreview(tab.location, entry.path, TEXT_MAX);
           if (stale) return;
-          const bytes = new Uint8Array(buf);
-          // A UTF-16 BOM marks text even though its ASCII is full of NULs.
-          const utf16 =
-            bytes[0] === 0xff && bytes[1] === 0xfe
-              ? "utf-16le"
-              : bytes[0] === 0xfe && bytes[1] === 0xff
-                ? "utf-16be"
-                : null;
-          // Crude binary sniff: NUL byte in the first 8 KB means no text.
-          const probe = bytes.subarray(0, 8192);
-          if (!utf16 && probe.includes(0)) return setPreview({ kind: "none" });
-          setPreview({ kind: "text", text: new TextDecoder(utf16 ?? "utf-8").decode(bytes) });
+          const text = decodeText(buf);
+          setPreview(text === null ? { kind: "none" } : { kind: "text", text });
         } else {
           // Nothing knows how to preview this type.
           setPreview({ kind: "none" });

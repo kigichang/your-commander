@@ -468,6 +468,10 @@
   - `src/components/QuickView.tsx:475-485`
 - **說明**：兩者皆掃描前 8,192 bytes 是否含 `0x00`，但 `QuickView.tsx` 會先檢查 UTF-16 LE/BE BOM（`0xFF 0xFE` / `0xFE 0xFF`）並以對應編碼解碼，`CompareDialog.tsx` 則一律視為二進位檔而無法比對 UTF-16 文字檔。
 - **建議**：抽取共用 `decodeTextBuffer(buf: ArrayBuffer): string | null` 至 `src/lib/`。
+- **處理結果**（Claude，2026-11-07）：成立，已修（採用建議）。
+  - 確認：`CompareDialog::isBinary` 只看前 8 KB 有沒有 NUL。UTF-16 文字檔的 ASCII 字元每個都帶一個 0x00，所以一律被判為二進位，只能顯示「相同／不同」，無法逐行比對；Quick View 先看 BOM，所以能正常顯示同一個檔案。
+  - **修正**：新增 `src/lib/text.ts::decodeText(buf): string | null`：有 UTF-16 LE/BE BOM 就依 BOM 解碼（BOM 不會出現在文字中），否則前 8 KB 有 NUL 就回傳 null（視為二進位），其餘以 UTF-8 解碼。`QuickView` 的文字預覽與 `CompareDialog` 都改用它；`CompareDialog` 刪除 `isBinary`，兩邊都能解碼才做逐行比對。因為 BOM 會被移除，一邊 UTF-16、一邊 UTF-8 的相同內容也會比對為相同。
+  - **測試**：前端沒有測試框架；用 esbuild 打包 `decodeText` 在 Node 中檢查 6 種情況（UTF-8 含中文、UTF-16 LE、UTF-16 BE、ELF 二進位、NUL 在 8 KB 之後、空檔案），全部通過；腳本放在 scratchpad 未納入專案。`tsc` 通過。未在 app 中實際比對 UTF-16 檔案。
 
 ### 3.7 其他可整併的重複工具函式與內部匯出
 - **後端重複邏輯**：
