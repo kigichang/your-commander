@@ -21,7 +21,9 @@ pub fn list_dir(path: &Path) -> io::Result<Vec<FsEntry>> {
             entry.metadata()
         };
         let (is_dir, size, modified) = match meta {
-            Ok(m) => (path.is_dir(), m.len(), m.modified().ok().map(epoch_millis)),
+            // `m` is already the target's metadata (or a broken link's
+            // own): asking `path` again would cost one more stat per entry.
+            Ok(m) => (m.is_dir(), m.len(), m.modified().ok().map(epoch_millis)),
             Err(_) => (false, 0, None),
         };
         let ext = if is_dir {
@@ -325,5 +327,26 @@ mod tests {
         );
         assert_eq!(gvfs_display_name("sftp:host=box"), None);
         assert_eq!(gvfs_display_name("smb-share:server=nas"), None);
+    }
+
+    #[test]
+    fn listing_follows_links_for_type_and_size() {
+        let dir = std::env::temp_dir().join(format!("yc_local_ls_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("f.txt"), b"12345").unwrap();
+        std::os::unix::fs::symlink("sub", dir.join("dir_link")).unwrap();
+        std::os::unix::fs::symlink("f.txt", dir.join("file_link")).unwrap();
+        std::os::unix::fs::symlink("missing", dir.join("broken")).unwrap();
+        let list = super::list_dir(&dir).unwrap();
+        let get = |n: &str| list.iter().find(|e| e.name == n).unwrap();
+        assert!(get("sub").is_dir && !get("sub").is_symlink);
+        assert!(!get("f.txt").is_dir);
+        assert_eq!(get("f.txt").size, 5);
+        assert!(get("dir_link").is_dir && get("dir_link").is_symlink);
+        assert!(!get("file_link").is_dir && get("file_link").is_symlink);
+        assert_eq!(get("file_link").size, 5, "the target's size");
+        assert!(!get("broken").is_dir && get("broken").is_symlink);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

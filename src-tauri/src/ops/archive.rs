@@ -59,7 +59,8 @@ fn collect_tree(sources: &[PathBuf]) -> Result<Vec<(String, PathBuf, bool)>, Str
         rel: &str,
         path: &Path,
     ) -> Result<(), String> {
-        if path.is_dir() && !path.is_symlink() {
+        // lstat: a link to a folder is stored as a link, not walked.
+        if path.symlink_metadata().is_ok_and(|m| m.is_dir()) {
             out.push((rel.to_string(), path.to_path_buf(), true));
             let entries =
                 std::fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -108,8 +109,10 @@ pub fn compress_op(
     let tree = collect_tree(&sources)?;
     ctx.total_bytes = tree
         .iter()
-        .filter(|(_, p, is_dir)| !is_dir && !p.is_symlink())
-        .map(|(_, p, _)| p.metadata().map(|m| m.len()).unwrap_or(0))
+        .filter(|(_, _, is_dir)| !is_dir)
+        .filter_map(|(_, p, _)| p.symlink_metadata().ok())
+        .filter(|m| !m.is_symlink())
+        .map(|m| m.len())
         .sum();
 
     let result = match format {

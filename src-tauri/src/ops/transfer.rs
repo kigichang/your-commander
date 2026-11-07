@@ -7,16 +7,25 @@ const CHUNK: usize = 1024 * 1024;
 /// Walk sources and sum file sizes so progress has a denominator, honoring
 /// the mask and follow-symlinks options.
 pub(super) fn total_bytes(ctx: &OpCtx, paths: &[PathBuf]) -> u64 {
+    // One lstat per entry; a link is stat'ed again only when followed.
     fn walk(ctx: &OpCtx, path: &Path) -> u64 {
-        if path.is_symlink() && !(ctx.options.follow_symlinks && path.is_file()) {
+        let Ok(meta) = path.symlink_metadata() else {
             return 0;
+        };
+        let masked = || ctx.mask_matches(&path.file_name().unwrap_or_default().to_string_lossy());
+        if meta.is_symlink() {
+            // Only file links count, and only when followed.
+            return match path.metadata() {
+                Ok(m) if ctx.options.follow_symlinks && m.is_file() && masked() => m.len(),
+                _ => 0,
+            };
         }
-        if path.is_dir() {
+        if meta.is_dir() {
             std::fs::read_dir(path)
                 .map(|rd| rd.flatten().map(|e| walk(ctx, &e.path())).sum())
                 .unwrap_or(0)
-        } else if ctx.mask_matches(&path.file_name().unwrap_or_default().to_string_lossy()) {
-            path.metadata().map(|m| m.len()).unwrap_or(0)
+        } else if masked() {
+            meta.len()
         } else {
             0
         }
@@ -131,7 +140,8 @@ fn copy_dir(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
         }
         let child_src = entry.path();
         let child_dest = dest.join(entry.file_name());
-        if child_src.is_dir() && !child_src.is_symlink() {
+        // From readdir: a link reports as a link, never as a directory.
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
             copy_dir(ctx, &child_src, &child_dest)?;
         } else {
             copy_file(ctx, &child_src, &child_dest)?;
@@ -675,6 +685,44 @@ mod tests {
         let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
         copy_op(&mut ctx, vec![src.join("l")], dest.clone(), false).unwrap();
         assert_eq!(std::fs::read_link(dest.join("l")).unwrap(), PathBuf::from("elsewhere"));
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// A tree with a file, a folder, a link to each, and a broken link.
+    fn link_tree(work: &Path) -> PathBuf {
+        let src = work.join("src");
+        std::fs::create_dir_all(src.join("dir")).unwrap();
+        std::fs::write(src.join("f.txt"), b"12345").unwrap();
+        std::fs::write(src.join("dir/inner.txt"), b"123").unwrap();
+        std::os::unix::fs::symlink("f.txt", src.join("file_link")).unwrap();
+        std::os::unix::fs::symlink("dir", src.join("dir_link")).unwrap();
+        std::os::unix::fs::symlink("missing", src.join("broken")).unwrap();
+        src
+    }
+
+    #[test]
+    fn totals_and_folder_copies_treat_links_as_before() {
+        let work = tmp("links");
+        let src = link_tree(&work);
+
+        // Links count nothing unless followed; then only file links do.
+        let mut ctx = test_ctx();
+        assert_eq!(total_bytes(&ctx, std::slice::from_ref(&src)), 8);
+        let mut opts = ctx.options.clone();
+        opts.follow_symlinks = true;
+        ctx.set_options(opts);
+        assert_eq!(total_bytes(&ctx, std::slice::from_ref(&src)), 13);
+        assert_eq!(total_bytes(&ctx, &[src.join("broken")]), 0);
+
+        // A folder copy recreates links, never walks into a folder link.
+        let dest = work.join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+        copy_op(&mut test_ctx(), vec![src.clone()], dest.clone(), false).unwrap();
+        let out = dest.join("src");
+        assert!(out.join("dir_link").is_symlink());
+        assert!(out.join("file_link").is_symlink());
+        assert!(out.join("broken").is_symlink());
+        assert_eq!(std::fs::read(out.join("dir/inner.txt")).unwrap(), b"123");
         let _ = std::fs::remove_dir_all(&work);
     }
 }

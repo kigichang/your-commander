@@ -211,6 +211,16 @@
 - **修正建議**：
   - 將 `src-tauri/src/fs/local.rs:24` 的 `path.is_dir()` 改為 `m.is_dir()`。
   - 在 `ops/` 各遞迴走訪函式中改用 `entry.file_type()` 與單次 `entry.metadata()`。
+- **處理結果**（Claude，2026-11-07）：成立，已修。
+  - **查證**：`local.rs` 中 `m` 對一般項目與有效 symlink 即為目標的 metadata，對懸空 symlink 為 link 本身（兩者 `is_dir()` 皆為 false），因此 `m.is_dir()` 與 `path.is_dir()` 結果完全相同，後者只是多一次 `stat`。`ops/` 的走訪函式也確實對每個檔案重複查詢。
+  - **已修**（每個一般檔案的 syscall 數）：
+    - `fs/local.rs::list_dir`：`path.is_dir()` → `m.is_dir()`（2 → 1；有效 symlink 3 → 2）。
+    - `ops/sync.rs::collect_local`：改用 `entry.file_type()`（macOS/Linux 上多半直接取自 readdir 的 `d_type`）與 `entry.metadata()`（3 → 1）。
+    - `ops/transfer.rs::total_bytes`：單次 `symlink_metadata()`，只有在要跟隨 symlink 時才再 `stat` 目標（3 → 1）。
+    - `ops/transfer.rs::copy_dir`：判斷子項是否為資料夾改用 `entry.file_type()`（2 → 0）。
+    - `ops/archive.rs::collect_tree` 與 `compress_op` 的總量計算：各改為單次 `symlink_metadata()`（2 → 1）。
+  - **語意保持不變**：symlink 一律不走進去、只有開啟「跟隨 symlink」時才計入檔案 link 的大小、懸空 link 不計。新增 `listing_follows_links_for_type_and_size`、`local_listing_skips_links`、`totals_and_folder_copies_treat_links_as_before` 三個測試涵蓋這些規則，並在**修改前**與**修改後**的程式碼上都執行過，兩者皆通過（全部 98 個測試）。
+  - **未量測**：syscall 減少是依程式碼逐一計算，未以 dtruss／strace 實測，也未在網路磁碟上量測實際耗時。
 
 ### 2.2 `[High]` SFTP 目錄同步上傳時的嚴重 N+1 網路來回（`ensure_remote_parents`）
 - **檔案位置**：

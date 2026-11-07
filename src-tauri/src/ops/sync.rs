@@ -38,13 +38,15 @@ fn collect_local(base: &Path, rel: &str, out: &mut BTreeMap<String, SideInfo>) -
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         let child_rel = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
-        let path = entry.path();
-        if path.is_symlink() {
+        // file_type() comes from readdir itself on macOS/Linux, and for a
+        // non-link entry metadata()'s lstat is the stat: one call a file.
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_symlink() {
             continue;
         }
-        if path.is_dir() {
+        if kind.is_dir() {
             collect_local(base, &child_rel, out)?;
-        } else if let Ok(meta) = path.metadata() {
+        } else if let Ok(meta) = entry.metadata() {
             out.insert(
                 child_rel,
                 SideInfo {
@@ -332,5 +334,19 @@ mod tests {
         }
         assert!(!outside.exists());
         let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_listing_skips_links() {
+        let base = tmp("links");
+        std::fs::create_dir_all(base.join("dir")).unwrap();
+        std::fs::write(base.join("dir/a.txt"), b"abc").unwrap();
+        std::os::unix::fs::symlink("dir", base.join("dir_link")).unwrap();
+        std::os::unix::fs::symlink("dir/a.txt", base.join("file_link")).unwrap();
+        let mut out = BTreeMap::new();
+        collect_local(&base, "", &mut out).unwrap();
+        assert_eq!(out.keys().collect::<Vec<_>>(), vec!["dir/a.txt"]);
+        assert_eq!(out["dir/a.txt"].size, 3);
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
