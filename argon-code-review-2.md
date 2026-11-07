@@ -274,6 +274,14 @@
 - **修正建議**：
   - 將 `TabStrip`、`PanelBar`、`PathBar`、`StatusLine` 以 `React.memo` 包裝，並只傳入或選取所需的原始型別欄位（如 `tab.path`、`tab.remoteLabel`、`tab.location`、`tab.filter`）。
   - 將 `useSettings((s) => s.config)` 改為細粒度 selector（`s.config?.favorites`、`s.config?.qv_autoplay ?? false`）。
+- **處理結果**（Claude，2026-11-07）：現象存在但成本很低，嚴重度應下修為 Low；採納細粒度 selector，不採納 `React.memo` 重構。
+  - **查證**：
+    - 移動游標時確實會重繪 `Panel`、`TabStrip`、`PanelBar`、`PathBar`、`StatusLine`，但都很輕：`TabStrip` 只有幾個分頁按鈕；`PathBar` 只有一個 input；`StatusLine` 的 O(n) 計算已包在 `useMemo`，依賴不含游標；`PanelBar` 的磁碟清單 `vols` 只在選單打開時才抓取，平常是空陣列，`.filter().sort()` 幾乎沒有成本。
+    - 真正重的檔案列表已處理好：`Row`／`Tile` 為 `memo`，移動游標只重繪變動的兩列；`visibleEntries` 以 `entries` 陣列為鍵做 WeakMap 快取，游標移動直接命中。
+    - 另一側面板不會重繪：`updateTab` 保留另一側的物件參照，其 selector 拿到同一參照。
+  - **已改**（建議第二點）：`PanelBar` 只訂閱 `s.config?.favorites`，`QuickView` 只訂閱 `s.config?.qv_autoplay ?? false`。settings store 以 spread 合併 patch，未變動欄位保留參照，因此每次導覽儲存 `recent_dirs`／面板狀態時，這兩個元件不再因此重繪。
+  - **不採納**（建議第一點）：`TabStrip` 自己就訂閱 `s.panels[side]`，游標一動其 props／state 就變，`React.memo` 擋不住；要真正避免得改寫成回傳分頁標籤的 selector 搭配淺比較，改動量不小，省下的只是幾個輕量元件的微秒級重繪。
+  - **未驗證**：未以 React Profiler 實測重繪時間；`npx tsc -b` 通過。
 
 ### 2.5 `[High]` 每次切換本機目錄都觸發兩次 `settings.save()` 與兩次設定檔寫入 + 主執行緒同步 I/O
 - **檔案位置**：

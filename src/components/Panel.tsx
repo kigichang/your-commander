@@ -134,7 +134,9 @@ function TabStrip({ side }: { side: Side }) {
 function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
   const { t } = useTranslation();
   const home = useSettings((s) => s.home);
-  const config = useSettings((s) => s.config);
+  // Just the favorites: other settings saves (recent folders, panel state
+  // on every navigation) need not re-render the bar.
+  const favorites = useSettings((s) => s.config?.favorites);
   const [menuOpen, setMenuOpen] = useState(false);
   const [vols, setVols] = useState<VolumeInfo[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -169,14 +171,14 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
       return tab.path === p || tab.path.startsWith(p + "/");
     })
     .sort((a, b) => b.path.length - a.path.length)[0];
-  const isFav = config?.favorites.some((f) => f.path === tab.path) ?? false;
+  const isFav = favorites?.some((f) => f.path === tab.path) ?? false;
 
   const toggleFavorite = () => {
-    if (!config) return;
-    const favorites = isFav
-      ? config.favorites.filter((f) => f.path !== tab.path)
-      : [...config.favorites, { name: baseName(tab.path), path: tab.path }];
-    useSettings.getState().save({ favorites });
+    if (!favorites) return;
+    const next = isFav
+      ? favorites.filter((f) => f.path !== tab.path)
+      : [...favorites, { name: baseName(tab.path), path: tab.path }];
+    useSettings.getState().save({ favorites: next });
   };
 
   return (
@@ -228,11 +230,11 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
                 <Icon of={House} size={14} /> {t("panel.home")}
               </span>
             </button>
-            {config && config.favorites.length > 0 && (
+            {favorites && favorites.length > 0 && (
               <>
                 <div className="sep" />
                 <div className="headline">{t("panel.favorites")}</div>
-                {config.favorites.map((f) => (
+                {favorites.map((f) => (
                   <button
                     key={f.path}
                     className="item"

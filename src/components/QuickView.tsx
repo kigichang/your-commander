@@ -282,7 +282,7 @@ export function QuickView() {
     const side = s.quickViewSide ?? 0;
     return s.panels[side].tabs[s.panels[side].active];
   });
-  const config = useSettings((s) => s.config);
+  const autoplay = useSettings((s) => s.config?.qv_autoplay ?? false);
   const browseSide = usePanels((s) => s.otherSide(s.quickViewSide ?? 0));
   const tab = usePanels((s) => s.panels[browseSide].tabs[s.panels[browseSide].active]);
   const showHidden = useSettings(selectShowHidden);
@@ -585,7 +585,7 @@ export function QuickView() {
           <VideoPreview
             key={preview.url}
             url={preview.url}
-            autoPlay={config?.qv_autoplay ?? false}
+            autoPlay={autoplay}
             isStale={preview.isStale}
             onMeta={(v) => {
               if (v.videoWidth > 0 && v.videoHeight > 0) {
