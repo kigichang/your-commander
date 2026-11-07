@@ -457,6 +457,10 @@
   - `src/components/SettingsDialog.tsx:22-23, 74-76`
 - **說明**：`SECTIONS` 與 `READY` 皆包含相同的 9 個分頁名稱，`disabled={!READY.has(s)}` 與 `t("status.comingSoon")` 為所有設定頁實作完成前的殘留程式碼。
 - **建議**：移除 `READY` 常數與相關判斷。
+- **處理結果**（Claude，2026-11-07）：成立，已修。
+  - `READY` 與 `SECTIONS` 內容完全相同，`disabled`／`title`／`onClick` 的判斷永遠成立，是開發過程中的殘留。已移除 `READY`，分頁按鈕直接 `setSection(s)`。
+  - `status.comingSoon` 字串保留：`ConnectDialog` 的 FTP／S3／WebDAV（真的尚未實作，它的 `READY` 仍有作用）與 `keymap/actions.ts` 的 `edit` 動作還在使用。
+  - **測試**：純刪除死碼，行為不變；`tsc` 通過。
 
 ### 3.6 `QuickView.tsx` 與 `CompareDialog.tsx` 重複的二進位檔偵測邏輯（且 `CompareDialog` 未支援 UTF-16）
 - **檔案位置**：
