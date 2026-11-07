@@ -1,8 +1,8 @@
 use crate::fs::local::{self, VolumeInfo};
 use crate::platform;
 use crate::state::AppState;
-use std::path::PathBuf;
-use super::blocking;
+use std::path::{Path, PathBuf};
+use super::{blocking, media_input};
 use tauri::Manager;
 
 pub use crate::platform::OpenApp;
@@ -138,6 +138,13 @@ fn probe_duration(ffmpeg: &std::path::Path, src: &std::path::Path) -> Option<f64
     Some(h * 3600.0 + m * 60.0 + s).filter(|d| *d > 0.0)
 }
 
+/// The hidden work file `repair_video` writes next to `original`.
+fn repair_work_file(original: &Path) -> Result<PathBuf, String> {
+    let dir = original.parent().ok_or("no parent dir")?;
+    let stem = original.file_stem().ok_or("no file name")?.to_string_lossy();
+    Ok(dir.join(format!(".{stem}_fix.part.mp4")))
+}
+
 /// Re-encode a video the system decoder can't handle into a playable H.264
 /// mp4 (hardware encode on macOS, libx264 elsewhere). Writes a hidden work
 /// file next to the original and returns its path; finish_repair decides
@@ -147,14 +154,9 @@ pub async fn repair_video(
     path: PathBuf,
     on_progress: tauri::ipc::Channel<f32>,
 ) -> Result<PathBuf, String> {
+    media_input(&path)?;
     let ffmpeg = platform::find_ffmpeg().ok_or("ffmpeg not found")?;
-    let dir = path.parent().ok_or("no parent dir")?.to_path_buf();
-    let stem = path
-        .file_stem()
-        .ok_or("no file name")?
-        .to_string_lossy()
-        .to_string();
-    let tmp = dir.join(format!(".{stem}_fix.part.mp4"));
+    let tmp = repair_work_file(&path)?;
     let src = path.clone();
     let out_path = tmp.clone();
     blocking(move || {
@@ -210,6 +212,12 @@ pub async fn finish_repair(
     original: PathBuf,
     action: String,
 ) -> Result<Option<PathBuf>, String> {
+    // Only ever the work file repair_video made for this very original:
+    // this renames over `original` or deletes `tmp`, so neither may be an
+    // arbitrary pair of paths.
+    if tmp != repair_work_file(&original)? {
+        return Err(format!("{}: not the repair file for this video", tmp.display()));
+    }
     blocking(move || match action.as_str() {
         "discard" => {
             let _ = std::fs::remove_file(&tmp);
@@ -291,4 +299,52 @@ pub async fn file_tags(path: PathBuf) -> Vec<String> {
     tauri::async_runtime::spawn_blocking(move || platform::file_tags(&path))
         .await
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finish_repair_only_touches_its_own_work_file() {
+        let dir = std::env::temp_dir().join(format!("yc_repair_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("clip.mkv");
+        let other = dir.join("precious.txt");
+        std::fs::write(&original, b"orig").unwrap();
+        std::fs::write(&other, b"keep").unwrap();
+        let run = |tmp: &Path, action: &str| {
+            tauri::async_runtime::block_on(finish_repair(
+                tmp.to_path_buf(),
+                original.clone(),
+                action.to_string(),
+            ))
+        };
+
+        // Any other file is refused, for every action, and left alone.
+        for action in ["discard", "overwrite", "save"] {
+            assert!(run(&other, action).is_err(), "{action}");
+            assert_eq!(std::fs::read(&other).unwrap(), b"keep");
+            assert_eq!(std::fs::read(&original).unwrap(), b"orig");
+        }
+
+        // The real work file goes through.
+        let tmp = repair_work_file(&original).unwrap();
+        assert_eq!(tmp, dir.join(".clip_fix.part.mp4"));
+        std::fs::write(&tmp, b"fixed").unwrap();
+        let saved = run(&tmp, "save").unwrap().unwrap();
+        assert_eq!(saved, dir.join("clip_fix.mp4"));
+        assert_eq!(std::fs::read(&saved).unwrap(), b"fixed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn media_tools_get_absolute_paths_only() {
+        assert!(media_input(Path::new("/Users/me/clip.mp4")).is_ok());
+        assert!(media_input(Path::new("/tmp/concat:a|b")).is_ok(), "a file, never a protocol");
+        for bad in ["concat:/a|/b", "http://host/x.mp4", "-version", "pipe:0", "clip.mp4"] {
+            assert!(media_input(Path::new(bad)).is_err(), "{bad}");
+        }
+    }
 }

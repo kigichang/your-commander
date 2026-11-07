@@ -2,7 +2,7 @@ use crate::fs::archive_fs;
 use crate::state::{AppState, Location, Resolved};
 use std::io::Read;
 use std::path::PathBuf;
-use super::blocking;
+use super::{blocking, media_input};
 use tauri::State;
 use tauri::ipc::Response;
 
@@ -12,6 +12,7 @@ pub use crate::platform::MediaInfo;
 /// come back as None.
 #[tauri::command]
 pub async fn media_info(path: PathBuf) -> Result<MediaInfo, String> {
+    media_input(&path)?;
     blocking(move || crate::platform::media_info(&path)).await
 }
 
@@ -20,6 +21,7 @@ pub async fn media_info(path: PathBuf) -> Result<MediaInfo, String> {
 /// black lead-ins; 0 when the file is shorter than that.
 #[tauri::command]
 pub async fn video_poster(path: PathBuf) -> Result<Response, String> {
+    media_input(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
         let ffmpeg = crate::platform::find_ffmpeg().ok_or("ffmpeg not found")?;
         for seek in ["5", "0"] {

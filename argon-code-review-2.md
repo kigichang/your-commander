@@ -137,6 +137,11 @@
 - **修正建議**：
   - 在呼叫 `ffmpeg`/`ffprobe` 前檢查 `path.is_absolute()`。
   - 在 `finish_repair` 驗證 `tmp.parent() == original.parent()` 且檔名以 `_fix.part.mp4` 結尾。
+- **處理結果**（Claude，2026-11-07）：前兩點以縱深防禦採納（成本極低）；`stream://` 不採納。嚴重度應下修——這些指令只由 app 自己的前端呼叫，而前端本來就能透過複製／移動／刪除操作處理任意路徑，因此三點都沒有讓攻擊者多得到能力。
+  1. **`finish_repair`：已修。** 新增 `repair_work_file(original)`，`repair_video` 用它產生工作檔路徑；`finish_repair` 重新推導並要求 `tmp` 完全等於它，否則拒絕（比建議的「同資料夾＋後綴」更嚴格）。前端傳入的 `tmp` 一定是 `repair_video` 對同一 `original` 回傳的值，正常流程不受影響；能擋下前端 bug 把錯誤路徑 rename 蓋過原檔或刪除。
+  2. **ffmpeg／ffprobe 路徑：已修。** 新增 `commands::media_input`，`media_info`、`video_poster`、`repair_video` 皆要求絕對路徑。以本機 ffmpeg 實測：相對路徑 `concat:a.txt|a.txt` 會被當成 concat protocol 讀取串接；同名絕對路徑則被當成一般檔案（No such file）。絕對路徑以 `/` 開頭，不可能是 protocol 名稱，也不可能是 ffprobe 的選項（ffprobe 的路徑是位置參數，前導 `-` 會被當成選項）。現行前端只會傳面板上的絕對路徑，此檢查屬保險。
+  3. **`stream://` 不採用 token：不採納。** 自訂 scheme 只有 app 自己的 webview 能發請求；而 `asset://` 的 scope 本來就是 `**`（同樣能讀任意本機檔案），`stream://` 並未擴大能力，回應也刻意不帶 `Access-Control-Allow-Origin`。Linux 的 `media_server` 需要 token 是因為它是 `127.0.0.1` 上的 HTTP 伺服器，本機任何程式與使用者瀏覽器中的網頁都連得到——兩者的暴露面不同。
+  - **測試**：新增 `finish_repair_only_touches_its_own_work_file`（其他檔案在三種 action 下皆被拒且未被動到、真正的工作檔可正常 save）與 `media_tools_get_absolute_paths_only`。
 
 ### 1.7 `[Medium]` SSH Keychain 密碼儲存鍵值未包含 `port`
 - **檔案位置**：
