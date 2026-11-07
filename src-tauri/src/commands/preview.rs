@@ -2,6 +2,7 @@ use crate::fs::archive_fs;
 use crate::state::{AppState, Location, Resolved};
 use std::io::Read;
 use std::path::PathBuf;
+use super::blocking;
 use tauri::State;
 use tauri::ipc::Response;
 
@@ -11,9 +12,7 @@ pub use crate::platform::MediaInfo;
 /// come back as None.
 #[tauri::command]
 pub async fn media_info(path: PathBuf) -> Result<MediaInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || crate::platform::media_info(&path))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || crate::platform::media_info(&path)).await
 }
 
 /// One decoded frame as JPEG, for the static fallback when the webview's
@@ -52,7 +51,7 @@ pub async fn read_preview(
     max_bytes: u64,
 ) -> Result<Response, String> {
     let resolved = state.resolve(&location)?;
-    let bytes = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
+    let bytes = blocking(move || -> Result<Vec<u8>, String> {
         match resolved {
             Resolved::Local => {
                 let mut file = std::fs::File::open(&path)
@@ -70,7 +69,6 @@ pub async fn read_preview(
             }
         }
     })
-    .await
-    .map_err(|e| e.to_string())??;
+    .await?;
     Ok(Response::new(bytes))
 }

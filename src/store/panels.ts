@@ -131,10 +131,6 @@ function updateTab(
   return next;
 }
 
-async function loadEntries(location: Location, path: string): Promise<FsEntry[]> {
-  return ipc.listDir(location, path);
-}
-
 /** Write both sides' local tabs, active tab, view mode, and active sort into
  *  the config. Called after any change worth restoring next launch. */
 function persistPanels() {
@@ -195,8 +191,9 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   quickViewHex: false,
 
   init: async () => {
-    const home = await ipc.homeDir();
-    const config = useSettings.getState().config;
+    const settings = useSettings.getState();
+    const home = settings.home ?? (await ipc.homeDir());
+    const config = settings.config;
     const restore = (
       paths: string[] | undefined,
       fallback: string | null | undefined,
@@ -291,7 +288,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       }),
     }));
     try {
-      const entries = await loadEntries(loc, path);
+      const entries = await ipc.listDir(loc, path);
       set((s) => ({
         panels: updateTab(s.panels, side, tab.id, {
           entries,
@@ -331,7 +328,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       set((s) => ({ panels: updateTab(s.panels, side, tab.id, { loading: true }) }));
     }
     try {
-      const entries = await loadEntries(tab.location, tab.path);
+      const entries = await ipc.listDir(tab.location, tab.path);
       set((s) => ({
         panels: updateTab(s.panels, side, tab.id, (t) => {
           // Keep the cursor on the same entry when it survived the refresh.

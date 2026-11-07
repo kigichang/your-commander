@@ -1,6 +1,7 @@
 use crate::ops::sync::{self, SyncRow};
 use crate::state::{AppState, Location};
 use std::path::PathBuf;
+use super::blocking;
 use tauri::State;
 
 /// Recursive diff of two folders (design screen 1g). `by_content` compares
@@ -16,7 +17,7 @@ pub async fn sync_compare(
 ) -> Result<Vec<SyncRow>, String> {
     let left_conn = state.resolve(&left)?.conn_or_err("Compare")?;
     let right_conn = state.resolve(&right)?.conn_or_err("Compare")?;
-    tauri::async_runtime::spawn_blocking(move || {
+    blocking(move || {
         sync::compare(
             left_conn.as_deref(),
             &left_dir,
@@ -26,5 +27,4 @@ pub async fn sync_compare(
         )
     })
     .await
-    .map_err(|e| e.to_string())?
 }

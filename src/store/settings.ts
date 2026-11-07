@@ -44,6 +44,13 @@ darkMedia.addEventListener("change", () => {
   if (theme !== "light" && theme !== "dark") applyTheme(theme);
 });
 
+/** The config main.tsx fetched for i18n before the first render; the first
+ *  load() takes it instead of asking the backend again. */
+let bootConfig: Config | null = null;
+export const setBootConfig = (config: Config | null) => {
+  bootConfig = config;
+};
+
 interface SettingsStore {
   config: Config | null;
   home: string | null;
@@ -74,8 +81,10 @@ export const useSettings = create<SettingsStore>((set, get) => ({
   fontScale: 1,
 
   load: async () => {
+    const boot = bootConfig;
+    bootConfig = null;
     const [config, home, fkeysAvailable, trashDir] = await Promise.all([
-      ipc.getConfig(),
+      boot ?? ipc.getConfig(),
       ipc.homeDir(),
       ipc.fkeysAvailable(),
       ipc.trashDir().catch(() => null),

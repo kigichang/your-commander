@@ -2,6 +2,7 @@ use crate::fs::local::{self, VolumeInfo};
 use crate::platform;
 use crate::state::AppState;
 use std::path::PathBuf;
+use super::blocking;
 use tauri::Manager;
 
 pub use crate::platform::OpenApp;
@@ -96,9 +97,7 @@ pub fn trash_dir() -> Result<PathBuf, String> {
 /// in `dir`. `tool` is "terminal", "vscode", or "zed".
 #[tauri::command]
 pub async fn open_in(tool: String, dir: PathBuf) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || platform::open_in(&tool, &dir))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || platform::open_in(&tool, &dir)).await
 }
 
 #[derive(serde::Serialize)]
@@ -158,7 +157,7 @@ pub async fn repair_video(
     let tmp = dir.join(format!(".{stem}_fix.part.mp4"));
     let src = path.clone();
     let out_path = tmp.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    blocking(move || {
         use std::io::BufRead;
         let total = probe_duration(&ffmpeg, &src);
         let mut child = std::process::Command::new(ffmpeg)
@@ -201,7 +200,6 @@ pub async fn repair_video(
         }
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Resolve a finished repair: overwrite the original, save it next to the
@@ -212,7 +210,7 @@ pub async fn finish_repair(
     original: PathBuf,
     action: String,
 ) -> Result<Option<PathBuf>, String> {
-    tauri::async_runtime::spawn_blocking(move || match action.as_str() {
+    blocking(move || match action.as_str() {
         "discard" => {
             let _ = std::fs::remove_file(&tmp);
             Ok(None)
@@ -240,7 +238,6 @@ pub async fn finish_repair(
         other => Err(format!("unknown action: {other}")),
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Apps the system knows can open this file, default handler first,
@@ -258,18 +255,14 @@ pub async fn open_with(app: String, paths: Vec<PathBuf>) -> Result<(), String> {
     if app.trim().is_empty() || paths.is_empty() {
         return Err("open_with: app and paths required".into());
     }
-    tauri::async_runtime::spawn_blocking(move || platform::open_with(&app, &paths))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || platform::open_with(&app, &paths)).await
 }
 
 /// The system file manager's info/properties window for each path (local
 /// only, capped so a huge mark set can't flood the screen with windows).
 #[tauri::command]
 pub async fn get_info(paths: Vec<PathBuf>) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || platform::get_info(&paths))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || platform::get_info(&paths)).await
 }
 
 /// Open a local file or folder with its default app.
@@ -281,21 +274,15 @@ pub async fn open_path(path: PathBuf) -> Result<(), String> {
         .is_some_and(|e| e.eq_ignore_ascii_case("dmg"))
         && path.is_file()
     {
-        return tauri::async_runtime::spawn_blocking(move || platform::open_disk_image(&path))
-            .await
-            .map_err(|e| e.to_string())?;
+        return blocking(move || platform::open_disk_image(&path)).await;
     }
-    tauri::async_runtime::spawn_blocking(move || open::that(&path).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || open::that(&path).map_err(|e| e.to_string())).await
 }
 
 /// Select the file in the system file manager (Finder, Nautilus, …).
 #[tauri::command]
 pub async fn reveal_in_finder(path: PathBuf) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || platform::reveal(&path))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || platform::reveal(&path)).await
 }
 
 /// File tags (Finder tags on macOS; best effort, empty elsewhere).
