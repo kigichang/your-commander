@@ -338,6 +338,10 @@
   - 第 63–75 行的非同步初始化 IIFE 在 `await useSettings.getState().load()` 與 `await usePanels.getState().init()` 之後才註冊 `unlisten = await listen("fs:changed", ...)`，但缺少 `let gone = false` 保護（對照第 78–86 行的 `initFileDrop` 有加上 `gone` 檢查）。在 `React.StrictMode` 或元件提前卸載時，第一次掛載的 cleanup 執行時 `unlisten` 仍為 `undefined`，導致該監聽器永久洩漏，每次檔案變動都會觸發重複的 `refresh()`。
 - **修正建議**：
   - 加入 `let gone = false;` 旗標，若 `listen()` 完成時 `gone` 為 `true` 則立即呼叫回傳的 unlisten 函式。
+- **處理結果**（Claude，2026-11-07）：成立，已修；但嚴重度偏高。
+  - `main.tsx` 的 `<React.StrictMode>` 只在開發模式下讓 effect 掛載→cleanup→再掛載；第一次的 cleanup 執行時 `unlisten` 還是 `undefined`，第一個 `fs:changed` 監聽器因此留下來，開發時每次檔案變動會觸發兩次 `refresh()`。正式版不會重複掛載，`App` 也不會卸載，所以使用者實際不受影響。
+  - **修正**：`App.tsx` 加上 `gone` 旗標。每個 `await` 之後檢查，已清除的那一輪不再往下做（開發模式下也不再重複執行 `keymap.load()` 與 `panels.init()`）；`listen()` 晚於 cleanup 才完成時，立即呼叫回傳的 unlisten。寫法與下方 `initFileDrop` 的 effect 一致。
+  - **測試**：前端沒有測試框架；`tsc` 通過。未在 `npm run tauri dev` 中實際確認只剩一個監聽器。
 
 ### 2.9 `[Medium-High]` `panels.ts` 中 `navigate` 與 `refresh` 的非同步競態條件（Stale Directory Listing）
 - **檔案位置**：
