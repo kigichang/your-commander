@@ -6920,6 +6920,7 @@ dependencies = [
  "drag",
  "flate2",
  "freedesktop-icons",
+ "futures",
  "keyring",
  "libc",
  "mime_guess",

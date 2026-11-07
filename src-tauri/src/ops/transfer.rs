@@ -273,6 +273,69 @@ pub fn rename(src: &Path, new_name: &str) -> Result<(), String> {
     std::fs::rename(src, &dest).map_err(|e| e.to_string())
 }
 
+/// One entry of a batch rename: `from` goes to `to` by way of `temp`.
+pub struct RenameStep {
+    pub from: PathBuf,
+    pub temp: PathBuf,
+    pub to: PathBuf,
+}
+
+/// Rename every `from` to its `to` in two phases (all to temp names, then
+/// all to final names) so swaps and shifts (A→B, B→A) cannot trample each
+/// other. If any rename fails, the ones already done are undone in reverse
+/// so the folder ends as it began. Reverse order is what keeps each undo
+/// from landing on an occupied name, so the first undo that fails stops
+/// the rollback (going on could overwrite the entry it left in place) and
+/// the error lists where everything not undone now sits.
+pub fn rename_in_two_phases(
+    plan: &[RenameStep],
+    mut rename: impl FnMut(&Path, &Path) -> Result<(), String>,
+) -> Result<(), String> {
+    // Every rename done so far, in order, to be reversed on failure.
+    let mut done: Vec<(&Path, &Path)> = Vec::with_capacity(plan.len() * 2);
+    let phases = plan
+        .iter()
+        .map(|s| (s.from.as_path(), s.temp.as_path()))
+        .chain(plan.iter().map(|s| (s.temp.as_path(), s.to.as_path())));
+    for (from, to) in phases {
+        if let Err(err) = rename(from, to) {
+            while let Some(&(back_to, now_at)) = done.last() {
+                if let Err(e) = rename(now_at, back_to) {
+                    // Where each entry not back home sits now, by its
+                    // original name.
+                    let left: Vec<String> = plan
+                        .iter()
+                        .filter_map(|step| {
+                            let start = step.from.as_path();
+                            let now = done.iter().fold(start, |at, &(f, t)| if at == f { t } else { at });
+                            (now != start)
+                                .then(|| format!("{} (was {})", now.display(), start.display()))
+                        })
+                        .collect();
+                    return Err(format!(
+                        "{err}; undo failed too ({e}), left as: {}",
+                        left.join(", ")
+                    ));
+                }
+                done.pop();
+            }
+            return Err(format!("{err}; nothing was renamed"));
+        }
+        done.push((from, to));
+    }
+    Ok(())
+}
+
+/// A name typed for a new or renamed entry must stay a single entry in
+/// its folder: not empty, not `.`/`..`, no `/` (which would reach another
+/// folder) and no NUL.
+pub fn check_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\0']) {
+        return Err(format!("Invalid name: \"{name}\""));
+    }
+    Ok(())
+}
+
 /// Create a folder inside `dir`.
 pub fn new_folder(dir: &Path, name: &str) -> Result<(), String> {
     let dest = dir.join(name);
@@ -394,6 +457,109 @@ mod tests {
 
         for d in [&src_root, &dest_root] {
             let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    /// A swap plus a shift in one folder, as the dialog would plan it.
+    fn swap_plan(dir: &Path) -> Vec<RenameStep> {
+        for (n, body) in [("a", "A"), ("b", "B"), ("c", "C")] {
+            std::fs::write(dir.join(n), body).unwrap();
+        }
+        [("a", "b"), ("b", "a"), ("c", "d")]
+            .iter()
+            .enumerate()
+            .map(|(i, (from, to))| RenameStep {
+                from: dir.join(from),
+                temp: dir.join(format!(".tmp{i}")),
+                to: dir.join(to),
+            })
+            .collect()
+    }
+
+    fn snapshot(dir: &Path) -> Vec<(String, String)> {
+        let mut v: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| {
+                (
+                    e.file_name().to_string_lossy().into_owned(),
+                    std::fs::read_to_string(e.path()).unwrap(),
+                )
+            })
+            .collect();
+        v.sort();
+        v
+    }
+
+    fn pair(n: &str, b: &str) -> (String, String) {
+        (n.to_string(), b.to_string())
+    }
+
+    #[test]
+    fn two_phase_rename_swaps_and_shifts() {
+        let dir = tmp("rn_ok");
+        let plan = swap_plan(&dir);
+        rename_in_two_phases(&plan, |f, t| std::fs::rename(f, t).map_err(|e| e.to_string()))
+            .unwrap();
+        assert_eq!(snapshot(&dir), vec![pair("a", "B"), pair("b", "A"), pair("d", "C")]);
+    }
+
+    #[test]
+    fn failure_in_either_phase_restores_the_folder() {
+        // Six renames in all (3 per phase); fail each one in turn.
+        for fail_at in 0..6 {
+            let dir = tmp(&format!("rn_fail{fail_at}"));
+            let plan = swap_plan(&dir);
+            let before = snapshot(&dir);
+            let mut n = 0;
+            let err = rename_in_two_phases(&plan, |f, t| {
+                n += 1;
+                if n == fail_at + 1 {
+                    return Err("disk said no".into());
+                }
+                std::fs::rename(f, t).map_err(|e| e.to_string())
+            })
+            .unwrap_err();
+            assert!(err.starts_with("disk said no; nothing was renamed"), "{err}");
+            assert_eq!(snapshot(&dir), before, "failing rename #{fail_at}");
+        }
+    }
+
+    #[test]
+    fn failed_undo_names_what_is_left() {
+        let dir = tmp("rn_stuck");
+        let plan = swap_plan(&dir);
+        let mut n = 0;
+        // Fail the 5th rename, and the first undo after it.
+        let err = rename_in_two_phases(&plan, |f, t| {
+            n += 1;
+            if n == 5 || n == 6 {
+                return Err("gone".into());
+            }
+            std::fs::rename(f, t).map_err(|e| e.to_string())
+        })
+        .unwrap_err();
+        assert!(err.contains("undo failed too"), "{err}");
+        // Undoing the 4th rename (.tmp0 -> b) failed: each original entry
+        // is reported once, where it now sits.
+        let at = |n: &str| dir.join(n).display().to_string();
+        for (now, was) in [("b", "a"), (".tmp1", "b"), (".tmp2", "c")] {
+            assert!(err.contains(&format!("{} (was {})", at(now), at(was))), "{err}");
+        }
+        assert!(!err.contains(".tmp0"), "{err}");
+        // Nothing was overwritten: every original body still exists.
+        let mut bodies: Vec<String> = snapshot(&dir).into_iter().map(|(_, b)| b).collect();
+        bodies.sort();
+        assert_eq!(bodies, ["A", "B", "C"]);
+    }
+
+    #[test]
+    fn names_must_stay_in_their_folder() {
+        for bad in ["", ".", "..", "../x", "a/b", "/abs", "nul\0x"] {
+            assert!(check_name(bad).is_err(), "{bad:?} accepted");
+        }
+        for ok in ["a", ".hidden", "..x", "x..", "a b", "back\\slash"] {
+            assert!(check_name(ok).is_ok(), "{ok:?} refused");
         }
     }
 

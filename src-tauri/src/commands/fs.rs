@@ -31,6 +31,7 @@ pub async fn mkdir(
     name: String,
 ) -> Result<(), String> {
     let conn = state.resolve(&location)?.conn_or_err("New folder")?;
+    transfer::check_name(&name)?;
     blocking(move || match conn {
         None => transfer::new_folder(&dir, &name),
         Some(c) => {
@@ -52,6 +53,7 @@ pub async fn rename(
     new_name: String,
 ) -> Result<(), String> {
     let conn = state.resolve(&location)?.conn_or_err("Rename")?;
+    transfer::check_name(&new_name)?;
     blocking(move || match conn {
         None => transfer::rename(&path, &new_name),
         Some(c) => {
@@ -95,9 +97,7 @@ pub async fn batch_rename(
             .collect();
         let mut finals = std::collections::HashSet::new();
         for item in &items {
-            if item.new_name.is_empty() || item.new_name.contains('/') {
-                return Err(format!("Invalid name: \"{}\"", item.new_name));
-            }
+            transfer::check_name(&item.new_name)?;
             let parent = item
                 .path
                 .parent()
@@ -124,26 +124,27 @@ pub async fn batch_rename(
                 ));
             }
         }
-        let do_rename = |from: &PathBuf, to: &PathBuf| -> Result<(), String> {
-            match &conn {
-                None => std::fs::rename(from, to)
-                    .map_err(|e| format!("{}: {e}", from.display())),
-                Some(c) => c.rename(from, to),
-            }
-        };
-        // Phase 1: everything out of the way under unique temp names.
-        let mut temps = Vec::with_capacity(items.len());
-        for (i, item) in items.iter().enumerate() {
-            let parent = item.path.parent().unwrap();
-            let temp = parent.join(format!(".ycrn_{}_{i}", std::process::id()));
-            do_rename(&item.path, &temp)?;
-            temps.push(temp);
+        let plan: Vec<transfer::RenameStep> = items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let parent = item.path.parent().unwrap();
+                transfer::RenameStep {
+                    from: item.path.clone(),
+                    temp: parent.join(format!(".ycrn_{}_{i}", std::process::id())),
+                    to: parent.join(&item.new_name),
+                }
+            })
+            .collect();
+        // rename(2) and SFTP rename may replace what is there: a temp
+        // name must be free, or phase 1 would clobber it.
+        if let Some(step) = plan.iter().find(|s| occupied(&s.temp)) {
+            return Err(format!("\"{}\" already exists", step.temp.display()));
         }
-        // Phase 2: temp names to the final ones.
-        for (item, temp) in items.iter().zip(&temps) {
-            let target = item.path.parent().unwrap().join(&item.new_name);
-            do_rename(temp, &target)?;
-        }
+        transfer::rename_in_two_phases(&plan, |from, to| match &conn {
+            None => std::fs::rename(from, to).map_err(|e| format!("{}: {e}", from.display())),
+            Some(c) => c.rename(from, to),
+        })?;
         Ok(items.len())
     })
     .await

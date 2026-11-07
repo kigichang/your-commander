@@ -1,4 +1,5 @@
 use super::queue::{cancelled_err, ConflictChoice, OpCtx};
+use super::safe_path::{create_dir_inside, is_plain_name, symlink_inside};
 use super::transfer::total_bytes;
 use crate::fs::provider::FsEntry;
 use crate::fs::sftp::SftpConnection;
@@ -181,13 +182,27 @@ pub fn download_op(
     remove_source: bool,
 ) -> Result<usize, String> {
     ctx.total_bytes = remote_total_bytes(ctx, &conn, &sources);
+    // Everything the server sends lands under this folder: symlinks it
+    // reports must point inside it, and nothing is written through one
+    // that does not.
+    let root = local_dir
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", local_dir.display()))?;
     let mut count = 0usize;
     for (src, is_dir, is_symlink) in &sources {
         if ctx.cancelled() {
             return Err(cancelled_err());
         }
         let Some(name) = src.file_name() else { continue };
-        download_item(ctx, &conn, src, *is_dir, *is_symlink, &local_dir.join(name))?;
+        download_item(
+            ctx,
+            &conn,
+            &root,
+            src,
+            *is_dir,
+            *is_symlink,
+            &root.join(name),
+        )?;
         if remove_source {
             conn.remove_recursive(src)?;
         }
@@ -199,6 +214,7 @@ pub fn download_op(
 fn download_item(
     ctx: &mut OpCtx,
     conn: &SftpConnection,
+    root: &Path,
     src: &Path,
     is_dir: bool,
     is_symlink: bool,
@@ -232,18 +248,27 @@ fn download_item(
             }
         }
         ctx.report(&src.to_string_lossy());
-        return std::os::unix::fs::symlink(&target, &dest)
-            .map_err(|e| format!("{}: {e}", dest.display()));
+        return symlink_inside(root, &dest, &target);
     }
     if is_dir {
-        std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+        create_dir_inside(root, dest)?;
         let entries = conn
             .list(src)
             .map_err(|e| format!("{}: {e}", src.display()))?;
         for entry in entries {
+            // A hostile server can name entries anything; only a plain
+            // name may be joined onto the local folder.
+            if !is_plain_name(&entry.name) {
+                return Err(format!(
+                    "{}: refusing entry name {:?}",
+                    src.display(),
+                    entry.name
+                ));
+            }
             download_item(
                 ctx,
                 conn,
+                root,
                 &entry.path,
                 entry.is_dir,
                 entry.is_symlink,
@@ -256,9 +281,16 @@ fn download_item(
             return Ok(());
         }
         let mut dest = dest.to_path_buf();
-        if dest.exists() {
+        // exists() follows links: a dangling one still takes the name.
+        if dest.exists() || dest.is_symlink() {
             match ctx.ask_conflict(src, &dest) {
-                ConflictChoice::Overwrite => {}
+                ConflictChoice::Overwrite => {
+                    // Overwriting replaces a link; it never writes through.
+                    if dest.is_symlink() {
+                        std::fs::remove_file(&dest)
+                            .map_err(|e| format!("{}: {e}", dest.display()))?;
+                    }
+                }
                 ConflictChoice::Skip => return Ok(()),
                 ConflictChoice::KeepBoth => dest = super::queue::keep_both_path(&dest),
                 ConflictChoice::CancelOp => return Err(cancelled_err()),
@@ -284,4 +316,77 @@ pub fn delete_remote_op(
         conn.remove_recursive(item)?;
     }
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::download_op;
+    use crate::fs::sftp::{connect_checked, SshAuth};
+    use crate::ops::queue::{ConflictChoice, OpCtx};
+    use std::path::PathBuf;
+
+    /// Against a real sshd (`YC_TEST_SSHD_PORT`, `YC_TEST_SSH_KEY`) serving
+    /// this machine's files: downloading over a local link replaces the
+    /// link (Overwrite) and a dangling link counts as a conflict (Skip).
+    #[test]
+    fn downloads_never_write_through_local_links() {
+        let (Ok(port), Ok(key_path)) = (
+            std::env::var("YC_TEST_SSHD_PORT"),
+            std::env::var("YC_TEST_SSH_KEY"),
+        ) else {
+            eprintln!("skipped: set YC_TEST_SSHD_PORT and YC_TEST_SSH_KEY");
+            return;
+        };
+        let work = fresh_dir(std::env::temp_dir().join(format!("yc_dl_ln_{}", std::process::id())));
+        let remote = work.join("remote");
+        std::fs::create_dir_all(&remote).unwrap();
+        std::fs::write(remote.join("a.txt"), b"remote").unwrap();
+        std::fs::write(remote.join("b.txt"), b"remote").unwrap();
+        let victim = work.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+
+        let auth = SshAuth::Key {
+            path: Some(PathBuf::from(key_path)),
+            passphrase: None,
+        };
+        let user = std::env::var("USER").unwrap();
+        let conn = connect_checked(
+            &work.join("known_hosts"),
+            "127.0.0.1",
+            port.parse().unwrap(),
+            &user,
+            &auth,
+            true,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+
+        // Overwrite onto a link to an existing file: the link goes, the
+        // file it pointed at stays.
+        let local = work.join("local1");
+        std::fs::create_dir_all(&local).unwrap();
+        std::os::unix::fs::symlink(&victim, local.join("a.txt")).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+        download_op(&mut ctx, conn.clone(), vec![(remote.join("a.txt"), false, false)], local.clone(), false)
+            .unwrap();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        assert!(!local.join("a.txt").is_symlink());
+        assert_eq!(std::fs::read(local.join("a.txt")).unwrap(), b"remote");
+
+        // A dangling link is a conflict; skipping leaves its target uncreated.
+        let local = work.join("local2");
+        std::fs::create_dir_all(&local).unwrap();
+        std::os::unix::fs::symlink("../made.txt", local.join("b.txt")).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::Skip);
+        download_op(&mut ctx, conn, vec![(remote.join("b.txt"), false, false)], local.clone(), false)
+            .unwrap();
+        assert!(!work.join("made.txt").exists(), "nothing written through the link");
+        assert!(local.join("b.txt").is_symlink());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    fn fresh_dir(dir: PathBuf) -> PathBuf {
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.canonicalize().unwrap()
+    }
 }

@@ -150,7 +150,12 @@
     "save": "儲存",
     "saved2": "已儲存連線",
     "paneLeft": "左",
-    "paneRight": "右"
+    "paneRight": "右",
+    "hostKeyTitle": "未知的主機金鑰",
+    "hostKeyBody": "{{host}}:{{port}} 不在 ~/.ssh/known_hosts 中。信任前請先向伺服器管理者核對金鑰指紋：",
+    "hostKeyHint": "信任後金鑰會記錄到 known_hosts；之後連線必須出示同一把金鑰。",
+    "hostKeyTrust": "信任並繼續",
+    "hostKeyChanged": "{{host}} 的主機金鑰已經改變（{{keyType}} {{fingerprint}}），連線可能遭到攔截。若伺服器確實重新安裝過，請先移除舊項目：ssh-keygen -R \"{{entry}}\""
   },
   "panel2": {
     "eject": "退出",

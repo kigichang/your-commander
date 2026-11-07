@@ -1,4 +1,4 @@
-use crate::fs::sftp::{self, SshAuth};
+use crate::fs::sftp::{self, ConnectError, SshAuth};
 use crate::state::AppState;
 use std::path::PathBuf;
 use super::blocking;
@@ -71,6 +71,10 @@ pub struct SftpConnectParams {
     /// Remote folder to land in; falls back to home when missing.
     #[serde(default)]
     pub start_in: Option<String>,
+    /// The user confirmed a first-seen host key's fingerprint: record it
+    /// in known_hosts instead of refusing it.
+    #[serde(default)]
+    pub trust_host_key: bool,
 }
 
 fn auth_of(params: &SftpConnectParams) -> SshAuth {
@@ -103,16 +107,22 @@ pub struct SftpConnected {
 pub async fn sftp_connect(
     state: State<'_, AppState>,
     params: SftpConnectParams,
-) -> Result<SftpConnected, String> {
+) -> Result<SftpConnected, ConnectError> {
     let (conn, home) = blocking(move || {
         let auth = auth_of(&params);
-        let conn = sftp::connect(&params.host, params.port, &params.username, &auth)?;
+        let conn = sftp::connect(
+            &params.host,
+            params.port,
+            &params.username,
+            &auth,
+            params.trust_host_key,
+        )?;
         // Land in start_in when it exists as a folder, else in home.
         let home = match params.start_in.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
             Some(p) if conn.exists(std::path::Path::new(p)) == Some(true) => PathBuf::from(p),
             _ => conn.home.clone(),
         };
-        Ok::<_, String>((conn, home))
+        Ok::<_, ConnectError>((conn, home))
     })
     .await?;
     let label = conn.label.clone();
@@ -126,10 +136,17 @@ pub async fn sftp_connect(
 
 /// Dial, authenticate, and hang up — the dialog's Test button.
 #[tauri::command]
-pub async fn sftp_test(params: SftpConnectParams) -> Result<(), String> {
+pub async fn sftp_test(params: SftpConnectParams) -> Result<(), ConnectError> {
     blocking(move || {
         let auth = auth_of(&params);
-        sftp::connect(&params.host, params.port, &params.username, &auth).map(|_| ())
+        sftp::connect(
+            &params.host,
+            params.port,
+            &params.username,
+            &auth,
+            params.trust_host_key,
+        )
+        .map(|_| ())
     })
     .await
 }

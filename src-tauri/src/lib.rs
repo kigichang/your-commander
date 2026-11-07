@@ -6,6 +6,7 @@ mod fonts;
 mod fs;
 mod icons;
 mod keychain;
+mod lru;
 mod media_server;
 mod ops;
 mod platform;
@@ -124,7 +125,12 @@ pub fn run() {
                 if !dropped.is_empty() {
                     std::thread::spawn(move || drop(dropped));
                 }
-                apply_fnkeys(app, false);
+                // Closing a background window must not hand the F-keys back
+                // while another of ours is still in front.
+                let other_focused = app.webview_windows().values().any(|w| {
+                    w.label() != window.label() && w.is_focused().unwrap_or(false)
+                });
+                apply_fnkeys(app, other_focused);
             }
             _ => {}
         })
@@ -173,7 +179,7 @@ pub fn run() {
             commands::smb::smb_store_password,
             commands::smb::smb_forget_password,
             commands::config::get_config,
-            commands::config::set_config,
+            commands::config::update_config,
             commands::config::ssh_saved_password,
             commands::config::ssh_store_password,
             commands::config::ssh_forget_password,

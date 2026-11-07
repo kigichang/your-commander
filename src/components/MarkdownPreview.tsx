@@ -49,8 +49,11 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   return defaultFence(tokens, idx, options, env, self);
 };
 
-/** Rendered-diagram cache; keyed by source so cursor moves are instant. */
+/** Rendered-diagram cache; keyed by source so cursor moves are instant.
+ *  Capped: every edit of a previewed diagram is a new source. Map order
+ *  doubles as recency (hits are re-inserted). */
 const plantumlCache = new Map<string, string>();
+const PLANTUML_CACHED = 64;
 
 /** Render every `pre.plantuml` under `box` through the backend, replacing
  *  each block with an <img> (never inline SVG — nothing executes). Mode
@@ -77,11 +80,17 @@ export async function renderPlantumlBlocks(
       const code = node.textContent ?? "";
       try {
         let url = plantumlCache.get(code);
-        if (!url) {
+        if (url) {
+          plantumlCache.delete(code);
+        } else {
           const svg = await ipc.renderPlantuml(code);
           url = `data:image/svg+xml,${encodeURIComponent(svg)}`;
-          plantumlCache.set(code, url);
+          if (plantumlCache.size >= PLANTUML_CACHED) {
+            const oldest = plantumlCache.keys().next().value;
+            if (oldest !== undefined) plantumlCache.delete(oldest);
+          }
         }
+        plantumlCache.set(code, url);
         if (isStale()) return;
         const img = document.createElement("img");
         img.src = url;

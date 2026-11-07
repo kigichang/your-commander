@@ -128,7 +128,8 @@ pub fn list_shares(server: &str, username: &str, password: &str) -> Result<Vec<S
     if username.is_empty() {
         cmd.arg("-N");
     } else {
-        cmd.args(["-U", username]);
+        // One argument, so a name can never be read as another option.
+        cmd.arg(format!("--user={username}"));
     }
     let mut child = cmd
         .stdin(Stdio::piped())

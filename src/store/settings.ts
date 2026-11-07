@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { create } from "zustand";
 import i18n from "../i18n";
@@ -123,6 +124,40 @@ export const useSettings = create<SettingsStore>((set, get) => ({
   save: (patch) => {
     const config = { ...(get().config as Config), ...patch };
     set({ config });
-    void ipc.setConfig(config);
+    // Only the changed fields: sending the whole object would write this
+    // window's copy of every other setting back over the other windows'.
+    void ipc.updateConfig(patch);
   },
 }));
+
+/** Take another window's settings change: merge it and re-apply whatever
+ *  shows (theme, fonts, language). Patches that arrive before load() are
+ *  kept and merged once the config is in. */
+let early: Partial<Config>[] = [];
+
+function takePatch(patch: Partial<Config>) {
+  const current = useSettings.getState().config;
+  if (!current) {
+    early.push(patch);
+    return;
+  }
+  const config = { ...current, ...patch };
+  useSettings.setState({ config });
+  if ("theme" in patch) applyTheme(config.theme ?? "system");
+  if ("font_family" in patch || "font_mono" in patch || "font_scale" in patch) applyFonts(config);
+  if ("language" in patch && config.language) i18n.changeLanguage(config.language);
+}
+
+useSettings.subscribe((s, prev) => {
+  if (s.config && !prev.config && early.length) {
+    const pending = early;
+    early = [];
+    pending.forEach(takePatch);
+  }
+});
+
+const ownLabel = getCurrentWindow().label;
+void listen<{ source: string; patch: Partial<Config> }>("config-patched", (e) => {
+  // This window applied its own change before sending it.
+  if (e.payload.source !== ownLabel) takePatch(e.payload.patch);
+});

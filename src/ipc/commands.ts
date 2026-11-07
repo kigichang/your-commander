@@ -105,7 +105,18 @@ export interface SftpParams {
   identityFile?: string;
   passphrase?: string;
   startIn?: string;
+  /** The user confirmed a first-seen host key: record it in known_hosts. */
+  trustHostKey?: boolean;
 }
+
+/** Rejection value of sftp_connect / sftp_test. */
+export type ConnectError =
+  | { kind: "unknownHostKey"; keyType: string; fingerprint: string }
+  | { kind: "hostKeyChanged"; keyType: string; fingerprint: string }
+  | { kind: "other"; message: string };
+
+export const isConnectError = (e: unknown): e is ConnectError =>
+  typeof e === "object" && e !== null && typeof (e as { kind?: unknown }).kind === "string";
 
 export const sftpConnect = (params: SftpParams) =>
   invoke<{ connId: number; label: string; home: string }>("sftp_connect", {
@@ -144,8 +155,10 @@ export const sshForgetPassword = (username: string, host: string) =>
   invoke<void>("ssh_forget_password", { username, host });
 
 export const getConfig = () => invoke<Config>("get_config");
-export const setConfig = (config: Config) =>
-  invoke<void>("set_config", { config });
+/** Save only the changed fields; the backend merges them into the shared
+ *  config and tells every window ("config-patched"). */
+export const updateConfig = (patch: Partial<Config>) =>
+  invoke<void>("update_config", { patch });
 
 export const fileIcon = async (key: string): Promise<ArrayBuffer> =>
   invoke("file_icon", { key });

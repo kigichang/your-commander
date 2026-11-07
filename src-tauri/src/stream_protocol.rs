@@ -82,17 +82,18 @@ pub(crate) fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
 }
 
 fn build_response(request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
+    // No Access-Control-Allow-Origin: the only consumers are <video> and
+    // <audio> elements, whose loads need no CORS grant, and a wildcard
+    // would hand the file to any origin that can name the scheme.
     let plain = |code: StatusCode| {
         Response::builder()
             .status(code)
-            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .body(Vec::new())
             .unwrap()
     };
     let not_satisfiable = |len: u64| {
         Response::builder()
             .status(StatusCode::RANGE_NOT_SATISFIABLE)
-            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .header(header::CONTENT_RANGE, format!("bytes */{len}"))
             .body(Vec::new())
             .unwrap()
@@ -118,7 +119,6 @@ fn build_response(request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let mime = mime_for(&path);
 
     let head = Response::builder()
-        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(header::CONTENT_TYPE, mime)
         .header(header::ACCEPT_RANGES, "bytes");
     if request.method() == Method::HEAD || len == 0 {
@@ -217,6 +217,10 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(resp.headers()[header::CONTENT_TYPE], "application/octet-stream");
         assert_eq!(resp.body().len(), 1024);
+        assert!(
+            resp.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none(),
+            "no cross-origin grant on streamed files"
+        );
     }
 
     #[test]
