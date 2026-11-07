@@ -19,7 +19,7 @@ import { prettyChord } from "../keymap/keymap";
 import { dragRegion } from "../lib/platform";
 import { useDialogs } from "../store/dialogs";
 import { usePanels } from "../store/panels";
-import { useSettings } from "../store/settings";
+import { selectFkeysWithoutFn, useSettings } from "../store/settings";
 import { Icon } from "./icons";
 
 export function Toolbar() {
@@ -27,7 +27,7 @@ export function Toolbar() {
   const activeSide = usePanels((s) => s.activeSide);
   const viewMode = usePanels((s) => s.panels[s.activeSide].viewMode);
   const setViewMode = usePanels((s) => s.setViewMode);
-  const fkeysOn = useSettings((s) => s.fkeysWithoutFn);
+  const fkeysOn = useSettings(selectFkeysWithoutFn);
   const fkeysAvailable = useSettings((s) => s.fkeysAvailable);
 
   return (

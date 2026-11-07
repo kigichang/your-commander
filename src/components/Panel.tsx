@@ -7,14 +7,14 @@ import * as ipc from "../ipc/commands";
 import { useOps } from "../store/ops";
 import type { VolumeInfo } from "../ipc/types";
 import { humanSize } from "../lib/format";
-import { baseName, displayPath, expandHome, parentPath } from "../lib/path";
+import { baseName, displayPath, expandHome, parentPath, remotePrefix } from "../lib/path";
 import { dragRegion, isMac } from "../lib/platform";
 import { isMask } from "../lib/wildcard";
 import { targetEntries, visibleEntries } from "../lib/selectors";
 import type { Side, TabState } from "../store/panels";
 import { useFileDrop } from "../store/fileDrop";
 import { usePanels } from "../store/panels";
-import { useSettings } from "../store/settings";
+import { selectShowHidden, useSettings } from "../store/settings";
 import { FileIcon } from "./FileIcon";
 import { FileTable } from "./FileTable";
 import { Icon } from "./icons";
@@ -92,7 +92,7 @@ function TabStrip({ side }: { side: Side }) {
           }}
         >
           <span className="label">
-            {tab.remoteLabel ? `${tab.remoteLabel}:` : ""}
+            {remotePrefix(tab)}
             {baseName(tab.path)}
           </span>
           {panel.tabs.length > 1 && (
@@ -312,7 +312,7 @@ function PathBar({ side, tab }: { side: Side; tab: TabState }) {
   const home = useSettings((s) => s.home);
   const local = tab.location.kind === "local";
   const shown =
-    (tab.remoteLabel ? `${tab.remoteLabel}:` : "") +
+    remotePrefix(tab) +
     (local ? displayPath(tab.path, home) : tab.path) +
     "/" +
     (tab.filter || "*.*");
@@ -377,7 +377,7 @@ function PathBar({ side, tab }: { side: Side; tab: TabState }) {
 
 function StatusLine({ tab }: { tab: TabState }) {
   const { t } = useTranslation();
-  const showHidden = useSettings((s) => s.showHidden);
+  const showHidden = useSettings(selectShowHidden);
   // O(n) folds over large listings — recompute only when the inputs change,
   // not on every cursor move.
   const { visibleCount, size, totalSize } = useMemo(() => {

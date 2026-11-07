@@ -27,8 +27,14 @@ fn remote_keep_both(conn: &SftpConnection, dest: &Path) -> PathBuf {
     dest.to_path_buf()
 }
 
-fn remote_total_bytes(conn: &SftpConnection, paths: &[(PathBuf, bool, bool)]) -> u64 {
-    fn walk_dir(conn: &SftpConnection, dir: &Path) -> u64 {
+/// Remote counterpart of `transfer::total_bytes`: sum the sizes the
+/// download will actually stream, honoring the mask.
+fn remote_total_bytes(
+    ctx: &OpCtx,
+    conn: &SftpConnection,
+    paths: &[(PathBuf, bool, bool)],
+) -> u64 {
+    fn walk_dir(ctx: &OpCtx, conn: &SftpConnection, dir: &Path) -> u64 {
         conn.list(dir)
             .map(|entries| {
                 entries
@@ -37,9 +43,11 @@ fn remote_total_bytes(conn: &SftpConnection, paths: &[(PathBuf, bool, bool)]) ->
                         if e.is_symlink {
                             0
                         } else if e.is_dir {
-                            walk_dir(conn, &e.path)
-                        } else {
+                            walk_dir(ctx, conn, &e.path)
+                        } else if ctx.mask_matches(&e.name) {
                             e.size
+                        } else {
+                            0
                         }
                     })
                     .sum()
@@ -54,7 +62,9 @@ fn remote_total_bytes(conn: &SftpConnection, paths: &[(PathBuf, bool, bool)]) ->
         if *is_symlink {
             // Recreated as a link (or streamed, where size is unknown anyway).
         } else if *is_dir {
-            total += walk_dir(conn, path);
+            total += walk_dir(ctx, conn, path);
+        } else if !ctx.mask_matches(&path.file_name().unwrap_or_default().to_string_lossy()) {
+            // Skipped by download_item, so not part of the total.
         } else if let Some(parent) = path.parent() {
             total += listings
                 .entry(parent)
@@ -170,7 +180,7 @@ pub fn download_op(
     local_dir: PathBuf,
     remove_source: bool,
 ) -> Result<usize, String> {
-    ctx.total_bytes = remote_total_bytes(&conn, &sources);
+    ctx.total_bytes = remote_total_bytes(ctx, &conn, &sources);
     let mut count = 0usize;
     for (src, is_dir, is_symlink) in &sources {
         if ctx.cancelled() {

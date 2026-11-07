@@ -1,6 +1,5 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { create } from "zustand";
-import i18n from "../i18n";
 import * as ipc from "../ipc/commands";
 import { parentPath } from "../lib/path";
 import { useOps } from "./ops";
@@ -63,18 +62,13 @@ async function dropInto(paths: string[], target: DropTarget) {
     if (sources.length === 0) return;
     const panels = usePanels.getState();
     panels.setActiveSide(side);
-    ops.run(
-      i18n.t("dialog.copy"),
-      {
-        op: "copy",
-        src: { kind: "local" },
-        sources,
-        dest: panels.activeTab(side).location,
-        destDir: dir,
-        removeSource: false,
-      },
-      (done) => ops.toast(i18n.t("status.copied", { count: done.count })),
-    );
+    ops.copy({
+      src: { kind: "local" },
+      sources,
+      dest: panels.activeTab(side).location,
+      destDir: dir,
+      move: false,
+    });
   } catch (e) {
     ops.toast(String(e), "error");
   }

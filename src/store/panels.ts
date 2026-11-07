@@ -3,7 +3,7 @@ import * as ipc from "../ipc/commands";
 import type { FsEntry, Location } from "../ipc/types";
 import { baseName, parentPath } from "../lib/path";
 import { visibleEntries } from "../lib/selectors";
-import { useSettings } from "./settings";
+import { selectShowHidden, useSettings } from "./settings";
 
 export type Side = 0 | 1;
 export type SortKey = "name" | "ext" | "size" | "modified";
@@ -267,7 +267,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
     return panel.tabs[panel.active];
   },
 
-  visible: (side) => visibleEntries(get().activeTab(side), useSettings.getState().showHidden),
+  visible: (side) => visibleEntries(get().activeTab(side), selectShowHidden(useSettings.getState())),
 
   otherSide: (side) => (((side ?? get().activeSide) === 0 ? 1 : 0) as Side),
 
@@ -332,10 +332,10 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       set((s) => ({
         panels: updateTab(s.panels, side, tab.id, (t) => {
           // Keep the cursor on the same entry when it survived the refresh.
-          const prevVisible = visibleEntries(t, useSettings.getState().showHidden);
+          const prevVisible = visibleEntries(t, selectShowHidden(useSettings.getState()));
           const cursorName = prevVisible[t.cursor]?.name;
           const nextTabState = { ...t, entries };
-          const nextVisible = visibleEntries(nextTabState, useSettings.getState().showHidden);
+          const nextVisible = visibleEntries(nextTabState, selectShowHidden(useSettings.getState()));
           const idx = cursorName ? nextVisible.findIndex((e) => e.name === cursorName) : -1;
           const names = new Set(entries.map((e) => e.name));
           return {

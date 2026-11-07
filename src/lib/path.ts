@@ -45,6 +45,11 @@ export function joinPath(dir: string, name: string): string {
   return dir.endsWith("/") ? dir + name : `${dir}/${name}`;
 }
 
+/** "nas:" ahead of a remote tab's paths; nothing for local ones. */
+export function remotePrefix(tab: { remoteLabel: string | null }): string {
+  return tab.remoteLabel ? `${tab.remoteLabel}:` : "";
+}
+
 /** Shorten a home-rooted path for display: /Users/x/Documents → ~/Documents */
 export function displayPath(path: string, home: string | null): string {
   if (home && path === home) return "~";

@@ -106,14 +106,12 @@ function CopyMoveDialog({ d }: { d: Extract<Dialog, { type: "copyMove" }> }) {
       useOps.getState().toast(t("status.moveSameFolder"), "error");
       return;
     }
-    const label = t(d.move ? "dialog.move" : "dialog.copy");
-    const request = {
-      op: "copy" as const,
+    useOps.getState().copy({
       src: srcTab.location,
       sources: d.items.map((e) => ({ path: e.path, isDir: e.isDir, isSymlink: e.isSymlink })),
       dest: destLocation,
       destDir: dest,
-      removeSource: d.move,
+      move: d.move,
       options: {
         verify,
         keepMeta,
@@ -121,13 +119,8 @@ function CopyMoveDialog({ d }: { d: Extract<Dialog, { type: "copyMove" }> }) {
         followSymlinks,
         ifExists,
       },
-    };
-    const onDone = (done: { count: number }) =>
-      useOps
-        .getState()
-        .toast(t(d.move ? "status.moved" : "status.copied", { count: done.count }));
-    if (queued) useOps.getState().enqueue(label, request, onDone);
-    else useOps.getState().run(label, request, onDone);
+      queued,
+    });
   };
 
   return (

@@ -1,7 +1,14 @@
 import { create } from "zustand";
 import i18n from "../i18n";
 import * as ipc from "../ipc/commands";
-import type { ConflictChoice, OpEvent, OpRequest } from "../ipc/types";
+import type {
+  ConflictChoice,
+  CopyOptions,
+  Location,
+  OpEvent,
+  OpRequest,
+  SourceItem,
+} from "../ipc/types";
 import { arrivedNames } from "../lib/arrivals";
 import { baseName, sameDir, sameLocation } from "../lib/path";
 import type { Side } from "./panels";
@@ -53,6 +60,16 @@ interface OpsStore {
   run: (label: string, request: OpRequest, done?: (e: DoneEvent) => void) => void;
   /** Append to the sequential queue. */
   enqueue: (label: string, request: OpRequest, done?: (e: DoneEvent) => void) => void;
+  /** Copy (or move) `sources` into `destDir` and toast the count when done. */
+  copy: (args: {
+    src: Location;
+    sources: SourceItem[];
+    dest: Location;
+    destDir: string;
+    move: boolean;
+    options?: CopyOptions;
+    queued?: boolean;
+  }) => void;
   togglePauseAll: () => void;
   togglePauseJob: (key: number) => void;
   cancel: (key: number) => void;
@@ -253,6 +270,15 @@ export const useOps = create<OpsStore>((set, get) => {
       const job = makeJob(label, request, true, done);
       set((s) => ({ jobs: [...s.jobs, job] }));
       pump();
+    },
+
+    copy: ({ move, queued, ...rest }) => {
+      const label = i18n.t(move ? "dialog.move" : "dialog.copy");
+      const request: OpRequest = { op: "copy", removeSource: move, ...rest };
+      const done = (e: DoneEvent) =>
+        get().toast(i18n.t(move ? "status.moved" : "status.copied", { count: e.count }));
+      if (queued) get().enqueue(label, request, done);
+      else get().run(label, request, done);
     },
 
     togglePauseAll: () => {

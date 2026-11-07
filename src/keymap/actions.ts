@@ -2,7 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import i18n from "../i18n";
 import * as ipc from "../ipc/commands";
 import { iconGridCols } from "../lib/iconGrid";
-import { alreadyIn, isTrashDir } from "../lib/path";
+import { alreadyIn, isTrashDir, remotePrefix } from "../lib/path";
 import { targetEntries } from "../lib/selectors";
 import { useClipboard } from "../store/clipboard";
 import { useDialogs } from "../store/dialogs";
@@ -251,26 +251,13 @@ export const actions: Record<ActionId, Action> = {
         alreadyIn(clip.location, clip.items.map((e) => e.path), tab.location, tab.path)
       )
         return ops().toast(i18n.t("status.moveSameFolder"), "error");
-      const label = i18n.t(clip.move ? "dialog.move" : "dialog.copy");
-      void ops().run(
-        label,
-        {
-          op: "copy",
-          src: clip.location,
-          sources: clip.items.map((e) => ({
-            path: e.path,
-            isDir: e.isDir,
-            isSymlink: e.isSymlink,
-          })),
-          dest: tab.location,
-          destDir: tab.path,
-          removeSource: clip.move,
-        },
-        (done) =>
-          ops().toast(
-            i18n.t(clip.move ? "status.moved" : "status.copied", { count: done.count }),
-          ),
-      );
+      ops().copy({
+        src: clip.location,
+        sources: clip.items.map((e) => ({ path: e.path, isDir: e.isDir, isSymlink: e.isSymlink })),
+        dest: tab.location,
+        destDir: tab.path,
+        move: clip.move,
+      });
       // A cut pastes once; a copy can paste again elsewhere.
       if (clip.move) useClipboard.getState().clear();
     },
@@ -313,12 +300,10 @@ export const actions: Record<ActionId, Action> = {
       if (!le || !re || le.isDir || re.isDir) {
         return ops().toast(i18n.t("compare.needTwo"));
       }
-      const prefix = (tab: { remoteLabel: string | null }) =>
-        tab.remoteLabel ? `${tab.remoteLabel}:` : "";
       dialogs().open({
         type: "compare",
-        left: { location: l.tab.location, path: le.path, label: prefix(l.tab) + le.path },
-        right: { location: r.tab.location, path: re.path, label: prefix(r.tab) + re.path },
+        left: { location: l.tab.location, path: le.path, label: remotePrefix(l.tab) + le.path },
+        right: { location: r.tab.location, path: re.path, label: remotePrefix(r.tab) + re.path },
       });
     },
   },
@@ -337,16 +322,14 @@ export const actions: Record<ActionId, Action> = {
       const s = panels();
       const left = s.activeTab(0);
       const right = s.activeTab(1);
-      const label = (tab: typeof left) =>
-        (tab.remoteLabel ? `${tab.remoteLabel}:` : "") + tab.path;
       dialogs().open({
         type: "sync",
         left: left.location,
         leftDir: left.path,
-        leftLabel: label(left),
+        leftLabel: remotePrefix(left) + left.path,
         right: right.location,
         rightDir: right.path,
-        rightLabel: label(right),
+        rightLabel: remotePrefix(right) + right.path,
       });
     },
   },

@@ -56,11 +56,7 @@ interface SettingsStore {
   home: string | null;
   /** The Trash folder (toolbar Trash button); null if unavailable. */
   trashDir: string | null;
-  showHidden: boolean;
-  fkeysWithoutFn: boolean;
   fkeysAvailable: boolean;
-  /** UI font-size multiplier (Settings → Appearance); 1 = as designed. */
-  fontScale: number;
   load: () => Promise<void>;
   toggleShowHidden: () => void;
   toggleFkeys: () => void;
@@ -71,14 +67,18 @@ interface SettingsStore {
   save: (patch: Partial<Config>) => void;
 }
 
+/** Config fields read all over the UI; the backend's defaults until load(). */
+type HasConfig = { config: Config | null };
+export const selectShowHidden = (s: HasConfig) => s.config?.show_hidden ?? false;
+export const selectFkeysWithoutFn = (s: HasConfig) => s.config?.fkeys_without_fn ?? true;
+/** UI font-size multiplier (Settings → Appearance); 1 = as designed. */
+export const selectFontScale = (s: HasConfig) => s.config?.font_scale || 1;
+
 export const useSettings = create<SettingsStore>((set, get) => ({
   config: null,
   home: null,
   trashDir: null,
-  showHidden: false,
-  fkeysWithoutFn: true,
   fkeysAvailable: false,
-  fontScale: 1,
 
   load: async () => {
     const boot = bootConfig;
@@ -89,34 +89,19 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       ipc.fkeysAvailable(),
       ipc.trashDir().catch(() => null),
     ]);
-    set({
-      config,
-      home,
-      trashDir,
-      showHidden: config.show_hidden,
-      fkeysWithoutFn: config.fkeys_without_fn,
-      fkeysAvailable,
-      fontScale: config.font_scale || 1,
-    });
+    set({ config, home, trashDir, fkeysAvailable });
     if (config.language) i18n.changeLanguage(config.language);
     applyTheme(config.theme ?? "system");
     applyFonts(config);
   },
 
-  toggleShowHidden: () => {
-    const next = !get().showHidden;
-    set({ showHidden: next });
-    get().save({ show_hidden: next });
-  },
+  toggleShowHidden: () => get().save({ show_hidden: !selectShowHidden(get()) }),
 
   toggleFkeys: () => {
-    const next = !get().fkeysWithoutFn;
+    const next = !selectFkeysWithoutFn(get());
     // fkeys_set persists the config itself and flips the mode right away;
     // mirror it locally without writing the file twice.
-    set((s) => ({
-      fkeysWithoutFn: next,
-      config: s.config ? { ...s.config, fkeys_without_fn: next } : s.config,
-    }));
+    set((s) => ({ config: s.config ? { ...s.config, fkeys_without_fn: next } : s.config }));
     void ipc.fkeysSet(next);
   },
 
@@ -131,9 +116,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
   },
 
   setFonts: (patch) => {
-    const config = { ...(get().config as Config), ...patch };
-    applyFonts(config);
-    set({ fontScale: config.font_scale || 1 });
+    applyFonts({ ...(get().config as Config), ...patch });
     get().save(patch);
   },
 
