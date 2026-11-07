@@ -6,6 +6,7 @@ mod fonts;
 mod fs;
 mod icons;
 mod keychain;
+mod lru;
 mod media_server;
 mod ops;
 mod platform;

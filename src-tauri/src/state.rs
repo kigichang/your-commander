@@ -1,4 +1,5 @@
 use crate::fs::sftp::SftpConnection;
+use crate::lru::Lru;
 use crate::ops::queue::{ConflictChoice, OpId};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -58,13 +59,16 @@ pub struct AppState {
     pub ops: Mutex<HashMap<OpId, Arc<OpControl>>>,
     next_op_id: AtomicU64,
     pub watchers: Mutex<HashMap<String, notify::RecommendedWatcher>>,
-    /// PNG system icons keyed by "folder"/"generic"/extension.
-    pub icons: Mutex<HashMap<String, Arc<Vec<u8>>>>,
+    /// PNG system icons keyed by "folder"/"generic"/extension, or by
+    /// "path:…" for items with their own icon (app bundles, favorites).
+    /// Capped, since every app bundle browsed adds a path key.
+    pub icons: Mutex<Lru<String, Arc<Vec<u8>>, 512>>,
     /// Cancel flags of running file searches.
     pub finds: Mutex<HashMap<u64, Arc<AtomicBool>>>,
     next_find_id: AtomicU64,
-    /// Rendered PlantUML SVGs keyed by hash(mode config + source).
-    pub plantuml_cache: Mutex<HashMap<u64, Arc<String>>>,
+    /// Rendered PlantUML SVGs keyed by hash(mode config + source). Capped:
+    /// every edit of a previewed diagram renders a new source.
+    pub plantuml_cache: Mutex<Lru<u64, Arc<String>, 64>>,
 }
 
 impl AppState {
