@@ -52,7 +52,11 @@ function withHead(html: string, base: string | null): string {
   // text to the parser: it would open <body> ahead of everything and the
   // policy would be ignored.
   const text = html.replace(/^\uFEFF+/, "");
-  const doctype = /^\s*<!doctype[^>]*>/i.exec(text);
+  // Only HTML's own whitespace may precede the doctype. JS's \s also
+  // matches NBSP, VT, U+2028, U+3000 and more, which the parser takes as
+  // text: it opens <body> there, the doctype after it is dropped, and a
+  // policy placed behind that doctype would land in <body>, ignored.
+  const doctype = /^[\t\n\f\r ]*<!doctype[^>]*>/i.exec(text);
   const end = doctype ? doctype[0].length : 0;
   return text.slice(0, end) + tags + text.slice(end);
 }

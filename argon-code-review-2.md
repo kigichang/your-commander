@@ -71,6 +71,17 @@
 - **修正建議**：
   - 在 `withHead` 中先剝除開頭的 BOM、空白、所有 `<!-- ... -->` 註解與既有的 `<!doctype ...>`，再由程式固定輸出乾淨的 `<!DOCTYPE html><head><meta http-equiv="Content-Security-Policy" ...><base ...></head>`。
   - 為 `<iframe>` 加上 `referrerPolicy="no-referrer"`。
+- **處理結果**（Claude，2026-11-07）：漏洞確實存在，但 Argon 舉的兩個例子都不成立；真正的繞過是它只模糊帶過的「特殊字元」那一項。已修。
+  - **查證方式**：以 parse5 7.1.2（WHATWG 規格實作）解析 `withHead` 的輸出，檢查 CSP `<meta>` 的父節點是否為 `<head>`（`<meta>` CSP 不在 `<head>` 內即被忽略）。
+    1. DOCTYPE 引號內含 `>`（`<!DOCTYPE html SYSTEM "foo>bar">`）：**不成立**。規格的 DOCTYPE 狀態在引號內遇到 `>` 也會結束（abrupt-doctype-system-identifier），與 `[^>]*` 一致；`<meta>` 落在 `<head>`。
+    2. DOCTYPE 前有註解：**不成立（非繞過）**。此時不比對 DOCTYPE，`<meta>` 插在最前面，仍落在 `<head>`；代價只是頁面進入 quirks mode（排版差異）。
+    3. 「特殊字元使 parser 隱式開啟 `<body>`」：**成立**。`/^\s*<!doctype/` 的 JS `\s` 也比對 NBSP、VT、U+1680、U+2000–U+200A、U+2028/2029、U+202F、U+205F、U+3000，但 HTML parser 只把 TAB/LF/FF/CR/SPACE 視為空白；這些字元被當成文字而開啟 `<body>`，其後的 DOCTYPE 被丟棄，插在它後面的 `<meta>` 落入 `<body>` 而失效。實測 NBSP／VT／U+3000／U+2028 開頭皆可繞過。
+  - **實際影響**：iframe 為 `sandbox=""`（無 script），且主視窗 CSP 不允許任何遠端來源，所以無法外送資料；但頁面可透過 `asset://` 顯示資料夾以外的本機圖片／樣式，違背預覽 CSP「只能載入同資料夾檔案」的保證。
+  - **已修**：`HtmlPreview.tsx` 的 DOCTYPE 前導空白改為 HTML 規格的 `[\t\n\f\r ]*`。從原始碼抽出 regex，以 parse5 跑 50,220 個案例（開頭字元 U+0000–U+30FF 逐一，加上 BOM、註解等組合，各搭配四種 DOCTYPE 寫法），CSP 全部落在 `<head>`；舊 regex 在上述字元下失敗。
+  - **不採納**：
+    - 剝除開頭註解與 DOCTYPE 後重新輸出 `<!DOCTYPE html>`：剝除註解必須完全複製規格的註解斷詞（`<!-->`、`<!--->`、`--!>` 等特例），一旦判斷錯誤，`<meta>` 會被包進註解裡，反而造成繞過；而它解決的只是「註解在 DOCTYPE 前時進入 quirks mode」這個排版問題。強制輸出 `<!DOCTYPE html>` 也會讓沒有 DOCTYPE 的舊頁面改以 standards mode 排版。
+    - `referrerPolicy="no-referrer"`：iframe 無 script，CSP 只允許 `asset:` 與 `data:`，不會對任何遠端發出請求，referrer 無處可送。
+    - `assetProtocol` 的 `scope: ["**"]`：檔案管理員需要預覽任意位置的檔案；限制改由預覽文件自身的 CSP 負責，即本項修正的對象。
 
 ### 1.4 `[Medium-High]` 本機 `transfer::copy_file` 在覆寫時會穿透既有 Symlink，且未偵測懸空 Symlink（Dangling Symlink）
 - **檔案位置**：
