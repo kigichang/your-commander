@@ -414,6 +414,13 @@
   - `src/components/QuickView.tsx:409-411, 434-439`
 - **說明**：`media_server.rs` 是為了處理 Linux WebKitGTK/GStreamer 不對自訂協定發送 `Range` 請求而設的 localhost HTTP server；macOS 固定使用 `stream://`（`isMac` 分支），從不呼叫 `ipc.mediaUrl`。
 - **建議**：可對 `media_server` 加上條件編譯，並僅在 `tauri.linux.conf.json` 的 `media-src` 開放 `http://127.0.0.1:*`。
+- **處理結果**（Claude，2026-11-07）：成立，已修（採用建議）。
+  - 確認：macOS 走 `stream://`，從不呼叫 `media_url`；伺服器是 `OnceLock` 延遲啟動，所以 macOS 上從未真的監聽 port。實際的影響有兩個：多編譯、多註冊了一個指令；以及 macOS 的 CSP `media-src` 也放行 `http://127.0.0.1:*`，讓預覽內容可以從本機任何 port 載入媒體，是不必要的放寬。
+  - **修正**：
+    - `lib.rs`：`mod media_server` 加上 `#[cfg(any(target_os = "linux", test))]`（測試時在 macOS 也會編譯，原有的 media_server 測試照常跑），`generate_handler!` 裡的 `media_server::media_url` 加上 `#[cfg(target_os = "linux")]`（tauri-macros 2.7.4 支援指令上的屬性）。
+    - CSP 從單一字串改為 Tauri 2 支援的「指令 → 來源陣列」物件。Tauri 以 JSON Merge Patch 合併平台設定檔，物件會逐鍵合併，所以 `tauri.linux.conf.json` 只需覆寫 `media-src` 一項（多加 `http://127.0.0.1:*`），不必複製整串 CSP。macOS 的 `media-src` 移除 `http://127.0.0.1:*`，其餘指令內容不變。
+  - **測試**：新增 `only_linux_lets_media_load_from_localhost_http`：用 Tauri 自己的 `tauri::utils::config::parse::read_from`（與 build 時相同的合併邏輯）分別產生 macOS 與 Linux 的 CSP，確認 macOS 的 `media-src` 不含 `127.0.0.1`，Linux 含有，且 Linux 包含 macOS 允許的全部來源。
+    - macOS 107 個測試通過；Linux Docker 容器 108 個測試通過、debug build 無警告；macOS build 無警告，`strings` 確認 binary 中已沒有 `media_url`。未實際打包 .deb 在 VM 上驗證影片預覽。
 
 ### 3.3 Linux GVfs `smb-share:` 解析與路徑取得重複（且一處漏做百分比解碼）
 - **檔案位置**：
