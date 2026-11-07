@@ -247,6 +247,7 @@ fn run_request(
             username,
             password,
         } => {
+            super::smb::check_params(&server, &share, &username, &password)?;
             ctx.report(&format!("{server}/{share}"));
             smb::mount(&server, &share, &username, &password).map(|path| OpOutcome {
                 count: 0,
