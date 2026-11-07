@@ -36,18 +36,25 @@ function policy(base: string | null): string {
   ].join("; ");
 }
 
-/** Inserts the CSP and `<base>` where the parser still treats them as
- *  head elements: after <head>, else after the doctype (ahead of it would
- *  force quirks mode), else at the very start. The policy goes first so
- *  it governs everything after it, the base included. */
+/** Puts the CSP and `<base>` ahead of everything in the file, so no
+ *  element of the page can load before the policy is in force. Searching
+ *  for the page's own <head> is not safe: an <img> ahead of it (or a
+ *  "<head>" inside a comment) would place the policy in <body>, where it
+ *  is ignored. A <meta> as the first tag opens the head itself. Only a
+ *  leading doctype stays in front (ahead of it the page would render in
+ *  quirks mode); the tokenizer ends a doctype at its first ">", as this
+ *  pattern does. */
 function withHead(html: string, base: string | null): string {
   const attr = (s: string) => s.replace(/"/g, "&quot;");
   let tags = `<meta http-equiv="Content-Security-Policy" content="${attr(policy(base))}">`;
   if (base) tags += `<base href="${attr(base)}">`;
-  const at = /<head\b[^>]*>/i.exec(html) ?? /<!doctype[^>]*>/i.exec(html);
-  if (!at) return tags + html;
-  const end = at.index + at[0].length;
-  return html.slice(0, end) + tags + html.slice(end);
+  // A byte-order mark the decoder left (a file can start with several) is
+  // text to the parser: it would open <body> ahead of everything and the
+  // policy would be ignored.
+  const text = html.replace(/^\uFEFF+/, "");
+  const doctype = /^\s*<!doctype[^>]*>/i.exec(text);
+  const end = doctype ? doctype[0].length : 0;
+  return text.slice(0, end) + tags + text.slice(end);
 }
 
 /** Renders an HTML file the way a browser would, inside a sandbox with no
