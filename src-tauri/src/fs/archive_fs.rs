@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 const CHUNK: usize = 1024 * 1024;
 
+#[derive(Clone, Copy)]
 enum Kind {
     Zip,
     Tar,
@@ -51,7 +52,8 @@ fn for_each_entry(
     mut visit: impl FnMut(&str, bool, u64, Option<u64>),
 ) -> Result<(), String> {
     let err = |e: &dyn std::fmt::Display| format!("{}: {e}", archive.display());
-    match kind_of(archive)? {
+    let kind = kind_of(archive)?;
+    match kind {
         Kind::Zip => {
             let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
             let mut zip = zip::ZipArchive::new(file).map_err(|e| err(&e))?;
@@ -77,7 +79,7 @@ fn for_each_entry(
         }
         Kind::Tar | Kind::TarGz => {
             let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
-            let reader: Box<dyn Read> = match kind_of(archive)? {
+            let reader: Box<dyn Read> = match kind {
                 Kind::TarGz => Box::new(flate2::read::GzDecoder::new(file)),
                 _ => Box::new(file),
             };
@@ -172,7 +174,8 @@ pub fn list(archive: &Path, inner: &str) -> Result<Vec<FsEntry>, String> {
 /// Up to `max` bytes of one file inside the archive, for Quick View.
 pub fn read_entry(archive: &Path, inner: &str, max: u64) -> Result<Vec<u8>, String> {
     let err = |e: &dyn std::fmt::Display| format!("{}: {e}", archive.display());
-    match kind_of(archive)? {
+    let kind = kind_of(archive)?;
+    match kind {
         Kind::Zip => {
             let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
             let mut zip = zip::ZipArchive::new(file).map_err(|e| err(&e))?;
@@ -187,7 +190,7 @@ pub fn read_entry(archive: &Path, inner: &str, max: u64) -> Result<Vec<u8>, Stri
         }
         Kind::Tar | Kind::TarGz => {
             let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
-            let reader: Box<dyn Read> = match kind_of(archive)? {
+            let reader: Box<dyn Read> = match kind {
                 Kind::TarGz => Box::new(flate2::read::GzDecoder::new(file)),
                 _ => Box::new(file),
             };
@@ -243,7 +246,8 @@ pub fn extract_entries(
 
     let err = |e: &dyn std::fmt::Display| format!("{}: {e}", archive.display());
     let mut count = 0usize;
-    match kind_of(archive)? {
+    let kind = kind_of(archive)?;
+    match kind {
         Kind::Zip => {
             let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
             let mut zip = zip::ZipArchive::new(file).map_err(|e| err(&e))?;
@@ -311,7 +315,7 @@ pub fn extract_entries(
                 total: len,
                 detail: detail.clone(),
             };
-            let reader: Box<dyn Read> = match kind_of(archive)? {
+            let reader: Box<dyn Read> = match kind {
                 Kind::TarGz => Box::new(flate2::read::GzDecoder::new(meter)),
                 _ => Box::new(meter),
             };

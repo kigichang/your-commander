@@ -783,4 +783,45 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&work);
     }
+
+    /// One big entry: progress must move, and a cancel must land, while
+    /// unpack_in is still copying that single file.
+    #[test]
+    fn tar_progress_and_cancel_inside_one_big_entry() {
+        let work = tmp("tar_one");
+        let src = work.join("big.bin");
+        let mut x: u32 = 7;
+        let data: Vec<u8> = (0..(6 << 20))
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                x as u8
+            })
+            .collect();
+        std::fs::write(&src, &data).unwrap();
+        for (name, fmt) in [("one.tar", ArchiveFormat::Tar), ("one.tar.gz", ArchiveFormat::TarGz)] {
+            let archive = work.join(name);
+            compress_op(&mut test_ctx(), vec![src.clone()], archive.clone(), fmt).unwrap();
+            let len = archive.metadata().unwrap().len();
+
+            let (mut ctx, seen) = OpCtx::recording(None);
+            extract_op(&mut ctx, vec![archive.clone()], work.join(format!("ok_{name}"))).unwrap();
+            let inside = seen
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|&&(d, _)| d > len / 10 && d < len * 9 / 10)
+                .count();
+            assert!(inside >= 3, "{name}: only {inside} reports inside the entry");
+
+            let (mut ctx, _) = OpCtx::recording(Some(len / 2));
+            let out = work.join(format!("cancel_{name}"));
+            let err = extract_op(&mut ctx, vec![archive], out.clone()).unwrap_err();
+            assert_eq!(err, cancelled_err(), "{name}");
+            let written = std::fs::metadata(out.join("big.bin")).map(|m| m.len()).unwrap_or(0);
+            assert!(written < data.len() as u64, "{name}: stopped mid-file ({written})");
+        }
+        let _ = std::fs::remove_dir_all(&work);
+    }
 }
