@@ -147,12 +147,14 @@ export const smbStorePassword = (
 export const smbForgetPassword = (username: string, server: string, share: string) =>
   invoke<void>("smb_forget_password", { username, server, share });
 
-export const sshSavedPassword = (username: string, host: string) =>
-  invoke<string | null>("ssh_saved_password", { username, host });
-export const sshStorePassword = (username: string, host: string, password: string) =>
-  invoke<void>("ssh_store_password", { username, host, password });
-export const sshForgetPassword = (username: string, host: string) =>
-  invoke<void>("ssh_forget_password", { username, host });
+/** SSH passwords are keyed by user, host and port: two servers behind one
+ *  host never share one. */
+export const sshSavedPassword = (username: string, host: string, port: number) =>
+  invoke<string | null>("ssh_saved_password", { username, host, port });
+export const sshStorePassword = (username: string, host: string, port: number, password: string) =>
+  invoke<void>("ssh_store_password", { username, host, port, password });
+export const sshForgetPassword = (username: string, host: string, port: number) =>
+  invoke<void>("ssh_forget_password", { username, host, port });
 
 export const getConfig = () => invoke<Config>("get_config");
 /** Save only the changed fields; the backend merges them into the shared

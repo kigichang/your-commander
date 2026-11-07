@@ -150,6 +150,13 @@
   - `ssh_saved_password`、`ssh_store_password`、`ssh_forget_password` 皆以 `format!("ssh://{username}@{host}")` 作為 Keychain / Secret Service 的帳號識別，忽略了 `port`。若同一台主機或 `127.0.0.1` 上有多個不同 port 的 SSH 服務（例如 `2222` 與 `2223`），密碼會互相覆蓋並送到錯誤的伺服器。
 - **修正建議**：
   - 將 `port` 納入 key（例如 `port != 22` 時使用 `ssh://{username}@{host}:{port}`，查詢時若找不到可 fallback 至舊格式以維持向下相容）。
+- **處理結果**（Claude，2026-11-07）：成立，且問題比描述的更大；已修。fallback 改為「有證據才轉移」。
+  - **另一半問題**：前端 `ConnectDialog` 儲存與刪除 SSH 連線時同樣只以 (host, username) 判斷同一筆——存下 `:2223` 會把清單中的 `:2222` 換掉，刪除一筆會兩筆一起刪。也就是說原本根本存不了兩筆只差在 port 的連線。只改 Keychain 鍵值不夠。
+  - **已修**：
+    1. 新增 `keychain::ssh_account(user, host, port)`：port 22 維持舊格式 `ssh://user@host`（既有項目照常可用），其他 port 為 `ssh://user@host:port`；IPv6 主機加中括號（`[::1]:2222`），避免「`::1` + port 2222」與「主機 `::1:2222` + port 22」撞成同一鍵。三個 `ssh_*_password` 指令與前端呼叫皆帶入 port。
+    2. 前端以 `sameSsh`（host + username + port）判斷同一筆連線，用於儲存與刪除。
+    3. **不採用盲目 fallback**：舊鍵值不知道原屬哪個 port，找不到就讀舊鍵會讓「把 A 的密碼送給 B」再發生一次。改為：修正前清單每個 user@host 最多一筆，所以只有當目前清單中該 user@host **僅有這一筆**非 22 的連線時，舊鍵才確定屬於它——此時把密碼搬到新鍵並刪除舊鍵（一次性）。其餘情況（另有 port 22 或其他 port 的同 user@host 連線）不讀舊鍵，最多請使用者重新輸入一次密碼。
+  - **測試**：新增 `ssh_keys_tell_ports_apart`（22 維持舊格式、不同 port 不同鍵、IPv6 不撞鍵）與 `legacy_key_is_adopted_only_by_its_sole_owner`（唯一擁有者才接手、多筆或 port 不符皆不接手）。實際讀寫 Keychain 的部分會碰到真實的系統鑰匙圈，未做自動化測試。
 
 ### 1.8 `[Medium]` `MarkdownPreview` 與 `QuickView` 的連結／SVG 拖放邊界防護
 - **檔案位置**：
