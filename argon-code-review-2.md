@@ -250,6 +250,16 @@
 - **修正建議**：
   - 在 `AppState` 中使用小型 LRU（例如容量 4，以 `(PathBuf, modified, len)` 為 key）快取壓縮檔的扁平項目索引 `Vec<ArchiveItem>`，讓壓縮檔內的目錄切換直接在記憶體中完成。
   - 在 `extract_entries` 迴圈外預先計算 `let prefix = format!("{sel}/");`。
+- **處理結果**（Claude，2026-11-07）：成立，已依建議修正。
+  - **查證**：
+    - tar／tar.gz：`tar` crate 只能循序讀取，每列一層目錄就把整個檔案從頭讀一遍；`.tar.gz` 還要從頭解壓縮——成立。
+    - zip：在鎖定的 zip 9.0.5 中，`by_index_raw` → `find_content` → `data_start` 會對每個項目 seek 並讀取 local header——成立。同版本另有 `by_index_data(&self, i)`，只讀已載入記憶體的中央目錄，並提供 `name`／`size`／`last_modified`／`is_dir`。
+  - **已修**：
+    1. zip 列目錄與 F5 複製的總量預掃改用 `by_index_data`，不再逐項讀 local header。
+    2. 新增扁平索引快取：以現有的 `lru::Lru`（容量 4）快取每個壓縮檔的 `Vec<Item>`，鍵值為（路徑、大小、修改時間）——檔案一改寫即換鍵，不會讀到過期索引。`list` 只在第一次掃描，之後切換目錄只需一次 `stat` 比對鍵值。超過 50 萬個項目的壓縮檔不放入快取，避免記憶體無上限成長。
+    3. `extract_entries` 的 `format!("{sel}/")` 移到迴圈外預先計算。
+  - **測試**：新增 `listing_reuses_the_index_until_the_archive_changes`——把壓縮檔換成大小與修改時間相同、內容不同的 tar，列出的仍是舊內容（證明未重新掃描）；修改時間改變後列出新內容（證明會失效）。全部 100 個測試通過。
+  - **未處理／未量測**：Quick View 預覽 tar 內的檔案（`read_entry`）仍需循序讀到該項目為止，tar 格式本身沒有索引；未對大型壓縮檔量測實際耗時。
 
 ### 2.4 `[High]` `Panel.tsx` 與 `QuickView.tsx` 的 Zustand 訂閱粒度過粗，每次移動游標都重繪整個面板樹
 - **檔案位置**：

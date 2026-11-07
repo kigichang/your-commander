@@ -7,11 +7,14 @@ use crate::fs::provider::FsEntry;
 use crate::ops::archive::{classify, Extractable, Meter};
 use crate::ops::queue::{cancelled_err, OpCtx};
 use crate::ops::safe_path::replace_file_nofollow;
+use crate::lru::Lru;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::rc::Rc;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::SystemTime;
 
 const CHUNK: usize = 1024 * 1024;
 
@@ -57,9 +60,11 @@ fn for_each_entry(
     match kind {
         Kind::Zip => {
             let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
-            let mut zip = zip::ZipArchive::new(file).map_err(|e| err(&e))?;
+            let zip = zip::ZipArchive::new(file).map_err(|e| err(&e))?;
             for i in 0..zip.len() {
-                let entry = zip.by_index_raw(i).map_err(|e| err(&e))?;
+                // From the central directory already in memory; by_index_raw
+                // would seek to and read each entry's local header.
+                let entry = zip.by_index_data(i).map_err(|e| err(&e))?;
                 let Ok(raw) = entry.name() else { continue };
                 let name = raw.trim_matches('/').to_string();
                 if name.is_empty() {
@@ -105,6 +110,51 @@ fn for_each_entry(
     Ok(())
 }
 
+/// One entry of an archive's flat index.
+struct Item {
+    name: String,
+    is_dir: bool,
+    size: u64,
+    modified: Option<u64>,
+}
+
+/// An archive as it was indexed: its path, size and mtime. Rewriting the
+/// file changes the key, so a stale index is never served.
+type IndexKey = (PathBuf, u64, Option<SystemTime>);
+
+/// Archives larger than this are listed without being cached.
+const INDEX_MAX_ENTRIES: usize = 500_000;
+
+fn index_cache() -> &'static Mutex<Lru<IndexKey, Arc<Vec<Item>>, 4>> {
+    static CACHE: OnceLock<Mutex<Lru<IndexKey, Arc<Vec<Item>>, 4>>> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+/// Every entry of `archive`, scanned once and then served from a small
+/// cache: entering a folder inside a .tar.gz would otherwise decompress
+/// the whole archive again, and a plain tar read it end to end.
+fn index(archive: &Path) -> Result<Arc<Vec<Item>>, String> {
+    let meta = std::fs::metadata(archive).map_err(|e| format!("{}: {e}", archive.display()))?;
+    let key = (archive.to_path_buf(), meta.len(), meta.modified().ok());
+    if let Some(hit) = index_cache().lock().unwrap().get(&key) {
+        return Ok(hit.clone());
+    }
+    let mut items = Vec::new();
+    for_each_entry(archive, |name, is_dir, size, modified| {
+        items.push(Item {
+            name: name.to_string(),
+            is_dir,
+            size,
+            modified,
+        });
+    })?;
+    let items = Arc::new(items);
+    if items.len() <= INDEX_MAX_ENTRIES {
+        index_cache().lock().unwrap().insert(key, items.clone());
+    }
+    Ok(items)
+}
+
 /// Direct children of `inner` ("" = root), folders synthesized from paths.
 pub fn list(archive: &Path, inner: &str) -> Result<Vec<FsEntry>, String> {
     let prefix = if inner.is_empty() {
@@ -118,12 +168,13 @@ pub fn list(archive: &Path, inner: &str) -> Result<Vec<FsEntry>, String> {
         modified: Option<u64>,
     }
     let mut children: BTreeMap<String, Child> = BTreeMap::new();
-    for_each_entry(archive, |name, is_dir, size, modified| {
-        let Some(rest) = name.strip_prefix(&prefix) else {
-            return;
+    for item in index(archive)?.iter() {
+        let (is_dir, size, modified) = (item.is_dir, item.size, item.modified);
+        let Some(rest) = item.name.strip_prefix(&prefix) else {
+            continue;
         };
         if rest.is_empty() {
-            return;
+            continue;
         }
         match rest.split_once('/') {
             Some((first, _)) => {
@@ -147,7 +198,7 @@ pub fn list(archive: &Path, inner: &str) -> Result<Vec<FsEntry>, String> {
                 child.modified = modified.or(child.modified);
             }
         }
-    })?;
+    }
     Ok(children
         .into_iter()
         .map(|(name, c)| {
@@ -223,17 +274,18 @@ pub fn extract_entries(
     inners: Vec<String>,
     dest_dir: &Path,
 ) -> Result<usize, String> {
-    // (inner prefix without the selection's parent) for output paths.
-    let wanted: Vec<(String, usize)> = inners
+    // (selection, selection + "/", length of the selection's parent) for
+    // matching entries and building output paths.
+    let wanted: Vec<(String, String, usize)> = inners
         .iter()
         .map(|p| {
             let parent_len = p.rfind('/').map(|i| i + 1).unwrap_or(0);
-            (p.clone(), parent_len)
+            (p.clone(), format!("{p}/"), parent_len)
         })
         .collect();
     let out_path = |name: &str| -> Option<PathBuf> {
-        for (sel, parent_len) in &wanted {
-            if name == sel || name.starts_with(&format!("{sel}/")) {
+        for (sel, sel_dir, parent_len) in &wanted {
+            if name == sel || name.starts_with(sel_dir.as_str()) {
                 let rel = &name[*parent_len..];
                 // Zip-slip guard: no absolute or parent-escaping pieces, and
                 // no "." that would name the folder itself instead of an entry.
@@ -253,10 +305,10 @@ pub fn extract_entries(
         Kind::Zip => {
             let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
             let mut zip = zip::ZipArchive::new(file).map_err(|e| err(&e))?;
-            // Pre-scan for a progress denominator.
+            // Pre-scan for a progress denominator (central directory only).
             let mut total = 0u64;
             for i in 0..zip.len() {
-                let Ok(entry) = zip.by_index_raw(i) else { continue };
+                let Ok(entry) = zip.by_index_data(i) else { continue };
                 if entry.is_dir() {
                     continue;
                 }
@@ -503,6 +555,40 @@ mod tests {
             assert!(!written.is_symlink(), "the link was replaced");
             assert_eq!(std::fs::read(&written).unwrap(), b"root");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn listing_reuses_the_index_until_the_archive_changes() {
+        let dir = std::env::temp_dir().join(format!("yc_arfs_idx_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.tar");
+        let write = |name: &str| {
+            let mut tar = tar::Builder::new(std::fs::File::create(&path).unwrap());
+            let mut header = tar::Header::new_gnu();
+            header.set_size(1);
+            header.set_mode(0o644);
+            tar.append_data(&mut header, name, &b"x"[..]).unwrap();
+            tar.finish().unwrap();
+        };
+        let names = || -> Vec<String> {
+            list(&path, "sub").unwrap().into_iter().map(|e| e.name).collect()
+        };
+        write("sub/one.txt");
+        let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(names(), vec!["one.txt"]);
+
+        // Same size, same mtime, other contents: served from the index, so
+        // the archive was not scanned again.
+        write("sub/two.txt");
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(mtime).unwrap();
+        assert_eq!(names(), vec!["one.txt"]);
+
+        // A new mtime is a new archive.
+        let later = mtime + std::time::Duration::from_secs(5);
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(later).unwrap();
+        assert_eq!(names(), vec!["two.txt"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
