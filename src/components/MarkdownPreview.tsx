@@ -49,15 +49,11 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   return defaultFence(tokens, idx, options, env, self);
 };
 
-/** Rendered-diagram cache; keyed by source so cursor moves are instant.
- *  Capped: every edit of a previewed diagram is a new source. Map order
- *  doubles as recency (hits are re-inserted). */
-const plantumlCache = new Map<string, string>();
-const PLANTUML_CACHED = 64;
-
 /** Render every `pre.plantuml` under `box` through the backend, replacing
  *  each block with an <img> (never inline SVG — nothing executes). Mode
- *  "off" appends a settings hint and leaves the source visible. */
+ *  "off" appends a settings hint and leaves the source visible. Caching is
+ *  the backend's alone (keyed by source and the PlantUML settings), so a
+ *  revisited diagram is one cheap IPC and a settings change re-renders. */
 export async function renderPlantumlBlocks(
   box: HTMLElement,
   isStale: () => boolean,
@@ -79,19 +75,9 @@ export async function renderPlantumlBlocks(
     nodes.map(async (node) => {
       const code = node.textContent ?? "";
       try {
-        let url = plantumlCache.get(code);
-        if (url) {
-          plantumlCache.delete(code);
-        } else {
-          const svg = await ipc.renderPlantuml(code);
-          url = `data:image/svg+xml,${encodeURIComponent(svg)}`;
-          if (plantumlCache.size >= PLANTUML_CACHED) {
-            const oldest = plantumlCache.keys().next().value;
-            if (oldest !== undefined) plantumlCache.delete(oldest);
-          }
-        }
-        plantumlCache.set(code, url);
+        const svg = await ipc.renderPlantuml(code);
         if (isStale()) return;
+        const url = `data:image/svg+xml,${encodeURIComponent(svg)}`;
         const img = document.createElement("img");
         img.src = url;
         img.alt = "PlantUML diagram";

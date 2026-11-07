@@ -399,6 +399,12 @@
   - `src-tauri/src/state.rs:71`、`src-tauri/src/commands/plantuml.rs:217-241`（`plantuml_cache`）
 - **說明**：前後端各實作了一個容量 64 的 PlantUML SVG LRU 快取。且前端 `plantumlCache` 只以 `code` 為 key，未包含 `plantuml_mode`、`plantuml_server`、`plantuml_jar`、`plantuml_java`；當使用者在偏好設定修改 PlantUML 設定後，前端會直接命中舊快取而不重新請求後端。
 - **建議**：移除前端 `MarkdownPreview.tsx` 的 `plantumlCache`，統一由後端 `plantuml_cache` 快取。
+- **處理結果**（Claude，2026-11-07）：成立，已修（採用建議）。
+  - 確認：前端 `plantumlCache` 只以原始碼為 key。在設定中改 PlantUML 伺服器、jar 或 java 後，同一張圖仍顯示舊的 SVG（例如換了 PlantUML 版本或主題卻看不到變化）；後端快取的 key 已包含 mode/server/jar/java，不受影響。
+  - **修正**：
+    - 移除 `MarkdownPreview.tsx` 的 `plantumlCache` 與 `PLANTUML_CACHED`，每個區塊直接呼叫 `render_plantuml`。命中後端快取時只是一次 IPC 加上 `encodeURIComponent`，游標移動時的體感不變。順帶把 `isStale()` 檢查提前到組 data URL 之前。
+    - 後端把 key 計算抽成 `cache_key(mode, server, jar, java, code)`，並在註解說明這是唯一的圖表快取。
+  - **測試**：新增 `cache_key_tracks_every_plantuml_setting`（5 個欄位任一改變，key 都不同；全部相同時 key 相同），鎖定前端現在依賴的行為。全部 106 個測試通過、`tsc` 通過。未在 app 中實際切換設定驗證。
 
 ### 3.2 `media_server` 為 Linux 專用卻在 macOS 一併編譯與註冊
 - **檔案位置**：

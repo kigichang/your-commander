@@ -202,6 +202,15 @@ fn render_via_jar(java_override: &str, jar: &str, uml: &str) -> Result<String, S
     }
 }
 
+/// The render cache's key: the source plus every setting that changes the
+/// output, so editing the PlantUML settings re-renders instead of serving
+/// the old SVG. This is the only diagram cache (the frontend keeps none).
+fn cache_key(mode: &str, server: &str, jar: &str, java: &str, code: &str) -> u64 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    (mode, server, jar, java, code).hash(&mut hasher);
+    hasher.finish()
+}
+
 #[tauri::command]
 pub async fn render_plantuml(
     state: State<'_, AppState>,
@@ -220,11 +229,7 @@ pub async fn render_plantuml(
         return Err("PlantUML rendering is disabled — enable it in Settings".into());
     }
 
-    let key = {
-        let mut hasher = std::hash::DefaultHasher::new();
-        (&mode, &server, &jar, &java, &code).hash(&mut hasher);
-        hasher.finish()
-    };
+    let key = cache_key(&mode, &server, &jar, &java, &code);
     if let Some(svg) = state.plantuml_cache.lock().unwrap().get(&key) {
         return Ok(svg.as_ref().clone());
     }
@@ -251,6 +256,21 @@ pub async fn render_plantuml(
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[test]
+    fn cache_key_tracks_every_plantuml_setting() {
+        let base = cache_key("server", "https://a", "/p.jar", "java", "A -> B");
+        assert_eq!(base, cache_key("server", "https://a", "/p.jar", "java", "A -> B"));
+        for other in [
+            cache_key("jar", "https://a", "/p.jar", "java", "A -> B"),
+            cache_key("server", "https://b", "/p.jar", "java", "A -> B"),
+            cache_key("server", "https://a", "/q.jar", "java", "A -> B"),
+            cache_key("server", "https://a", "/p.jar", "/opt/java", "A -> B"),
+            cache_key("server", "https://a", "/p.jar", "java", "A -> C"),
+        ] {
+            assert_ne!(base, other);
+        }
+    }
 
     /// Decode the PlantUML alphabet + inflate — test-only inverse.
     fn decode(encoded: &str) -> Vec<u8> {
