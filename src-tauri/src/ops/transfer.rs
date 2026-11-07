@@ -273,6 +273,16 @@ pub fn rename(src: &Path, new_name: &str) -> Result<(), String> {
     std::fs::rename(src, &dest).map_err(|e| e.to_string())
 }
 
+/// A name typed for a new or renamed entry must stay a single entry in
+/// its folder: not empty, not `.`/`..`, no `/` (which would reach another
+/// folder) and no NUL.
+pub fn check_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\0']) {
+        return Err(format!("Invalid name: \"{name}\""));
+    }
+    Ok(())
+}
+
 /// Create a folder inside `dir`.
 pub fn new_folder(dir: &Path, name: &str) -> Result<(), String> {
     let dest = dir.join(name);
@@ -394,6 +404,16 @@ mod tests {
 
         for d in [&src_root, &dest_root] {
             let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    #[test]
+    fn names_must_stay_in_their_folder() {
+        for bad in ["", ".", "..", "../x", "a/b", "/abs", "nul\0x"] {
+            assert!(check_name(bad).is_err(), "{bad:?} accepted");
+        }
+        for ok in ["a", ".hidden", "..x", "x..", "a b", "back\\slash"] {
+            assert!(check_name(ok).is_ok(), "{ok:?} refused");
         }
     }
 

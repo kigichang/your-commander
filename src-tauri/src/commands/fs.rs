@@ -31,6 +31,7 @@ pub async fn mkdir(
     name: String,
 ) -> Result<(), String> {
     let conn = state.resolve(&location)?.conn_or_err("New folder")?;
+    transfer::check_name(&name)?;
     blocking(move || match conn {
         None => transfer::new_folder(&dir, &name),
         Some(c) => {
@@ -52,6 +53,7 @@ pub async fn rename(
     new_name: String,
 ) -> Result<(), String> {
     let conn = state.resolve(&location)?.conn_or_err("Rename")?;
+    transfer::check_name(&new_name)?;
     blocking(move || match conn {
         None => transfer::rename(&path, &new_name),
         Some(c) => {
@@ -95,9 +97,7 @@ pub async fn batch_rename(
             .collect();
         let mut finals = std::collections::HashSet::new();
         for item in &items {
-            if item.new_name.is_empty() || item.new_name.contains('/') {
-                return Err(format!("Invalid name: \"{}\"", item.new_name));
-            }
+            transfer::check_name(&item.new_name)?;
             let parent = item
                 .path
                 .parent()
