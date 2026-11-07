@@ -344,7 +344,8 @@ pub fn extract_op(
                     total: len,
                     detail: detail.clone(),
                 });
-                let mut writer = std::fs::File::create(&out).map_err(|e| e.to_string())?;
+                // `target` is a fresh folder, but never write through a link.
+                let mut writer = create_file_nofollow(&out)?;
                 std::io::copy(&mut dec, &mut writer).map_err(|e| e.to_string())?;
                 Ok(())
             })(),

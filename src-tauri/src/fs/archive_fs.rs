@@ -235,8 +235,9 @@ pub fn extract_entries(
         for (sel, parent_len) in &wanted {
             if name == sel || name.starts_with(&format!("{sel}/")) {
                 let rel = &name[*parent_len..];
-                // Zip-slip guard: no absolute or parent-escaping pieces.
-                if rel.split('/').any(|c| c == ".." || c.is_empty()) {
+                // Zip-slip guard: no absolute or parent-escaping pieces, and
+                // no "." that would name the folder itself instead of an entry.
+                if rel.split('/').any(|c| c == ".." || c == "." || c.is_empty()) {
                     return None;
                 }
                 return Some(dest_dir.join(rel));
@@ -445,6 +446,32 @@ mod tests {
         let (mut ctx, _) = OpCtx::recording(Some(len / 3));
         let err = extract_entries(&mut ctx, &archive, wanted, &dir.join("out2")).unwrap_err();
         assert_eq!(err, cancelled_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dot_pieces_are_skipped_not_written_onto_the_folder() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("yc_arfs_dot_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip_path = dir.join("dot.zip");
+        {
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+            let opts = zip::write::SimpleFileOptions::default();
+            // "a/." names the folder "a" itself; it must not abort the copy.
+            zip.start_file("a/.", opts).unwrap();
+            zip.write_all(b"junk").unwrap();
+            zip.start_file("a/ok.txt", opts).unwrap();
+            zip.write_all(b"ok").unwrap();
+            zip.finish().unwrap();
+        }
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        let n = extract_entries(&mut ctx, &zip_path, vec!["a".into()], &out).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(std::fs::read(out.join("a/ok.txt")).unwrap(), b"ok");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
