@@ -5,6 +5,7 @@
 use crate::fs::provider::epoch_millis;
 use crate::fs::sftp::SftpConnection;
 use crate::ops::queue::{cancelled_err, ConflictChoice, OpCtx};
+use crate::ops::safe_path::is_listing_name;
 use crate::ops::transfer;
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -197,6 +198,12 @@ pub fn sync_op(
     if left_conn.is_some() && right_conn.is_some() {
         return Err("Remote-to-remote sync is not supported".to_string());
     }
+    // Rows come from `compare`, whose listings hold only plain names, but
+    // check anyway: each `rel` is joined onto both folders, and a "..",
+    // empty or absolute piece would land the copy outside them.
+    if let Some(bad) = items.iter().find(|i| !i.rel.split('/').all(is_listing_name)) {
+        return Err(format!("{:?}: not a path inside the folder", bad.rel));
+    }
     // The user already approved each row: overwrite without prompting.
     ctx.policy = Some(ConflictChoice::OverwriteAll);
 
@@ -301,5 +308,29 @@ mod tests {
         for d in [&left, &right] {
             let _ = std::fs::remove_dir_all(d);
         }
+    }
+
+    #[test]
+    fn sync_refuses_paths_that_leave_the_folders() {
+        let work = tmp("esc");
+        let (left, right) = (work.join("l"), work.join("r"));
+        std::fs::create_dir_all(left.join("sub")).unwrap();
+        std::fs::create_dir_all(&right).unwrap();
+        std::fs::write(left.join("sub/f.txt"), b"x").unwrap();
+        let outside = work.join("f.txt");
+        for rel in ["../f.txt", "sub/../../f.txt", "/etc/f.txt", "", "sub//f.txt", "./sub/f.txt"] {
+            let items = vec![
+                // A good row first: nothing is copied when any row is bad.
+                SyncItem { rel: "sub/f.txt".into(), direction: Direction::Ltr },
+                SyncItem { rel: rel.into(), direction: Direction::Ltr },
+            ];
+            let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+            let err = sync_op(&mut ctx, None, left.clone(), None, right.clone(), items)
+                .unwrap_err();
+            assert!(err.contains("not a path inside"), "{rel:?}: {err}");
+            assert!(!right.join("sub/f.txt").exists(), "{rel:?}");
+        }
+        assert!(!outside.exists());
+        let _ = std::fs::remove_dir_all(&work);
     }
 }

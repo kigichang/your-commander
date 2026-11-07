@@ -42,6 +42,15 @@
 - **修正建議**：
   - 直接在 `SftpConnection::list`（`src-tauri/src/fs/sftp.rs:348`）統一以 `crate::ops::safe_path::is_plain_name(&name)` 過濾所有遠端 `READDIR` 項目。
   - 在 `ops/sync.rs::sync_op` 驗證 `item.rel` 僅包含 `Component::Normal`，並於本機寫入時使用 `create_dir_inside` + `replace_file_nofollow`。
+- **處理結果**（Claude，2026-11-07）：採納，「遠端→本機」同步確為真漏洞；遞迴刪除風險較低。
+  - **查證**：russh-sftp 3.0.1 的 `ReadDir` 只濾掉名稱恰為 `.` 與 `..` 的項目，`""`、`../x`、`/abs/path`、`a/b` 都會原樣回傳。
+    - 同步：惡意伺服器回傳 `../../.zshrc` 或 `/Users/x/.zshrc`（`Path::join` 遇絕對路徑會整個取代 base），「遠端→本機」同步就會寫到 `dest_base` 之外——**成立**。
+    - 遞迴刪除：逃逸只會刪到伺服器自己的檔案，伺服器本來就能刪；但空字串名稱會讓 `path.join("")` 指回自己，`remove_recursive` 無限遞迴到 stack overflow——屬穩健性問題。
+  - **已修**：
+    1. `SftpConnection::list` 統一過濾，涵蓋所有使用者（面板、搜尋、同步、下載、遞迴刪除、衝突偵測）。採新的 `safe_path::is_listing_name`（非空、非 `.`/`..`、不含 `/` 與 NUL），而非建議的 `is_plain_name`：反斜線在 macOS/Linux 是一般檔名字元，用 `is_plain_name` 會讓遠端 `a\b` 這類合法檔案從面板消失。`is_plain_name` 改為建立在 `is_listing_name` 之上（再排除 `\`），`download_item` 原有的較嚴格檢查保留。
+    2. `sync_op` 開頭驗證每個 `item.rel` 的每一段都通過 `is_listing_name`；任一列不合格就整批拒絕，不會先複製一部分（`rel` 來自前端 IPC，縱深防禦）。
+  - **不採納**：本機端改用 `create_dir_inside`。`rel` 驗證後，路徑上的 symlink 只可能是使用者目錄中原有的（`collect_local`／`collect_remote` 跳過 symlink，同步從不建立 link），理由同 1.1 第 2 點。最後一層檔案：下載走 `download_file` 已是 `O_NOFOLLOW`；本機→本機走 `transfer::copy_file`，歸入 1.4 處理。
+  - **測試**：新增 `sync_refuses_paths_that_leave_the_folders`（`../`、中段 `..`、絕對路徑、空字串、`//`、`./`；拿掉檢查會失敗）與 `listing_names`。`list` 的過濾需要惡意 SFTP 伺服器才能端對端測試，目前以 `is_listing_name` 單元測試涵蓋。
 
 ### 1.3 `[High]` `HtmlPreview.tsx` 的 CSP `<meta>` 注入可被繞過，結合 `assetProtocol` 全域開放（`["**"]`）有讀取本機檔案風險
 - **檔案位置**：

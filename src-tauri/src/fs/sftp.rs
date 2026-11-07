@@ -1,5 +1,6 @@
 use super::provider::FsEntry;
 use crate::ops::queue::{cancelled_err, OpCtx};
+use crate::ops::safe_path::is_listing_name;
 use russh::client;
 use russh::keys::known_hosts::{check_known_hosts_path, learn_known_hosts_path};
 use russh::keys::{load_secret_key, HashAlg, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate};
@@ -344,6 +345,12 @@ impl SftpConnection {
             // directory can be entered; broken links keep the link's data.
             // The stats run concurrently (SFTP multiplexes requests by id);
             // `buffered` keeps the server's order.
+            // russh-sftp drops only "." and ".."; a hostile or broken
+            // server can still send "", "../x" or "/abs". Such a name is
+            // never one entry of this folder: joined onto it, it would
+            // point elsewhere (a sync download writing outside its folder,
+            // a recursive delete climbing out), so it is not listed at all.
+            let dir = dir.filter(|entry| is_listing_name(&entry.file_name()));
             let resolved: Vec<_> = stream::iter(dir.map(|entry| async move {
                 let name = entry.file_name();
                 let mut meta = entry.metadata();

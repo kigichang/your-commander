@@ -131,11 +131,19 @@ pub fn replace_file_nofollow(path: &Path) -> Result<std::fs::File, String> {
     create_file_nofollow(path)
 }
 
-/// A directory-entry name as a single path piece: no separators, not
-/// `.`/`..`, not empty. Guards `dir.join(name)` against names a remote
-/// server made up.
+/// A name a directory listing may carry: exactly one path piece on Unix —
+/// not empty, not `.`/`..`, no `/` or NUL. `dir.join(name)` then stays
+/// one level under `dir` (an absolute name would replace `dir` outright).
+/// A backslash passes: here it is an ordinary file-name character.
+pub fn is_listing_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\0'])
+}
+
+/// A directory-entry name as a single path piece on any platform:
+/// `is_listing_name`, and no backslash either. Guards `dir.join(name)`
+/// against names a remote server made up.
 pub fn is_plain_name(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
+    is_listing_name(name) && !name.contains('\\')
 }
 
 #[cfg(test)]
@@ -204,6 +212,19 @@ mod tests {
         assert!(!is_plain_name(".."));
         assert!(!is_plain_name("a/b"));
         assert!(!is_plain_name("..\\x"));
+    }
+
+    #[test]
+    fn listing_names() {
+        assert!(is_listing_name("file.txt"));
+        assert!(is_listing_name("back\\slash"), "an ordinary character on Unix");
+        assert!(!is_listing_name(""));
+        assert!(!is_listing_name("."));
+        assert!(!is_listing_name(".."));
+        assert!(!is_listing_name("../x"));
+        assert!(!is_listing_name("/etc/passwd"));
+        assert!(!is_listing_name("a/b"));
+        assert!(!is_listing_name("nul\0byte"));
     }
 
     #[test]
