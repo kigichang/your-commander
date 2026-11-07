@@ -350,6 +350,16 @@
   - `navigate` 與 `refresh` 僅檢查 `t.id === tab.id`，未追蹤請求世代（request generation ID）。當背景 `fs:changed` 觸發 `refresh` 或慢速 SFTP 目錄正在讀取時，若使用者同時導覽至其他目錄，較早發出的 `listDir` 若較晚回傳，會將舊目錄的檔案列表覆蓋到新目錄上；且 `refresh` 第 350 行會使用舊的 `tab.path` 重新呼叫 `ipc.watchDir(side, tab.path)`。
 - **修正建議**：
   - 為每個分頁維護遞增的請求序號（或在 `await ipc.listDir` 後比對當前分頁的 `path` 與 `location` 是否仍一致）。
+- **處理結果**（Claude，2026-11-07）：成立，已修。
+  - **重現**：用 esbuild 把 `store/panels.ts`、`store/settings.ts` 和 mock 的 IPC（可控制回應順序的 `listDir`、記錄 `watchDir` 呼叫）打包，在 Node 中執行。舊程式碼上：
+    1. 慢的 `navigate("/b")` 被快的 `navigate("/c")` 超車，`/b` 晚回來時 → 路徑顯示 `/c`、內容卻是 `/b` 的檔案，watcher 也被改到 `/b`。
+    2. 進行中的 silent `refresh`（`fs:changed` 觸發）被 `navigate("/d")` 超車 → `/d` 顯示舊資料夾的內容，watcher 被改回舊路徑。
+    3. 使用者在 `navigate` 進行中切換分頁 → 背景分頁的結果把這一側的 watcher 搶走（Argon 沒提到，一併修）。
+  - **修正**（`store/panels.ts`）：
+    - 新增每個分頁的請求世代：`latestListing`（`navigate` 與 `refresh` 都會更新）與 `latestNavigate`（只有 `navigate` 更新）。`refresh` 回來時若已有更新的 `navigate`／`refresh` 就丟棄；`navigate` 只會被更新的 `navigate` 取代——進入資料夾途中同時觸發的 `refresh` 不會讓 `navigate` 跳過游標歸零與 `persistPanels`。成功與錯誤兩條路徑都檢查。
+    - `watchDir`／`unwatch` 只在該分頁仍是這一側的作用分頁時才呼叫；背景分頁的導覽仍會記錄最近資料夾。
+    - `revealEntry`：若它的 `navigate` 被另一次導覽超車，就不再移動游標。
+  - **測試**：前端沒有測試框架，重現腳本放在 scratchpad（`race29/`）未納入專案；舊程式碼 5 項失敗，修正後 7 項全部通過；`tsc` 通過。未在 app 中實際以慢速 SFTP 驗證。
 
 ### 2.10 `[Medium]` 其他前後端效能問題
 - **`FindDialog.tsx` 啟動與關閉競態**（`src/components/FindDialog.tsx:66-117`）：`findIdRef.current` 在 `await ipc.startFind(...)` 解析後才賦值。若在 `await` 期間關閉對話框或連按兩次搜尋，無法取消已送出的後端搜尋任務。

@@ -131,6 +131,20 @@ function updateTab(
   return next;
 }
 
+/** Per-tab listing generations, so a listing that answers late cannot
+ *  land on a folder the tab has since left. Any navigate or refresh
+ *  supersedes an older pending refresh; only a newer navigate supersedes a
+ *  navigate (a refresh of the folder being entered must not skip its
+ *  cursor reset and persist). */
+let listingSeq = 0;
+const latestListing = new Map<number, number>();
+const latestNavigate = new Map<number, number>();
+
+/** The side's directory watcher follows its active tab only. */
+function isActiveTab(side: Side, tabId: number) {
+  return usePanels.getState().activeTab(side)?.id === tabId;
+}
+
 /** Write both sides' local tabs, active tab, view mode, and active sort into
  *  the config. Called after any change worth restoring next launch. `extra`
  *  rides along in the same save (one write and one IPC, not two). */
@@ -279,6 +293,10 @@ export const usePanels = create<PanelsStore>((set, get) => ({
     const tab = get().activeTab(side);
     if (!tab) return;
     const loc = location ?? tab.location;
+    const seq = ++listingSeq;
+    latestListing.set(tab.id, seq);
+    latestNavigate.set(tab.id, seq);
+    const current = () => latestNavigate.get(tab.id) === seq;
     set((s) => ({
       panels: updateTab(s.panels, side, tab.id, {
         location: loc,
@@ -291,6 +309,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
     }));
     try {
       const entries = await ipc.listDir(loc, path);
+      if (!current()) return;
       set((s) => ({
         panels: updateTab(s.panels, side, tab.id, {
           entries,
@@ -302,19 +321,22 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       }));
       // Saved together with the panel state below: one config write.
       let extra: Partial<Config> = {};
+      // If the user switched tabs meanwhile, that tab owns the watcher.
+      const watching = isActiveTab(side, tab.id);
       if (loc.kind === "local") {
-        void ipc.watchDir(side, path);
+        if (watching) void ipc.watchDir(side, path);
         // Remember for the command palette's FOLDERS section.
         const settings = useSettings.getState();
         if (settings.config && path !== settings.home) {
           const recents = [path, ...settings.config.recent_dirs.filter((p) => p !== path)];
           extra = { recent_dirs: recents.slice(0, 15) };
         }
-      } else {
+      } else if (watching) {
         void ipc.unwatch(side);
       }
       persistPanels(extra);
     } catch (e) {
+      if (!current()) return;
       set((s) => ({
         panels: updateTab(s.panels, side, tab.id, {
           loading: false,
@@ -327,11 +349,15 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   refresh: async (side, opts) => {
     const tab = get().activeTab(side);
     if (!tab) return;
+    const seq = ++listingSeq;
+    latestListing.set(tab.id, seq);
+    const current = () => latestListing.get(tab.id) === seq;
     if (!opts?.silent) {
       set((s) => ({ panels: updateTab(s.panels, side, tab.id, { loading: true }) }));
     }
     try {
       const entries = await ipc.listDir(tab.location, tab.path);
+      if (!current()) return;
       set((s) => ({
         panels: updateTab(s.panels, side, tab.id, (t) => {
           // Keep the cursor on the same entry when it survived the refresh.
@@ -350,8 +376,11 @@ export const usePanels = create<PanelsStore>((set, get) => ({
           };
         }),
       }));
-      if (tab.location.kind === "local") void ipc.watchDir(side, tab.path);
+      if (tab.location.kind === "local" && isActiveTab(side, tab.id)) {
+        void ipc.watchDir(side, tab.path);
+      }
     } catch (e) {
+      if (!current()) return;
       set((s) => ({
         panels: updateTab(s.panels, side, tab.id, { loading: false, error: String(e) }),
       }));
@@ -612,6 +641,8 @@ export const usePanels = create<PanelsStore>((set, get) => ({
 
   revealEntry: async (side, path, name, location) => {
     await get().navigate(side, path, location);
+    // Another navigation overtook this one: leave its cursor alone.
+    if (get().activeTab(side).path !== path) return;
     const idx = get()
       .visible(side)
       .findIndex((e) => e.name === name);
