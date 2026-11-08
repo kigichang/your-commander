@@ -119,7 +119,9 @@ fn copy_item(ctx: &mut OpCtx, src: &Path, dest: &Path, remove_source: bool) -> R
 }
 
 fn copy_dir(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
-    if dest.exists() && !dest.is_dir() {
+    // exists() follows links: a dangling one would raise no conflict, and
+    // create_dir_all below would then fail on the name it holds.
+    if (dest.exists() || dest.is_symlink()) && !dest.is_dir() {
         match ctx.ask_conflict(src, dest) {
             ConflictChoice::Overwrite => {
                 std::fs::remove_file(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
@@ -664,6 +666,51 @@ mod tests {
         for d in [&src_root, &dest_root] {
             let _ = std::fs::remove_dir_all(d);
         }
+    }
+
+    #[test]
+    fn folder_copied_onto_a_dangling_link_raises_a_conflict() {
+        let work = tmp("dir_dangling");
+        let (src, dest) = (work.join("src"), work.join("dest"));
+        std::fs::create_dir_all(src.join("proj")).unwrap();
+        std::fs::write(src.join("proj/a.txt"), b"new").unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        let target = work.join("missing");
+        let link = dest.join("proj");
+        let reset = || {
+            let _ = std::fs::remove_dir_all(&dest);
+            std::fs::create_dir_all(&dest).unwrap();
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+        };
+        let copy = |choice| {
+            let mut ctx = OpCtx::for_test(choice);
+            copy_op(&mut ctx, vec![src.join("proj")], dest.clone(), false)
+        };
+
+        reset();
+        copy(ConflictChoice::Skip).unwrap();
+        assert!(link.is_symlink(), "skip leaves the link");
+
+        reset();
+        copy(ConflictChoice::KeepBoth).unwrap();
+        assert!(link.is_symlink(), "keep both leaves the link");
+        assert_eq!(std::fs::read(dest.join("proj 2/a.txt")).unwrap(), b"new");
+
+        reset();
+        copy(ConflictChoice::Overwrite).unwrap();
+        assert!(!link.is_symlink(), "overwrite replaces the link");
+        assert_eq!(std::fs::read(link.join("a.txt")).unwrap(), b"new");
+        assert!(!target.exists(), "nothing was created at the link's target");
+
+        // A link to a real folder is still a folder to merge into.
+        let real = work.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let _ = std::fs::remove_dir_all(&dest);
+        std::fs::create_dir_all(&dest).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        copy(ConflictChoice::CancelOp).unwrap();
+        assert_eq!(std::fs::read(real.join("a.txt")).unwrap(), b"new");
+        let _ = std::fs::remove_dir_all(&work);
     }
 
     #[test]

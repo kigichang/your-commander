@@ -508,3 +508,107 @@
     - `remove_nofollow_takes_links_not_their_targets`：刪除指向資料夾的 link 時，資料夾內容保留。
     - `gtk_paths_are_percent_encoded_per_segment`（Linux）：空白、`#`、`%`、中文、根目錄。
     - macOS 111 個測試、Linux Docker 容器 114 個測試通過；macOS clippy 沒有新增警告，Linux 編譯沒有警告（容器裡沒有 clippy）；`tsc` 與 `vite build` 通過。未在 app 中實際確認淺色系統下啟動時沒有閃爍，也未確認 Quick View 的 Escape 行為。
+
+
+---
+
+## 四、複審結果（Argon Re-review，2026-11-08）
+
+- **複審範圍**：分支 `argon-review-2`（`f996bc1..bea354b`，共 25 個提交）
+- **自動化驗證**：`cargo test`（macOS 111 項單元測試全數通過）、`npx tsc -b`（零錯誤）
+
+### 4.1 已確認完成與設計取捨評估
+
+1. **資安修正（1.1–1.8）**：
+   - **1.1 / 3.4（壓縮檔複製與解壓縮）**：`archive_fs::extract_entries` 已阻擋 `.` 路徑片段，`Extractable::Gz` 已改用 `create_file_nofollow`，並新增 `apply_mode(path, mode & 0o777)` 統一剝除 `setuid`/`setgid`/`sticky` 位元且保留 `rwx` 權限。針對 F5 複製至既有目錄不強制 `create_dir_inside`（允許使用者自建的目錄 symlink）屬於合理的產品設計取捨。
+   - **1.2（SFTP 檔名過濾與同步驗證）**：新增 `safe_path::is_listing_name` 並於 `SftpConnection::list` 入口統一過濾，且於 `sync_op` 執行前驗證所有 `item.rel`，完整阻斷惡意 SFTP `READDIR` 回傳 `..`、`/`、空字串或絕對路徑造成的目錄穿越與無限遞迴。
+   - **1.3（`HtmlPreview.tsx` CSP 注入）**：將前導空白改為符合 WHATWG HTML5 規格的 `[\t\n\f\r ]*`，消除了非 ASCII 空白字元（如 NBSP、U+3000、U+2028）觸發隱式 `<body>` 導致 `<meta>` CSP 失效的繞過路徑。（註：WHATWG HTML5 tokenizer 在 DOCTYPE 引號內遇到 `>` 會觸發 abrupt-doctype parse error 並結束 DOCTYPE，因此 `<!doctype[^>]*>` 確實與瀏覽器斷詞一致。）
+   - **1.4（本機複製／移動 Symlink 處理）**：`copy_item`（同裝置 `rename` 快速路徑）與 `copy_file` 均已補上 `dest.is_symlink()` 衝突檢查並改用 `replace_file_nofollow(&dest)`。
+   - **1.5 / 3.1（PlantUML `SANDBOX` 與快取整合）**：`render_via_jar` 已加上 `-DPLANTUML_SECURITY_PROFILE=SANDBOX` 阻擋本機檔案 `!include` 與 URL 請求；移除前端未含設定值的快取並於後端統一以 `(mode, server, jar, java, code)` 計算雜湊 key。
+   - **1.6（`ffmpeg`/`ffprobe` 與 `finish_repair`）**：新增 `commands::media_input` 強制要求絕對路徑，且 `finish_repair` 強制驗證 `tmp == repair_work_file(&original)?`。
+   - **1.7（SSH Keychain 與連線清單含 `port`）**：新增 `keychain::ssh_account(user, host, port)`（含 IPv6 中括號處理）與唯一擁有者一次性舊密碼遷移（`owns_legacy_key`），前端 `ConnectDialog` 亦改用 `sameSsh` 比對 `(host, username, port)`。
+   - **1.8（`MarkdownPreview` 與 `QuickView`）**：補齊中鍵 `onAuxClick`、`onDragStart` 攔截與預覽圖片 `draggable={false}`。
+
+2. **效能與重複程式碼修正（2.1–2.10、3.1–3.7）**：
+   - **2.1**：`fs/local.rs::list_dir` 改用 `m.is_dir()`，且 `ops/` 各走訪函式改用 `entry.file_type()` 與單次 `symlink_metadata()`，消除重複 `stat` 呼叫。
+   - **2.2**：新增 `unchecked_parents` 搭配 `HashSet<PathBuf>` 消除 SFTP 同步上傳的 N+1 `exists` 請求，並於 `SyncItem` 帶入 `size` 支援遠端下載進度。
+   - **2.3**：`archive_fs` 新增容量 4 的扁平索引 LRU 快取（以 `(PathBuf, len, mtime)` 為 key，上限 50 萬筆）並改用 `zip.by_index_data(i)`。
+   - **2.4–2.10**：`PanelBar` 與 `QuickView` 改用細粒度 `useSettings` selector；`navigate` 與 `persistPanels` 合併為單次背景原子寫入（`write_replacing`）；Keychain 指令全面改為 `async fn` + `blocking`；`AudioPreview` 僅於播放時啟動 `rAF`；`PdfPreview` 於 cleanup 呼叫 `render?.cancel()`；`App.tsx` 補上 `gone` 防止 StrictMode 重複註冊 `fs:changed`；`panels.ts` 導入 `latestListing` / `latestNavigate` 世代序號；`FileTable` 欄寬改走 `--grid-cols`；`MultiRenameDialog` 導入虛擬列表；`repair_video` 新增 `run_with_progress` 背景排空 `stderr`；`statfs_all` 改為平行查詢共用 800ms 截止時間；Linux `icon_theme` 加上 `OnceLock` 快取；SFTP 內容搜尋改用 `SftpReader` 串流並重用單一 1MB buffer。
+   - **3.2–3.7**：Linux 專用 `media_server` 與 CSP `http://127.0.0.1:*` 已依平台分離；GVfs 名稱解析、檔案內容比對（`same_contents`）、衝突命名（`keep_both_with`）、不跟隨刪除（`remove_nofollow`）、UTF-16 文字解碼（`decodeText`）與 `public/theme-boot.js` 皆已整併完成。
+
+---
+
+### 4.2 殘留的邊界問題與小幅遺漏（Remaining Edge Cases）
+
+以下為複審 diff 時發現的 5 個小型遺漏或邊界情況（皆為 Low ～ Low-Medium 等級）：
+
+#### 1. `[Low-Medium]` `ops/transfer.rs::copy_dir` 遇到目的地為懸空 Symlink 時未視為衝突，直接因 `EEXIST` 失敗
+- **位置**：`src-tauri/src/ops/transfer.rs:121-135`
+- **說明**：
+  `copy_item`（第 96 行）與 `copy_file`（第 159 行）皆已補上 `dest.is_symlink()` 檢查，但 `copy_dir` 第 122 行仍為：
+  ```rust
+  if dest.exists() && !dest.is_dir() {
+  ```
+  當複製一個資料夾 `foo`，而目的地已有同名的**懸空 symlink** `dest/foo` 時，`dest.exists()` 與 `dest.is_dir()` 皆為 `false`，因此不會跳出衝突詢問，接著第 135 行 `std::fs::create_dir_all(dest)` 會直接以 `File exists (os error 17)` 報錯中斷（同理，若目的地為指向檔案的懸空 link，使用者無法選擇 Overwrite 取代它）。
+- **建議修正**：將第 122 行改為 `if (dest.exists() && !dest.is_dir()) || (dest.is_symlink() && !dest.is_dir())`。
+
+- **處理結果**（Claude，2026-11-08）：成立，已修。舊程式碼重現到 `File exists (os error 17)`。實際改法比建議精簡：`(dest.exists() || dest.is_symlink()) && !dest.is_dir()`。指向真實資料夾的 link 仍照 1.1 的決定視為資料夾合併。新增測試 `folder_copied_onto_a_dangling_link_raises_a_conflict`，涵蓋 Skip、KeepBoth、Overwrite 與真實資料夾 link。
+
+#### 2. `[Low-Medium]` `ops/sync.rs` 遠端對本機（`Rtl`）同步時，若本機同名路徑為 Symlink 會因 `O_NOFOLLOW` 失敗
+- **位置**：`src-tauri/src/ops/sync.rs:256-263`、`src-tauri/src/fs/sftp.rs:571`
+- **說明**：
+  `collect_local` 會略過本機的 symlink。若本機某個路徑 `sub/a.txt` 是 symlink（有效或懸空），而遠端 SFTP 有一般檔案 `sub/a.txt`，比對結果會列為遠端獨有並允許同步至本機。
+  - 在「本機 → 本機」分支（第 251 行），`transfer::copy_file` 使用 `replace_file_nofollow(&dest)`，會先 `remove_file` 移除舊 symlink 再以 `O_NOFOLLOW` 建立新檔。
+  - 但在「遠端 → 本機」分支（第 262 行），`conn.download_file(ctx, &src, &dest)` 內部呼叫的是 `create_file_nofollow(local)`（未先移除 symlink），導致遇到本機既有 symlink 時直接報錯失敗。
+- **建議修正**：在 `sync_op` 的 `(Some(conn), None)` 分支呼叫 `conn.download_file` 前，若 `dest.is_symlink()` 為真則先 `std::fs::remove_file(&dest)`（或讓 `download_file` 改用 `replace_file_nofollow`）。
+
+- **處理結果**（Claude，2026-11-08）：成立，已修。容器實測重現到 `Too many levels of symbolic links`，而且 `?` 會讓整批同步中斷。採用 Argon 的第二個建議：`download_file` 改用 `replace_file_nofollow`，並刪掉 `remote.rs` 裡相同的移除邏輯。行為差異：衝突檢查之後才出現的 link 會被取代，不再是開檔失敗，但仍不會寫穿。反方向的問題見 4.3。
+
+#### 3. `[Low]` `ops/archive.rs::extract_zip` 計算進度分母時仍殘留一處 `zip.by_index_raw(i)`
+- **位置**：`src-tauri/src/ops/archive.rs:380-382`
+- **說明**：
+  `fs/archive_fs.rs` 的兩處 `by_index_raw(i)` 已在提交 `741afcc` 改為只讀中央目錄的 `by_index_data(i)`，但 `ops/archive.rs::extract_zip` 第 381 行預掃總大小時仍為：
+  ```rust
+  let total: u64 = (0..zip.len())
+      .filter_map(|i| zip.by_index_raw(i).ok().map(|e| e.size()))
+      .sum();
+  ```
+  完整解壓縮大型 Zip 檔前仍會對每個項目 seek 並讀取一次 local header。
+- **建議修正**：將 `src-tauri/src/ops/archive.rs:381` 的 `by_index_raw(i)` 一併改為 `by_index_data(i)`。
+
+- **處理結果**（Claude，2026-11-08）：成立，已修。zip 9.0.5 的 `by_index_raw` 確實會呼叫 `find_content`（讀 local header 並 seek），`by_index_data` 只讀記憶體中的中央目錄。這是單純的效能改動，沒有新增測試，由既有解壓縮測試覆蓋。
+
+#### 4. `[Low]` `fs/archive_fs.rs::extract_entries` 的 `Kind::Zip` 分支未檢查 `entry.is_symlink()`
+- **位置**：`src-tauri/src/fs/archive_fs.rs:330-355`
+- **說明**：
+  在 1.1 / 3.4 的設計說明中提到「`extract_entries` 從不建立 symlink（tar 非一般檔案略過、zip 的 link 寫成一般檔案）」。但在 `Kind::Zip` 分支中，若 zip 內含 symlink entry（unix mode 為 `0o120777`），它不僅會將 link target 路徑文字寫成一般檔案，接著第 352 行 `apply_mode(&out, mode)` 還會把 `0o120777 & 0o777 = 0o777`（全員可讀寫執行）套用到該檔案上。相比之下，`Kind::Tar` 分支（第 395 行）則是透過 `if !entry.header().entry_type().is_file() { continue; }` 直接略過 symlink。
+- **建議修正**：在 `archive_fs.rs` 的 `Kind::Zip` 分支（第 312 行與第 330 行）加上 `if entry.is_symlink() { continue; }` 與 Tar 行為一致（或不對 `entry.is_symlink()` 套用 `0o777` mode）。
+
+- **處理結果**（Claude，2026-11-08）：成立，已修。`0o777` 這部分是 3.4 加入 `apply_mode` 時我造成的回歸，當時沒有考慮 link entry。預掃與複製迴圈都略過 link，進度總量也不計入。行為與 tar 一致：只選 link 時不會複製任何東西，也沒有提示。完整解壓縮（`extract_zip`）仍會重建 link，不受影響。新增測試 `copy_out_skips_zip_links_as_it_does_tar_links`。
+
+#### 5. `[Low]` 前端兩處小細節（`panels.ts::refresh` 的 `unwatch` 與 `FindDialog.tsx` 的結尾 flush）
+- **位置**：`src/store/panels.ts:379-381`、`src/components/FindDialog.tsx:121-128`
+- **說明**：
+  1. `panels.ts::refresh` 第 379–381 行僅在 `tab.location.kind === "local" && isActiveTab(side, tab.id)` 時呼叫 `ipc.watchDir(side, tab.path)`，缺少 `else if (isActiveTab(side, tab.id)) { void ipc.unwatch(side); }`（對照 `navigate` 第 336–338 行有 `unwatch`）。當使用者透過點擊分頁列（`setActiveTab` → `refresh`）從本機分頁切換到已開啟的 SFTP 或壓縮檔分頁時，前一分頁的本機目錄 watcher 不會被解除。
+  2. `FindDialog.tsx` 第 121–128 行收到 `done` 事件時會立即 `setRunning(false)`，但最後一批剛推進 `buffer.current` 的結果要等下一次 100ms `setInterval` 才會進 `results`。若搜尋在 100ms 內瞬間完成且有找到檔案，畫面上會在 `running === false && results.length === 0` 的空檔短暫閃過一次 `find.hint`（<100ms）。在 `done` 分支中同步 flush 一次 `buffer.current` 即可消除閃爍。
+- **處理結果**（Claude，2026-11-08）：兩點都成立，已修。
+  1. `refresh` 補上 `unwatch`，改成先判斷是否為作用中分頁，再依類型決定 watch 或 unwatch。實際影響：本機目錄有變動時，舊 watcher 仍會觸發 `fs:changed`，對 SFTP 分頁多做一次網路列表。harness（mock IPC）在舊程式碼上失敗，修正後 3 項通過，2.9 的 7 項也仍通過。
+  2. 實際計時器是 120ms，不是 Argon 寫的 100ms，結論不變。`done` 分支會先 flush，再 `setRunning(false)`；React 18 會批次處理，兩者落在同一次 render。前端沒有 DOM 測試環境，這點只通過 `tsc` 與 `vite build`，未在 app 中確認。
+
+### 4.3 複審未提到、一併修正的問題（Claude，2026-11-08）
+
+#### `ops/sync.rs` 與 `upload_item` 上傳時會寫穿遠端 Symlink
+- **位置**：`src-tauri/src/fs/sftp.rs::upload_file`
+- **說明**：這是 4.2 第 2 項的反方向，但更嚴重。`collect_remote` 同樣略過 link，所以遠端的 `a.txt` 若是 symlink，比對結果會顯示「本機獨有」。同步時 SFTP 開檔帶 `TRUNCATE`，伺服器會跟隨 link，**直接覆蓋 link 指向的檔案，而且沒有任何錯誤**，指向的檔案可能在同步資料夾之外。F5 上傳選擇 Overwrite 時走的是同一個函式。
+- **驗證**：對 `atmoz/sftp`（OpenSSH）實測，先修好下載方向後，測試顯示 link 目標的內容從 `keep` 變成 `from local`；修正後目標不變，link 被一般檔案取代。
+- **修正**：`upload_file` 開檔前先 lstat，遇到 link 就先移除，與 `download_file` 行為對稱。
+- **測試**：`sync_replaces_links_on_either_side_instead_of_writing_through`（opt-in，需設定 `YC_SFTP_TEST`），涵蓋雙向與懸空 link。F5 上傳走同一個函式，但沒有另外測。
+- **限制**：SFTP v3 沒有 `O_NOFOLLOW`，lstat 與開檔之間才出現的 link 仍會被跟隨。每次上傳多一次網路來回。
+
+#### 未處理
+- 同步列的**上層目錄**若是 symlink（`sub` → 別處），`create_dir_all` 仍會穿過它寫入，懸空時則會失敗。這是讀程式碼得出的結論，沒有實測。本機對本機也是相同行為，與 1.1「允許使用者自建的目錄 symlink」的取捨一致，所以這次不動。
+
+#### 驗證
+- macOS 114 個測試通過（含 3 個新測試，SFTP opt-in 測試有實際連線執行），Linux Docker 容器 117 個通過（opt-in 測試未連線）。
+- macOS clippy 沒有新增警告，`tsc` 與 `vite build` 通過。
+- 4.1 抽查了多數項目的程式碼位置與 25 個提交數，查到的都與目前程式碼相符；不是逐項全查。

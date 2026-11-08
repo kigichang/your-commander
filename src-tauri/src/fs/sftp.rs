@@ -527,6 +527,17 @@ impl SftpConnection {
         let mut reader =
             std::fs::File::open(local).map_err(|e| format!("{}: {e}", local.display()))?;
         runtime().block_on(async {
+            // SFTP's open has no O_NOFOLLOW: it would truncate whatever a link
+            // here points at. The caller has settled any conflict, so the link
+            // is replaced, as download_file does.
+            if let Ok(meta) = self.session.symlink_metadata(rp(remote)).await
+                && meta.is_symlink()
+            {
+                self.session
+                    .remove_file(rp(remote))
+                    .await
+                    .map_err(|e| format!("{}: {e}", remote.display()))?;
+            }
             let mut file = self
                 .session
                 .open_with_flags(
@@ -566,9 +577,9 @@ impl SftpConnection {
         remote: &Path,
         local: &Path,
     ) -> Result<(), String> {
-        // Never through a link at `local`: the caller removes one it means
-        // to overwrite, and one that appears meanwhile fails the open.
-        let mut writer = crate::ops::safe_path::create_file_nofollow(local)?;
+        // The caller has settled any conflict: a link at `local` is replaced,
+        // never written through.
+        let mut writer = crate::ops::safe_path::replace_file_nofollow(local)?;
         runtime().block_on(async {
             let mut file = self
                 .session
@@ -617,11 +628,8 @@ mod tests {
     /// Opt-in: `YC_SFTP_TEST=user:password@host:port:/writable/dir`, e.g.
     /// against `docker run -p 127.0.0.1:2222:22 atmoz/sftp tester:pass:::upload`
     /// with `tester:pass@127.0.0.1:2222:/upload`.
-    #[test]
-    fn reader_streams_a_remote_file_from_a_plain_thread() {
-        let Ok(spec) = std::env::var("YC_SFTP_TEST") else {
-            return;
-        };
+    fn test_server(name: &str) -> Option<(Arc<SftpConnection>, PathBuf)> {
+        let spec = std::env::var("YC_SFTP_TEST").ok()?;
         let (cred, rest) = spec.split_once('@').unwrap();
         let (user, pass) = cred.split_once(':').unwrap();
         let mut parts = rest.splitn(3, ':');
@@ -630,9 +638,16 @@ mod tests {
             parts.next().unwrap().parse::<u16>().unwrap(),
             PathBuf::from(parts.next().unwrap()),
         );
-        let known = tmp("reader").join("known_hosts");
+        let known = tmp(name).join("known_hosts");
         let auth = SshAuth::Password(pass.to_string());
-        let conn = connect_checked(&known, host, port, user, &auth, true).unwrap();
+        Some((connect_checked(&known, host, port, user, &auth, true).unwrap(), dir))
+    }
+
+    #[test]
+    fn reader_streams_a_remote_file_from_a_plain_thread() {
+        let Some((conn, dir)) = test_server("reader") else {
+            return;
+        };
         let path = dir.join("yc_reader_test.bin");
         let body: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
         runtime().block_on(async {
@@ -661,6 +676,70 @@ mod tests {
         // (`exists` answers "is it a folder": Some(false) is a file).
         assert_eq!(conn.exists(&path), Some(false));
         runtime().block_on(conn.session.remove_file(rp(&path))).unwrap();
+    }
+
+    /// Compare leaves links out on both sides, so a sync row's destination
+    /// can turn out to be one: it gets replaced, never written through.
+    #[test]
+    fn sync_replaces_links_on_either_side_instead_of_writing_through() {
+        use crate::ops::queue::{ConflictChoice, OpCtx};
+        use crate::ops::sync::{sync_op, Direction, SyncItem};
+        let Some((conn, base)) = test_server("sync_links") else {
+            return;
+        };
+        let remote = base.join(format!("yc_sync_links_{}", std::process::id()));
+        let _ = conn.remove_recursive(&remote);
+        conn.mkdir(&remote).unwrap();
+        let local = tmp("sync_links_local");
+        let write_remote = |path: &Path, body: &'static [u8]| {
+            runtime().block_on(async {
+                let mut f = conn.session.create(rp(path)).await.unwrap();
+                f.write_all(body).await.unwrap();
+                f.shutdown().await.unwrap();
+            })
+        };
+        let read_remote = |path: &Path| {
+            let mut out = Vec::new();
+            conn.open_reader(path).unwrap().read_to_end(&mut out).unwrap();
+            out
+        };
+        let is_remote_link = |path: &Path| {
+            runtime().block_on(conn.session.symlink_metadata(rp(path))).unwrap().is_symlink()
+        };
+
+        // Remote -> local, with a live link and a dangling one at the destination.
+        let victim = local.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+        std::os::unix::fs::symlink(&victim, local.join("live.txt")).unwrap();
+        std::os::unix::fs::symlink(local.join("missing"), local.join("dead.txt")).unwrap();
+        write_remote(&remote.join("live.txt"), b"from remote");
+        write_remote(&remote.join("dead.txt"), b"from remote");
+        // Local -> remote, onto a remote link aimed at a file beside it.
+        std::fs::write(local.join("up.txt"), b"from local").unwrap();
+        write_remote(&remote.join("remote_victim.txt"), b"keep");
+        conn.make_symlink(&remote.join("up.txt"), "remote_victim.txt").unwrap();
+
+        let row = |rel: &str, direction| SyncItem { rel: rel.into(), direction, size: Some(11) };
+        let items = vec![
+            row("live.txt", Direction::Rtl),
+            row("dead.txt", Direction::Rtl),
+            row("up.txt", Direction::Ltr),
+        ];
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        let done = sync_op(&mut ctx, None, local.clone(), Some(conn.clone()), remote.clone(), items);
+
+        assert_eq!(done.unwrap(), 3);
+        for name in ["live.txt", "dead.txt"] {
+            assert!(!local.join(name).is_symlink(), "{name}");
+            assert_eq!(std::fs::read(local.join(name)).unwrap(), b"from remote", "{name}");
+        }
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        assert!(!local.join("missing").exists());
+        assert_eq!(read_remote(&remote.join("remote_victim.txt")), b"keep");
+        assert!(!is_remote_link(&remote.join("up.txt")));
+        assert_eq!(read_remote(&remote.join("up.txt")), b"from local");
+        conn.remove_recursive(&remote).unwrap();
+        let _ = std::fs::remove_dir_all(&local);
     }
 
     fn tmp(name: &str) -> PathBuf {

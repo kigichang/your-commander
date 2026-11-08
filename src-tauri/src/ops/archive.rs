@@ -378,7 +378,7 @@ fn extract_zip(
     let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     // Progress inside this archive counts uncompressed bytes written.
     let total: u64 = (0..zip.len())
-        .filter_map(|i| zip.by_index_raw(i).ok().map(|e| e.size()))
+        .filter_map(|i| zip.by_index_data(i).ok().map(|e| e.size()))
         .sum();
     let mut read = 0u64;
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;

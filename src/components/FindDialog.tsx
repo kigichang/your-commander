@@ -60,13 +60,14 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Stream batching: found entries pile into a ref and flush on a timer.
+  const flush = () => {
+    if (buffer.current.length > 0) {
+      const batch = buffer.current.splice(0);
+      setResults((r) => [...r, ...batch]);
+    }
+  };
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (buffer.current.length > 0) {
-        const batch = buffer.current.splice(0);
-        setResults((r) => [...r, ...batch]);
-      }
-    }, 120);
+    const timer = setInterval(flush, 120);
     return () => clearInterval(timer);
   }, []);
 
@@ -123,6 +124,9 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
             finished = true;
             findIdRef.current = null;
             busyRef.current = false;
+            // In the same render as `running`, or a search that ends before
+            // the next tick shows the empty-state hint over its own hits.
+            flush();
             setRunning(false);
             setScanning("");
             if (event.error) useOps.getState().toast(event.error, "error");

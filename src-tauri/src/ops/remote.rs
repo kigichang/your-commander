@@ -256,13 +256,7 @@ fn download_item(
         // exists() follows links: a dangling one still takes the name.
         if dest.exists() || dest.is_symlink() {
             match ctx.ask_conflict(src, &dest) {
-                ConflictChoice::Overwrite => {
-                    // Overwriting replaces a link; it never writes through.
-                    if dest.is_symlink() {
-                        std::fs::remove_file(&dest)
-                            .map_err(|e| format!("{}: {e}", dest.display()))?;
-                    }
-                }
+                ConflictChoice::Overwrite => {}
                 ConflictChoice::Skip => return Ok(()),
                 ConflictChoice::KeepBoth => dest = super::queue::keep_both_path(&dest),
                 ConflictChoice::CancelOp => return Err(cancelled_err()),

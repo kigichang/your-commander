@@ -309,7 +309,7 @@ pub fn extract_entries(
             let mut total = 0u64;
             for i in 0..zip.len() {
                 let Ok(entry) = zip.by_index_data(i) else { continue };
-                if entry.is_dir() {
+                if entry.is_dir() || entry.is_symlink() {
                     continue;
                 }
                 let Ok(name) = entry.name() else { continue };
@@ -329,6 +329,11 @@ pub fn extract_entries(
                 ctx.report(&name);
                 if entry.is_dir() {
                     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+                    continue;
+                }
+                // Like the tar branch: a link is not copied out at all. Its data
+                // is only the target's path, and its mode is 777.
+                if entry.is_symlink() {
                     continue;
                 }
                 if let Some(parent) = out.parent() {
@@ -598,6 +603,33 @@ mod tests {
             assert!(!written.is_symlink(), "the link was replaced");
             assert_eq!(std::fs::read(&written).unwrap(), b"root");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn copy_out_skips_zip_links_as_it_does_tar_links() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("yc_arfs_zl_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip_path = dir.join("l.zip");
+        {
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+            let opts = zip::write::SimpleFileOptions::default();
+            zip.start_file("sub/inner.txt", opts).unwrap();
+            zip.write_all(b"inner").unwrap();
+            zip.add_symlink("sub/link", "a/rather/long/target/path", opts).unwrap();
+            zip.finish().unwrap();
+        }
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        let n = extract_entries(&mut ctx, &zip_path, vec!["sub".into()], &out).unwrap();
+        assert_eq!(n, 1, "only the file counts");
+        assert_eq!(std::fs::read(out.join("sub/inner.txt")).unwrap(), b"inner");
+        assert!(out.join("sub/link").symlink_metadata().is_err(), "the link is skipped");
+        // The progress total leaves it out too, so a copy still ends at 100%.
+        assert_eq!((ctx.done_bytes, ctx.total_bytes), (5, 5));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -376,8 +376,10 @@ export const usePanels = create<PanelsStore>((set, get) => ({
           };
         }),
       }));
-      if (tab.location.kind === "local" && isActiveTab(side, tab.id)) {
-        void ipc.watchDir(side, tab.path);
+      // Tab switches land here: an SFTP or archive tab drops the local watcher.
+      if (isActiveTab(side, tab.id)) {
+        if (tab.location.kind === "local") void ipc.watchDir(side, tab.path);
+        else void ipc.unwatch(side);
       }
     } catch (e) {
       if (!current()) return;
