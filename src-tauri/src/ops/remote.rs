@@ -1,5 +1,7 @@
 use super::queue::{cancelled_err, ConflictChoice, OpCtx};
-use super::safe_path::{create_dir_inside, is_plain_name, remove_nofollow, symlink_inside};
+use super::safe_path::{
+    create_dir_inside, is_plain_name, remove_dir_if_empty, remove_nofollow, symlink_inside,
+};
 use super::transfer::total_bytes;
 use crate::fs::provider::FsEntry;
 use crate::fs::sftp::SftpConnection;
@@ -78,21 +80,22 @@ pub fn upload_op(
             return Err(cancelled_err());
         }
         let Some(name) = src.file_name() else { continue };
-        upload_item(ctx, &conn, src, &remote_dir.join(name))?;
-        if remove_source {
-            remove_nofollow(src)?;
-        }
+        upload_item(ctx, &conn, src, &remote_dir.join(name), remove_source)?;
         count += 1;
     }
     Ok(count)
 }
 
+/// Upload one item. On a move a file goes once it has arrived and a folder
+/// once it is empty; whatever was skipped or masked out stays. Returns
+/// whether all of `src` arrived.
 fn upload_item(
     ctx: &mut OpCtx,
     conn: &SftpConnection,
     src: &Path,
     dest: &Path,
-) -> Result<(), String> {
+    remove_source: bool,
+) -> Result<bool, String> {
     if ctx.cancelled() {
         return Err(cancelled_err());
     }
@@ -100,21 +103,25 @@ fn upload_item(
     // uploaded like regular files (directory links always stay links).
     if src.is_symlink() && !(ctx.options.follow_symlinks && src.is_file()) {
         if !ctx.mask_matches(&src.file_name().unwrap_or_default().to_string_lossy()) {
-            return Ok(());
+            return Ok(false);
         }
         let target = std::fs::read_link(src).map_err(|e| format!("{}: {e}", src.display()))?;
         let mut dest = dest.to_path_buf();
         if conn.exists(&dest).is_some() {
             match ctx.ask_conflict(src, &dest) {
                 ConflictChoice::Overwrite => conn.remove_recursive(&dest)?,
-                ConflictChoice::Skip => return Ok(()),
+                ConflictChoice::Skip => return Ok(false),
                 ConflictChoice::KeepBoth => dest = remote_keep_both(conn, &dest),
                 ConflictChoice::CancelOp => return Err(cancelled_err()),
-                _ => return Ok(()),
+                _ => return Ok(false),
             }
         }
         ctx.report(&src.to_string_lossy());
-        return conn.make_symlink(&dest, &target.to_string_lossy());
+        conn.make_symlink(&dest, &target.to_string_lossy())?;
+        if remove_source {
+            remove_nofollow(src)?;
+        }
+        return Ok(true);
     }
     if src.is_dir() && !src.is_symlink() {
         match conn.exists(dest) {
@@ -124,15 +131,23 @@ fn upload_item(
             }
             None => conn.mkdir(dest)?,
         }
-        let entries =
-            std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
-        for entry in entries.flatten() {
-            upload_item(ctx, conn, &entry.path(), &dest.join(entry.file_name()))?;
+        // Listed up front: readdir may skip entries while files are being removed.
+        let entries: Vec<_> = std::fs::read_dir(src)
+            .map_err(|e| format!("{}: {e}", src.display()))?
+            .flatten()
+            .collect();
+        let mut all_arrived = true;
+        for entry in entries {
+            let child_dest = dest.join(entry.file_name());
+            all_arrived &= upload_item(ctx, conn, &entry.path(), &child_dest, remove_source)?;
         }
-        Ok(())
+        if remove_source && all_arrived {
+            return remove_dir_if_empty(src);
+        }
+        Ok(all_arrived)
     } else {
         if !ctx.mask_matches(&src.file_name().unwrap_or_default().to_string_lossy()) {
-            return Ok(());
+            return Ok(false);
         }
         let mut dest = dest.to_path_buf();
         if conn.exists(&dest).is_some() {
@@ -140,14 +155,18 @@ fn upload_item(
                 ConflictChoice::Overwrite => {}
                 ConflictChoice::Skip => {
                     ctx.done_bytes += src.metadata().map(|m| m.len()).unwrap_or(0);
-                    return Ok(());
+                    return Ok(false);
                 }
                 ConflictChoice::KeepBoth => dest = remote_keep_both(conn, &dest),
                 ConflictChoice::CancelOp => return Err(cancelled_err()),
-                _ => return Ok(()),
+                _ => return Ok(false),
             }
         }
-        conn.upload_file(ctx, src, &dest)
+        conn.upload_file(ctx, src, &dest)?;
+        if remove_source {
+            remove_nofollow(src)?;
+        }
+        Ok(true)
     }
 }
 
@@ -181,15 +200,17 @@ pub fn download_op(
             *is_dir,
             *is_symlink,
             &root.join(name),
+            remove_source,
         )?;
-        if remove_source {
-            conn.remove_recursive(src)?;
-        }
         count += 1;
     }
     Ok(count)
 }
 
+/// Download one item. On a move a file goes once it has arrived and a folder
+/// once it is empty; whatever was skipped or masked out stays on the server.
+/// Returns whether all of `src` arrived.
+#[allow(clippy::too_many_arguments)]
 fn download_item(
     ctx: &mut OpCtx,
     conn: &SftpConnection,
@@ -198,7 +219,8 @@ fn download_item(
     is_dir: bool,
     is_symlink: bool,
     dest: &Path,
-) -> Result<(), String> {
+    remove_source: bool,
+) -> Result<bool, String> {
     if ctx.cancelled() {
         return Err(cancelled_err());
     }
@@ -206,27 +228,32 @@ fn download_item(
     // downloaded like regular files (directory links always stay links).
     if is_symlink && !(ctx.options.follow_symlinks && !is_dir) {
         if !ctx.mask_matches(&src.file_name().unwrap_or_default().to_string_lossy()) {
-            return Ok(());
+            return Ok(false);
         }
         let target = conn.read_link(src)?;
         let mut dest = dest.to_path_buf();
         if dest.exists() || dest.is_symlink() {
             match ctx.ask_conflict(src, &dest) {
                 ConflictChoice::Overwrite => remove_nofollow(&dest)?,
-                ConflictChoice::Skip => return Ok(()),
+                ConflictChoice::Skip => return Ok(false),
                 ConflictChoice::KeepBoth => dest = super::queue::keep_both_path(&dest),
                 ConflictChoice::CancelOp => return Err(cancelled_err()),
-                _ => return Ok(()),
+                _ => return Ok(false),
             }
         }
         ctx.report(&src.to_string_lossy());
-        return symlink_inside(root, &dest, &target);
+        symlink_inside(root, &dest, &target)?;
+        if remove_source {
+            conn.remove_recursive(src)?;
+        }
+        return Ok(true);
     }
     if is_dir {
         create_dir_inside(root, dest)?;
         let entries = conn
             .list(src)
             .map_err(|e| format!("{}: {e}", src.display()))?;
+        let mut all_arrived = true;
         for entry in entries {
             // A hostile server can name entries anything; only a plain
             // name may be joined onto the local folder.
@@ -237,7 +264,7 @@ fn download_item(
                     entry.name
                 ));
             }
-            download_item(
+            all_arrived &= download_item(
                 ctx,
                 conn,
                 root,
@@ -245,25 +272,33 @@ fn download_item(
                 entry.is_dir,
                 entry.is_symlink,
                 &dest.join(&entry.name),
+                remove_source,
             )?;
         }
-        Ok(())
+        if remove_source && all_arrived {
+            conn.remove_empty_dir(src)?;
+        }
+        Ok(all_arrived)
     } else {
         if !ctx.mask_matches(&src.file_name().unwrap_or_default().to_string_lossy()) {
-            return Ok(());
+            return Ok(false);
         }
         let mut dest = dest.to_path_buf();
         // exists() follows links: a dangling one still takes the name.
         if dest.exists() || dest.is_symlink() {
             match ctx.ask_conflict(src, &dest) {
                 ConflictChoice::Overwrite => {}
-                ConflictChoice::Skip => return Ok(()),
+                ConflictChoice::Skip => return Ok(false),
                 ConflictChoice::KeepBoth => dest = super::queue::keep_both_path(&dest),
                 ConflictChoice::CancelOp => return Err(cancelled_err()),
-                _ => return Ok(()),
+                _ => return Ok(false),
             }
         }
-        conn.download_file(ctx, src, &dest)
+        conn.download_file(ctx, src, &dest)?;
+        if remove_source {
+            conn.remove_recursive(src)?;
+        }
+        Ok(true)
     }
 }
 
@@ -287,7 +322,7 @@ pub fn delete_remote_op(
 #[cfg(test)]
 mod tests {
     use super::download_op;
-    use crate::fs::sftp::{connect_checked, SshAuth};
+    use crate::fs::sftp::{connect_confirming_key, SshAuth};
     use crate::ops::queue::{ConflictChoice, OpCtx};
     use std::path::PathBuf;
 
@@ -316,13 +351,12 @@ mod tests {
             passphrase: None,
         };
         let user = std::env::var("USER").unwrap();
-        let conn = connect_checked(
+        let conn = connect_confirming_key(
             &work.join("known_hosts"),
             "127.0.0.1",
             port.parse().unwrap(),
             &user,
             &auth,
-            true,
         )
         .unwrap_or_else(|e| panic!("{e}"));
 
@@ -354,5 +388,124 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir.canonicalize().unwrap()
+    }
+
+    /// Against a real sshd, as above: a move in either direction removes
+    /// what arrived and keeps what was skipped or masked out.
+    #[test]
+    fn moves_keep_what_did_not_arrive() {
+        use super::upload_op;
+        use crate::ops::queue::CopyOptions;
+        let (Ok(port), Ok(key_path)) = (
+            std::env::var("YC_TEST_SSHD_PORT"),
+            std::env::var("YC_TEST_SSH_KEY"),
+        ) else {
+            eprintln!("skipped: set YC_TEST_SSHD_PORT and YC_TEST_SSH_KEY");
+            return;
+        };
+        let work = fresh_dir(std::env::temp_dir().join(format!("yc_mv_{}", std::process::id())));
+        let auth = SshAuth::Key {
+            path: Some(PathBuf::from(key_path)),
+            passphrase: None,
+        };
+        let user = std::env::var("USER").unwrap();
+        let conn = connect_confirming_key(
+            &work.join("known_hosts"),
+            "127.0.0.1",
+            port.parse().unwrap(),
+            &user,
+            &auth,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        // Both "sides" are this machine, so plain fs calls can set up and check.
+        let tree = |root: &std::path::Path| {
+            let proj = root.join("proj");
+            std::fs::create_dir_all(proj.join("sub")).unwrap();
+            std::fs::write(proj.join("clash.txt"), b"source").unwrap();
+            std::fs::write(proj.join("fine.txt"), b"fine").unwrap();
+            std::fs::write(proj.join("sub/deep.txt"), b"deep").unwrap();
+            proj
+        };
+
+        // Upload, skipping the clash.
+        let (from, to) = (fresh_dir(work.join("up_from")), fresh_dir(work.join("up_to")));
+        let proj = tree(&from);
+        std::fs::create_dir_all(to.join("proj")).unwrap();
+        std::fs::write(to.join("proj/clash.txt"), b"theirs").unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::Skip);
+        upload_op(&mut ctx, conn.clone(), vec![proj.clone()], to.clone(), true).unwrap();
+        assert_eq!(std::fs::read(proj.join("clash.txt")).unwrap(), b"source");
+        assert_eq!(std::fs::read(to.join("proj/clash.txt")).unwrap(), b"theirs");
+        assert_eq!(std::fs::read(to.join("proj/fine.txt")).unwrap(), b"fine");
+        assert_eq!(std::fs::read(to.join("proj/sub/deep.txt")).unwrap(), b"deep");
+        assert!(!proj.join("fine.txt").exists());
+        assert!(!proj.join("sub").exists(), "fully moved folder removed");
+
+        // Download, skipping the clash.
+        let (from, to) = (fresh_dir(work.join("dl_from")), fresh_dir(work.join("dl_to")));
+        let proj = tree(&from);
+        std::fs::create_dir_all(to.join("proj")).unwrap();
+        std::fs::write(to.join("proj/clash.txt"), b"theirs").unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::Skip);
+        download_op(&mut ctx, conn.clone(), vec![(proj.clone(), true, false)], to.clone(), true)
+            .unwrap();
+        assert_eq!(std::fs::read(proj.join("clash.txt")).unwrap(), b"source");
+        assert_eq!(std::fs::read(to.join("proj/clash.txt")).unwrap(), b"theirs");
+        assert_eq!(std::fs::read(to.join("proj/fine.txt")).unwrap(), b"fine");
+        assert_eq!(std::fs::read(to.join("proj/sub/deep.txt")).unwrap(), b"deep");
+        assert!(!proj.join("fine.txt").exists());
+        assert!(!proj.join("sub").exists(), "fully moved folder removed");
+
+        // A single file skipped, each way.
+        let (from, to) = (fresh_dir(work.join("one_from")), fresh_dir(work.join("one_to")));
+        std::fs::write(from.join("f.txt"), b"source").unwrap();
+        std::fs::write(to.join("f.txt"), b"theirs").unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::Skip);
+        upload_op(&mut ctx, conn.clone(), vec![from.join("f.txt")], to.clone(), true).unwrap();
+        assert_eq!(std::fs::read(from.join("f.txt")).unwrap(), b"source");
+        let mut ctx = OpCtx::for_test(ConflictChoice::Skip);
+        download_op(&mut ctx, conn.clone(), vec![(from.join("f.txt"), false, false)], to.clone(), true)
+            .unwrap();
+        assert_eq!(std::fs::read(from.join("f.txt")).unwrap(), b"source");
+
+        // Masked out, each way, in a folder moved whole otherwise.
+        for upload in [true, false] {
+            let (from, to) = (fresh_dir(work.join("m_from")), fresh_dir(work.join("m_to")));
+            let mix = from.join("mix");
+            std::fs::create_dir_all(&mix).unwrap();
+            std::fs::write(mix.join("keep.jpg"), b"jpg").unwrap();
+            std::fs::write(mix.join("other.txt"), b"txt").unwrap();
+            let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+            ctx.set_options(CopyOptions {
+                mask: Some("*.jpg".into()),
+                ..Default::default()
+            });
+            if upload {
+                upload_op(&mut ctx, conn.clone(), vec![mix.clone()], to.clone(), true).unwrap();
+            } else {
+                download_op(&mut ctx, conn.clone(), vec![(mix.clone(), true, false)], to.clone(), true)
+                    .unwrap();
+            }
+            assert!(to.join("mix/keep.jpg").exists(), "upload={upload}");
+            assert!(!mix.join("keep.jpg").exists(), "upload={upload}");
+            assert_eq!(std::fs::read(mix.join("other.txt")).unwrap(), b"txt", "upload={upload}");
+            assert!(!to.join("mix/other.txt").exists(), "upload={upload}");
+        }
+
+        // Nothing skipped: the folder goes, each way.
+        for upload in [true, false] {
+            let (from, to) = (fresh_dir(work.join("all_from")), fresh_dir(work.join("all_to")));
+            let proj = tree(&from);
+            let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+            if upload {
+                upload_op(&mut ctx, conn.clone(), vec![proj.clone()], to.clone(), true).unwrap();
+            } else {
+                download_op(&mut ctx, conn.clone(), vec![(proj.clone(), true, false)], to.clone(), true)
+                    .unwrap();
+            }
+            assert!(!proj.exists(), "upload={upload}");
+            assert_eq!(std::fs::read(to.join("proj/sub/deep.txt")).unwrap(), b"deep");
+        }
+        let _ = std::fs::remove_dir_all(&work);
     }
 }

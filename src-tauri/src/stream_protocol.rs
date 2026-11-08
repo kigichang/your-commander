@@ -120,6 +120,7 @@ fn build_response(request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
 
     let head = Response::builder()
         .header(header::CONTENT_TYPE, mime)
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(header::ACCEPT_RANGES, "bytes");
     if request.method() == Method::HEAD || len == 0 {
         return head
@@ -198,6 +199,7 @@ mod tests {
         let resp = build_response(&request(&path, Some("bytes=10-19")));
         assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
         assert_eq!(resp.headers()[header::CONTENT_RANGE], "bytes 10-19/1024");
+        assert_eq!(resp.headers()[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
         assert_eq!(resp.body().len(), 10);
     }
 

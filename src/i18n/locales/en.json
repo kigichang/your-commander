@@ -155,6 +155,7 @@
     "hostKeyBody": "{{host}}:{{port}} is not in ~/.ssh/known_hosts. Check its key fingerprint with the server's owner before trusting it:",
     "hostKeyHint": "Trusting records the key in known_hosts; later connections must present the same key.",
     "hostKeyTrust": "Trust and continue",
+    "hostKeySwapped": "The server presented a different key ({{keyType}} {{fingerprint}}) than the one you just confirmed. Someone may be intercepting the connection. Nothing was recorded.",
     "hostKeyChanged": "The host key of {{host}} has CHANGED ({{keyType}} {{fingerprint}}). Someone may be intercepting the connection. If the server was really reinstalled, remove its entry first: ssh-keygen -R \"{{entry}}\""
   },
   "panel2": {

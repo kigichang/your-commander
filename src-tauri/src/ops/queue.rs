@@ -151,6 +151,12 @@ impl OpCtx {
         self.mask.is_empty() || self.mask.iter().any(|p| glob_match(p, name.as_bytes()))
     }
 
+    /// Is a mask in force? Then files are picked one by one, which a
+    /// whole-folder rename cannot do.
+    pub fn has_mask(&self) -> bool {
+        !self.mask.is_empty()
+    }
+
     /// Also the pause point: every op loop polls this, so a paused op simply
     /// parks here until resumed or cancelled.
     pub fn cancelled(&self) -> bool {

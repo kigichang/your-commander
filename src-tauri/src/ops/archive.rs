@@ -95,7 +95,9 @@ pub fn compress_op(
     dest: PathBuf,
     format: ArchiveFormat,
 ) -> Result<String, String> {
-    if dest.exists() {
+    // exists() follows links: a dangling one would raise no conflict, and the
+    // archive would then be written to wherever it points.
+    if dest.exists() || dest.is_symlink() {
         return Err(format!("\"{}\" already exists", dest.to_string_lossy()));
     }
 
@@ -118,11 +120,11 @@ pub fn compress_op(
     let result = match format {
         ArchiveFormat::Zip => write_zip(ctx, &tree, &dest),
         ArchiveFormat::Tar => {
-            let file = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+            let file = create_file_nofollow(&dest)?;
             write_tar(ctx, &tree, file)
         }
         ArchiveFormat::TarGz => {
-            let file = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+            let file = create_file_nofollow(&dest)?;
             let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
             write_tar(ctx, &tree, enc)
         }
@@ -144,7 +146,7 @@ fn write_zip(
     tree: &[(String, PathBuf, bool)],
     dest: &Path,
 ) -> Result<(), String> {
-    let file = std::fs::File::create(dest).map_err(|e| e.to_string())?;
+    let file = create_file_nofollow(dest)?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
@@ -219,7 +221,7 @@ fn write_tar<W: Write>(
 fn gz_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<String, String> {
     ctx.total_bytes = src.metadata().map(|m| m.len()).unwrap_or(0);
     let mut reader = std::fs::File::open(src).map_err(|e| e.to_string())?;
-    let file = std::fs::File::create(dest).map_err(|e| e.to_string())?;
+    let file = create_file_nofollow(dest)?;
     let mut enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
     let mut buf = vec![0u8; CHUNK];
     loop {
@@ -464,19 +466,45 @@ fn extract_7z(
         .map(|f| f.size)
         .sum();
     let mut read = 0u64;
+    std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    let root = dest.canonicalize().map_err(|e| e.to_string())?;
+    let refuse = |e: String| sevenz_rust2::Error::Other(e.into());
+    // The crate joins each entry name safely, but its default writer follows
+    // a link at the destination: as with zip, write in the entry's real
+    // folder, checked to be inside root, and never through a link.
     sevenz_rust2::decompress_file_with_extract_fn(archive, dest, |entry, reader, path| {
-        let mut meter = Meter {
-            inner: reader,
-            ctx: &mut *ctx,
-            base,
-            len,
-            read,
-            total,
-            detail: Rc::new(RefCell::new(entry.name().to_string())),
+        if entry.is_directory() {
+            create_dir_inside(&root, path).map_err(refuse)?;
+            return Ok(true);
+        }
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            return Ok(true);
         };
-        let more = sevenz_rust2::default_entry_extract_fn(entry, &mut meter, path)?;
-        read = meter.read;
-        Ok(more)
+        let out = create_dir_inside(&root, parent).map_err(refuse)?.join(name);
+        let mut writer = create_file_nofollow(&out).map_err(refuse)?;
+        if entry.size() > 0 {
+            let mut meter = Meter {
+                inner: reader,
+                ctx: &mut *ctx,
+                base,
+                len,
+                read,
+                total,
+                detail: Rc::new(RefCell::new(entry.name().to_string())),
+            };
+            std::io::copy(&mut meter, &mut writer)?;
+            read = meter.read;
+            let times = std::fs::FileTimes::new()
+                .set_accessed(entry.access_date().into())
+                .set_modified(entry.last_modified_date().into());
+            #[cfg(target_os = "macos")]
+            let times = {
+                use std::os::macos::fs::FileTimesExt;
+                times.set_created(entry.creation_date().into())
+            };
+            let _ = writer.set_times(times);
+        }
+        Ok(true)
     })
     .map_err(|e| e.to_string())
 }
@@ -967,6 +995,71 @@ mod tests {
             assert!(out.join("t/share/doc/a/link").is_symlink(), "{kind}");
             assert_no_link_escapes(&out);
         }
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn compress_refuses_a_name_held_by_a_dangling_link() {
+        let work = tmp("dangling");
+        let src = work.join("a.bin");
+        std::fs::write(&src, b"data").unwrap();
+        for (i, fmt) in [
+            ArchiveFormat::Zip,
+            ArchiveFormat::Tar,
+            ArchiveFormat::TarGz,
+            ArchiveFormat::Gz,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let victim = work.join(format!("victim{i}"));
+            let dest = work.join(format!("out{i}"));
+            std::os::unix::fs::symlink(&victim, &dest).unwrap();
+            let err = compress_op(&mut test_ctx(), vec![src.clone()], dest.clone(), fmt)
+                .unwrap_err();
+            assert!(err.contains("already exists"), "{fmt:?}: {err}");
+            assert!(!victim.exists(), "{fmt:?}: nothing created through the link");
+            assert!(dest.is_symlink(), "{fmt:?}: the link is left alone");
+        }
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn extract_7z_does_not_write_through_links() {
+        let work = tmp("7z_links");
+        let src = work.join("src");
+        std::fs::create_dir_all(src.join("sub")).unwrap();
+        std::fs::write(src.join("a.txt"), b"archive").unwrap();
+        std::fs::write(src.join("sub/b.txt"), b"archive").unwrap();
+        let archive = work.join("t.7z");
+        sevenz_rust2::compress_to_path(&src, &archive).unwrap();
+        let len = archive.metadata().unwrap().len();
+
+        // A file link in the target: refused, its target untouched.
+        let dest = work.join("dest1");
+        std::fs::create_dir_all(&dest).unwrap();
+        let victim = work.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+        std::os::unix::fs::symlink(&victim, dest.join("a.txt")).unwrap();
+        assert!(extract_7z(&mut test_ctx(), &archive, &dest, 0, len).is_err());
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+
+        // A folder link leaving the target: refused, nothing written out there.
+        let dest = work.join("dest2");
+        let outside = work.join("outside");
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, dest.join("sub")).unwrap();
+        let err = extract_7z(&mut test_ctx(), &archive, &dest, 0, len).unwrap_err();
+        assert!(err.contains("escapes"), "{err}");
+        assert!(!outside.join("b.txt").exists());
+
+        // A plain extract still restores contents.
+        let dest = work.join("dest3");
+        std::fs::create_dir_all(&dest).unwrap();
+        extract_7z(&mut test_ctx(), &archive, &dest, 0, len).unwrap();
+        assert_eq!(std::fs::read(dest.join("a.txt")).unwrap(), b"archive");
+        assert_eq!(std::fs::read(dest.join("sub/b.txt")).unwrap(), b"archive");
         let _ = std::fs::remove_dir_all(&work);
     }
 }

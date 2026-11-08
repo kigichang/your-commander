@@ -105,8 +105,9 @@ export interface SftpParams {
   identityFile?: string;
   passphrase?: string;
   startIn?: string;
-  /** The user confirmed a first-seen host key: record it in known_hosts. */
-  trustHostKey?: boolean;
+  /** Fingerprint of the first-seen host key the user confirmed: a server
+   *  showing that key has it recorded in known_hosts. */
+  trustedFingerprint?: string;
 }
 
 /** Rejection value of sftp_connect / sftp_test. */

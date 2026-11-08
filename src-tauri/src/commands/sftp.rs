@@ -71,10 +71,11 @@ pub struct SftpConnectParams {
     /// Remote folder to land in; falls back to home when missing.
     #[serde(default)]
     pub start_in: Option<String>,
-    /// The user confirmed a first-seen host key's fingerprint: record it
-    /// in known_hosts instead of refusing it.
+    /// The fingerprint of the first-seen host key the user confirmed: a
+    /// server showing this key has it recorded in known_hosts; any other
+    /// first-seen key is still refused.
     #[serde(default)]
-    pub trust_host_key: bool,
+    pub trusted_fingerprint: Option<String>,
 }
 
 fn auth_of(params: &SftpConnectParams) -> SshAuth {
@@ -115,7 +116,7 @@ pub async fn sftp_connect(
             params.port,
             &params.username,
             &auth,
-            params.trust_host_key,
+            params.trusted_fingerprint.as_deref(),
         )?;
         // Land in start_in when it exists as a folder, else in home.
         let home = match params.start_in.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
@@ -144,7 +145,7 @@ pub async fn sftp_test(params: SftpConnectParams) -> Result<(), ConnectError> {
             params.port,
             &params.username,
             &auth,
-            params.trust_host_key,
+            params.trusted_fingerprint.as_deref(),
         )
         .map(|_| ())
     })
