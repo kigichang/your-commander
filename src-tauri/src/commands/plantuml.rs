@@ -153,6 +153,12 @@ fn find_java(override_path: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+/// Quick View renders whatever is under the cursor, so a diagram may be built
+/// to hang the JVM or to make it write without end.
+const JAR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Same as ureq's cap on what a server may send (`into_string`).
+const JAR_OUTPUT_MAX: u64 = 10 * 1024 * 1024;
+
 fn render_via_jar(java_override: &str, jar: &str, uml: &str) -> Result<String, String> {
     let Some(java) = find_java(java_override) else {
         return Err(
@@ -185,13 +191,15 @@ fn render_via_jar(java_override: &str, jar: &str, uml: &str) -> Result<String, S
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("java: {e}"))?;
-    child
-        .stdin
-        .take()
-        .ok_or("no stdin")?
-        .write_all(uml.as_bytes())
-        .map_err(|e| e.to_string())?;
-    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    // On its own thread: a JVM that stops reading must not hold us past the
+    // timeout. A failed write shows in the exit below. Dropping stdin is its EOF.
+    let mut stdin = child.stdin.take().ok_or("no stdin")?;
+    let input = uml.to_string();
+    std::thread::spawn(move || {
+        let _ = stdin.write_all(input.as_bytes());
+    });
+    let output = crate::proc::wait_bounded(child, JAR_TIMEOUT, JAR_OUTPUT_MAX)
+        .map_err(|e| format!("PlantUML: {e}"))?;
     let svg = String::from_utf8_lossy(&output.stdout).to_string();
     // PlantUML writes an error *diagram* for bad syntax; only an empty
     // stdout means the run itself failed.

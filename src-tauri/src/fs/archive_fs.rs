@@ -6,7 +6,7 @@
 use crate::fs::provider::FsEntry;
 use crate::ops::archive::{apply_mode, classify, Extractable, Meter};
 use crate::ops::queue::{cancelled_err, OpCtx};
-use crate::ops::safe_path::replace_file_nofollow;
+use crate::ops::safe_path::{create_dir_inside, replace_file_nofollow};
 use crate::lru::Lru;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -266,6 +266,15 @@ pub fn read_entry(archive: &Path, inner: &str, max: u64) -> Result<Vec<u8>, Stri
     }
 }
 
+/// `out` in its real folder, created if missing and checked to be inside the
+/// canonical `root`.
+fn real_out(root: &Path, out: &Path) -> Result<PathBuf, String> {
+    let (Some(parent), Some(name)) = (out.parent(), out.file_name()) else {
+        return Err(format!("{}: not a file path", out.display()));
+    };
+    Ok(create_dir_inside(root, parent)?.join(name))
+}
+
 /// Extract the selected inner paths (files or folders) into `dest_dir`,
 /// each rooted at its own name — F5 out of an archive.
 pub fn extract_entries(
@@ -301,6 +310,13 @@ pub fn extract_entries(
     let err = |e: &dyn std::fmt::Display| format!("{}: {e}", archive.display());
     let mut count = 0usize;
     let kind = kind_of(archive)?;
+    // Folders are made and files written only where the real (link-resolved)
+    // path is still under this root: the destination may already hold a link
+    // to somewhere else, and the archive picks the names that walk into it.
+    std::fs::create_dir_all(dest_dir).map_err(|e| format!("{}: {e}", dest_dir.display()))?;
+    let root = dest_dir
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", dest_dir.display()))?;
     match kind {
         Kind::Zip => {
             let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
@@ -328,7 +344,7 @@ pub fn extract_entries(
                 let Some(out) = out_path(&name) else { continue };
                 ctx.report(&name);
                 if entry.is_dir() {
-                    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+                    create_dir_inside(&root, &out)?;
                     continue;
                 }
                 // Like the tar branch: a link is not copied out at all. Its data
@@ -336,9 +352,7 @@ pub fn extract_entries(
                 if entry.is_symlink() {
                     continue;
                 }
-                if let Some(parent) = out.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                }
+                let out = real_out(&root, &out)?;
                 // Overwrites (this copy-out never asks), but replaces a link
                 // at `out` rather than writing to wherever it points.
                 let mut writer = replace_file_nofollow(&out)?;
@@ -394,15 +408,13 @@ pub fn extract_entries(
                     *detail.borrow_mut() = name;
                     let mut entry = entry;
                     if entry.header().entry_type().is_dir() {
-                        std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+                        create_dir_inside(&root, &out)?;
                         continue;
                     }
                     if !entry.header().entry_type().is_file() {
                         continue;
                     }
-                    if let Some(parent) = out.parent() {
-                        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                    }
+                    let out = real_out(&root, &out)?;
                     // Overwrites (this copy-out never asks), but replaces a link
                     // at `out` rather than writing to wherever it points.
                     let mut writer = replace_file_nofollow(&out)?;
@@ -664,6 +676,45 @@ mod tests {
         let later = mtime + std::time::Duration::from_secs(5);
         std::fs::File::options().write(true).open(&path).unwrap().set_modified(later).unwrap();
         assert_eq!(names(), vec!["two.txt"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn copy_out_does_not_write_through_a_link_leaving_the_destination() {
+        let dir = std::env::temp_dir().join(format!("yc_arfs_esc_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip_path = make_zip(&dir);
+        let tar_path = dir.join("t.tar");
+        {
+            let mut tar = tar::Builder::new(std::fs::File::create(&tar_path).unwrap());
+            let mut header = tar::Header::new_gnu();
+            header.set_size(5);
+            header.set_mode(0o644);
+            header.set_cksum();
+            tar.append_data(&mut header, "sub/inner.txt", &b"inner"[..]).unwrap();
+            tar.finish().unwrap();
+        }
+        for (name, archive) in [("zip", &zip_path), ("tar", &tar_path)] {
+            let outside = dir.join(format!("outside_{name}"));
+            let out = dir.join(format!("out_{name}"));
+            std::fs::create_dir_all(&outside).unwrap();
+            std::fs::create_dir_all(&out).unwrap();
+            std::os::unix::fs::symlink(&outside, out.join("sub")).unwrap();
+
+            let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+            let err = extract_entries(&mut ctx, archive, vec!["sub".into()], &out).unwrap_err();
+            assert!(err.contains("escapes"), "{name}: {err}");
+            assert!(!outside.join("inner.txt").exists(), "{name}: nothing written outside");
+        }
+
+        // A link that stays inside the destination is fine.
+        let out = dir.join("out_inside");
+        std::fs::create_dir_all(out.join("real")).unwrap();
+        std::os::unix::fs::symlink("real", out.join("sub")).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+        extract_entries(&mut ctx, &zip_path, vec!["sub".into()], &out).unwrap();
+        assert_eq!(std::fs::read(out.join("real/inner.txt")).unwrap(), b"inner");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

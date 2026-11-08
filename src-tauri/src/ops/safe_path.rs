@@ -125,10 +125,17 @@ pub fn create_file_nofollow(path: &Path) -> Result<std::fs::File, String> {
 /// overwrite: a symlink there is replaced by the new file, not written
 /// through.
 pub fn replace_file_nofollow(path: &Path) -> Result<std::fs::File, String> {
+    remove_if_link(path)?;
+    create_file_nofollow(path)
+}
+
+/// Take away a symlink at `path`, if that is what is there; anything else
+/// stays. For a name about to be written by a tool that follows links.
+pub fn remove_if_link(path: &Path) -> Result<(), String> {
     if path.is_symlink() {
         std::fs::remove_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
     }
-    create_file_nofollow(path)
+    Ok(())
 }
 
 /// Delete a local file, link or folder tree. A link is removed itself,
@@ -140,6 +147,17 @@ pub fn remove_nofollow(path: &Path) -> Result<(), String> {
         std::fs::remove_file(path)
     }
     .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Remove `dir` only if nothing is left in it. `Ok(false)`: something is, and
+/// it stays. Ends a folder move, where recursive removal would take along
+/// whatever was not moved.
+pub fn remove_dir_if_empty(dir: &Path) -> Result<bool, String> {
+    match std::fs::remove_dir(dir) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => Ok(false),
+        Err(e) => Err(format!("{}: {e}", dir.display())),
+    }
 }
 
 /// A name a directory listing may carry: exactly one path piece on Unix —
@@ -176,6 +194,37 @@ mod tests {
         remove_nofollow(&real).unwrap();
         assert!(!real.exists() && !dir.join("file").exists());
         assert!(remove_nofollow(&dir.join("gone")).unwrap_err().contains("gone"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_if_link_takes_only_links() {
+        let dir = tmp("rmlink");
+        std::fs::write(dir.join("file"), b"keep").unwrap();
+        std::fs::create_dir(dir.join("folder")).unwrap();
+        std::os::unix::fs::symlink(dir.join("file"), dir.join("link")).unwrap();
+        std::os::unix::fs::symlink("nowhere", dir.join("dangling")).unwrap();
+        for name in ["link", "dangling", "file", "folder", "absent"] {
+            remove_if_link(&dir.join(name)).unwrap();
+        }
+        assert!(dir.join("link").symlink_metadata().is_err());
+        assert!(dir.join("dangling").symlink_metadata().is_err());
+        assert_eq!(std::fs::read(dir.join("file")).unwrap(), b"keep");
+        assert!(dir.join("folder").is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_dir_if_empty_keeps_what_is_left() {
+        let dir = tmp("rmempty");
+        std::fs::create_dir_all(dir.join("full")).unwrap();
+        std::fs::write(dir.join("full/f"), b"x").unwrap();
+        std::fs::create_dir(dir.join("empty")).unwrap();
+        assert!(!remove_dir_if_empty(&dir.join("full")).unwrap());
+        assert!(dir.join("full/f").exists());
+        assert!(remove_dir_if_empty(&dir.join("empty")).unwrap());
+        assert!(!dir.join("empty").exists());
+        assert!(remove_dir_if_empty(&dir.join("absent")).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

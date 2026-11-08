@@ -168,8 +168,8 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     toast(t("connect.saved2"));
   };
 
-  const sftpParams = (trust?: boolean) => ({
-    trustHostKey: trust,
+  const sftpParams = (trustedFingerprint?: string) => ({
+    trustedFingerprint,
     host: ssh.host,
     port: ssh.port || 22,
     username: ssh.username,
@@ -198,33 +198,40 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
 
   // A first-seen host key is a question, not an error: show its
   // fingerprint and let the user repeat the action with it trusted.
-  const onSftpError = (e: unknown, retry: "test" | "connect") => {
+  const onSftpError = (e: unknown, retry: "test" | "connect", confirmed?: string) => {
     if (ipc.isConnectError(e) && e.kind === "unknownHostKey") {
+      // The retry met a key other than the one just confirmed. That is no
+      // new question to click through: someone may be in the middle.
+      if (confirmed) {
+        toast(t("connect.hostKeySwapped", { keyType: e.keyType, fingerprint: e.fingerprint }), "error");
+        return;
+      }
       setHostKey({ keyType: e.keyType, fingerprint: e.fingerprint, retry });
       return;
     }
     toast(errorText(e), "error");
   };
 
-  const test = async (opts?: { trust?: boolean }) => {
+  const test = async (opts?: { confirmed?: string }) => {
     if (busy) return;
     setBusy("test");
     try {
-      if (protocol === "sftp") await ipc.sftpTest(sftpParams(opts?.trust));
+      if (protocol === "sftp") await ipc.sftpTest(sftpParams(opts?.confirmed));
       else await ipc.smbTest(smb.server);
       toast(t("connect.testOk"));
     } catch (e) {
-      onSftpError(e, "test");
+      onSftpError(e, "test", opts?.confirmed);
     } finally {
       setBusy("");
     }
   };
 
   const trustHostKey = () => {
-    const retry = hostKey?.retry;
+    if (!hostKey) return;
+    const { retry, fingerprint } = hostKey;
     setHostKey(null);
-    if (retry === "test") void test({ trust: true });
-    else if (retry === "connect") void connect({ trust: true });
+    if (retry === "test") void test({ confirmed: fingerprint });
+    else void connect({ confirmed: fingerprint });
   };
 
   // Share left empty: ask the server for its share list and let the user pick.
@@ -272,12 +279,12 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     );
   };
 
-  const connect = async (opts?: { trust?: boolean }) => {
+  const connect = async (opts?: { confirmed?: string }) => {
     if (busy) return;
     setBusy("connect");
     try {
       if (protocol === "sftp") {
-        const res = await ipc.sftpConnect(sftpParams(opts?.trust));
+        const res = await ipc.sftpConnect(sftpParams(opts?.confirmed));
         if (ssh.remember) save();
         close();
         toast(t("status.connected", { host: ssh.host }));
@@ -301,7 +308,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
         await mountSmb(pw);
       }
     } catch (e) {
-      onSftpError(e, "connect");
+      onSftpError(e, "connect", opts?.confirmed);
       setBusy("");
     }
   };

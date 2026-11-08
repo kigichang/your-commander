@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+/// More than any share listing a server could honestly send.
+const OUTPUT_MAX: u64 = 4 * 1024 * 1024;
+
 /// Where is `//server/share` mounted, if at all? Parses `mount` output lines
 /// like `//user@server/share on /Volumes/share (smbfs, ...)`.
 pub fn find_mount(server: &str, share: &str) -> Option<PathBuf> {
@@ -238,7 +241,9 @@ fn run_with_password_prompt(
             }
         }
     }
-    child.wait_with_output().map_err(|e| e.to_string())
+    // A fresh allowance: the prompt may have come late, and a server that
+    // stalls after taking the password must not hang this worker for good.
+    crate::proc::wait_bounded(child, timeout, OUTPUT_MAX)
 }
 
 /// Parse `smbutil view` output: a `Share … Type … Comments` header, a dashed
@@ -271,7 +276,19 @@ fn parse_view(text: &str) -> Vec<String> {
     out
 }
 
+/// What Eject may be pointed at: a volume's own folder right under /Volumes.
+/// Not the boot volume's entry there, a link to "/". `file_name` rules out
+/// "/Volumes/..", whose parent also reads as /Volumes.
+fn is_volume_mount(path: &std::path::Path) -> bool {
+    path.parent() == Some(std::path::Path::new("/Volumes"))
+        && path.file_name().is_some()
+        && !path.is_symlink()
+}
+
 pub fn unmount(path: &std::path::Path) -> Result<(), String> {
+    if !is_volume_mount(path) {
+        return Err(format!("{}: not a mounted volume", path.display()));
+    }
     let output = Command::new("/usr/sbin/diskutil")
         .arg("unmount")
         .arg(path)
@@ -329,6 +346,31 @@ mod tests {
         assert!(shares.iter().any(|s| s == "media"), "{shares:?}");
         let err = super::list_shares(server, user, "wrong").unwrap_err();
         assert!(!err.contains("wrong"), "{err}");
+    }
+
+    #[test]
+    fn a_stall_after_the_password_times_out() {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args([
+            "-c",
+            "exec </dev/tty; stty -echo; printf 'Password: ' >/dev/tty; \
+             IFS= read -r pw; exec sleep 30",
+        ]);
+        let t = std::time::Instant::now();
+        let err = run_with_password_prompt(cmd, "pw", Duration::from_millis(800)).unwrap_err();
+        assert!(err.contains("Timed out"), "{err}");
+        assert!(t.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn only_volumes_can_be_unmounted() {
+        use super::is_volume_mount;
+        use std::path::Path;
+        assert!(is_volume_mount(Path::new("/Volumes/share")));
+        assert!(is_volume_mount(Path::new("/Volumes/My Share/")));
+        for bad in ["/", "/Volumes", "/Volumes/..", "/Volumes/a/b", "/Users/me", "share", "-force"] {
+            assert!(!is_volume_mount(Path::new(bad)), "{bad}");
+        }
     }
 
     #[test]

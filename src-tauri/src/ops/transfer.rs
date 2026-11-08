@@ -92,8 +92,10 @@ fn copy_item(ctx: &mut OpCtx, src: &Path, dest: &Path, remove_source: bool) -> R
     }
 
     // Fast path for move on the same device: a rename is instant. Not over
-    // a dangling link either: rename would replace it without asking.
+    // a dangling link either: rename would replace it without asking. Nor
+    // with a mask: rename would carry along what the mask leaves out.
     if remove_source
+        && !ctx.has_mask()
         && !dest.exists()
         && !dest.is_symlink()
         && same_device(src, dest.parent().unwrap_or(dest))
@@ -105,20 +107,32 @@ fn copy_item(ctx: &mut OpCtx, src: &Path, dest: &Path, remove_source: bool) -> R
     }
 
     if src.is_dir() && !src.is_symlink() {
-        copy_dir(ctx, src, dest)?;
-        if remove_source {
-            std::fs::remove_dir_all(src).map_err(|e| format!("{}: {e}", src.display()))?;
-        }
+        copy_dir(ctx, src, dest, remove_source)?;
     } else {
-        copy_file(ctx, src, dest)?;
-        if remove_source {
-            std::fs::remove_file(src).map_err(|e| format!("{}: {e}", src.display()))?;
-        }
+        transfer_file(ctx, src, dest, remove_source)?;
     }
     Ok(())
 }
 
-fn copy_dir(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
+/// `copy_file`, and on a move the source goes once its copy has arrived. A
+/// file that did not arrive (conflict skipped, mask) is never removed.
+fn transfer_file(
+    ctx: &mut OpCtx,
+    src: &Path,
+    dest: &Path,
+    remove_source: bool,
+) -> Result<bool, String> {
+    let arrived = copy_file(ctx, src, dest)?;
+    if arrived && remove_source {
+        std::fs::remove_file(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    }
+    Ok(arrived)
+}
+
+/// Copy a folder's contents; on a move, each file goes as it arrives and a
+/// folder only once it is empty, so whatever was skipped or masked out stays
+/// where it was. Returns whether all of `src` arrived.
+fn copy_dir(ctx: &mut OpCtx, src: &Path, dest: &Path, remove_source: bool) -> Result<bool, String> {
     // exists() follows links: a dangling one would raise no conflict, and
     // create_dir_all below would then fail on the name it holds.
     if (dest.exists() || dest.is_symlink()) && !dest.is_dir() {
@@ -126,36 +140,47 @@ fn copy_dir(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
             ConflictChoice::Overwrite => {
                 std::fs::remove_file(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
             }
-            ConflictChoice::Skip => return Ok(()),
+            ConflictChoice::Skip => return Ok(false),
             ConflictChoice::KeepBoth => {
-                return copy_dir(ctx, src, &keep_both_path(dest));
+                return copy_dir(ctx, src, &keep_both_path(dest), remove_source);
             }
             ConflictChoice::CancelOp => return Err(cancelled_err()),
-            _ => return Ok(()),
+            _ => return Ok(false),
         }
     }
     std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
-    let entries = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
-    for entry in entries.flatten() {
+    // Listed up front: readdir may skip entries while files are being removed.
+    let entries: Vec<_> = std::fs::read_dir(src)
+        .map_err(|e| format!("{}: {e}", src.display()))?
+        .flatten()
+        .collect();
+    let mut all_arrived = true;
+    for entry in entries {
         if ctx.cancelled() {
             return Err(cancelled_err());
         }
         let child_src = entry.path();
         let child_dest = dest.join(entry.file_name());
         // From readdir: a link reports as a link, never as a directory.
-        if entry.file_type().is_ok_and(|t| t.is_dir()) {
-            copy_dir(ctx, &child_src, &child_dest)?;
+        all_arrived &= if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            copy_dir(ctx, &child_src, &child_dest, remove_source)?
         } else {
-            copy_file(ctx, &child_src, &child_dest)?;
-        }
+            transfer_file(ctx, &child_src, &child_dest, remove_source)?
+        };
     }
-    Ok(())
+    if remove_source && all_arrived {
+        return super::safe_path::remove_dir_if_empty(src);
+    }
+    Ok(all_arrived)
 }
 
-pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
+/// Copy one file, settling any conflict at `dest` with the user. Returns
+/// whether it arrived: `false` means it was deliberately left behind (the
+/// mask, a skipped conflict), so a move must keep the source.
+pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<bool, String> {
     let name = src.file_name().unwrap_or_default().to_string_lossy().to_string();
     if !ctx.mask_matches(&name) {
-        return Ok(());
+        return Ok(false);
     }
     let mut dest = dest.to_path_buf();
     // exists() follows links: a dangling one would raise no conflict, and
@@ -166,11 +191,11 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), 
             ConflictChoice::Skip => {
                 ctx.done_bytes += src.metadata().map(|m| m.len()).unwrap_or(0);
                 ctx.report(&src.to_string_lossy());
-                return Ok(());
+                return Ok(false);
             }
             ConflictChoice::KeepBoth => dest = keep_both_path(&dest),
             ConflictChoice::CancelOp => return Err(cancelled_err()),
-            _ => return Ok(()),
+            _ => return Ok(false),
         }
     }
     ctx.report(&src.to_string_lossy());
@@ -184,7 +209,7 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), 
         }
         std::os::unix::fs::symlink(&target, &dest)
             .map_err(|e| format!("{}: {e}", dest.display()))?;
-        return Ok(());
+        return Ok(true);
     }
 
     let mut reader =
@@ -225,7 +250,7 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), 
     if ctx.options.verify {
         verify_copy(ctx, src, &dest)?;
     }
-    Ok(())
+    Ok(true)
 }
 
 /// Byte-compare source and destination after a copy.
@@ -300,7 +325,8 @@ pub fn rename(src: &Path, new_name: &str) -> Result<(), String> {
         return Err("no parent".to_string());
     };
     let dest = parent.join(new_name);
-    if dest.exists() {
+    // exists() follows links: rename would replace a dangling one silently.
+    if dest.exists() || dest.is_symlink() {
         return Err(format!("\"{new_name}\" already exists"));
     }
     std::fs::rename(src, &dest).map_err(|e| e.to_string())
@@ -811,5 +837,129 @@ mod tests {
         assert!(out.join("broken").is_symlink());
         assert_eq!(std::fs::read(out.join("dir/inner.txt")).unwrap(), b"123");
         let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn move_keeps_a_file_it_skipped() {
+        let src_root = tmp("mvskip_src");
+        let dest_root = tmp("mvskip_dest");
+        std::fs::write(src_root.join("f.txt"), b"new").unwrap();
+        std::fs::write(dest_root.join("f.txt"), b"old").unwrap();
+
+        let mut ctx = test_ctx();
+        ctx.policy = Some(crate::ops::queue::ConflictChoice::SkipAll);
+        copy_op(&mut ctx, vec![src_root.join("f.txt")], dest_root.clone(), true).unwrap();
+        assert_eq!(std::fs::read(dest_root.join("f.txt")).unwrap(), b"old");
+        assert_eq!(std::fs::read(src_root.join("f.txt")).unwrap(), b"new", "source kept");
+
+        for d in [&src_root, &dest_root] {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    #[test]
+    fn folder_move_removes_only_what_arrived() {
+        let src_root = tmp("mvdir_src");
+        let dest_root = tmp("mvdir_dest");
+        let proj = src_root.join("proj");
+        std::fs::create_dir_all(proj.join("skips/deep")).unwrap();
+        std::fs::create_dir_all(proj.join("moves")).unwrap();
+        std::fs::write(proj.join("skips/deep/clash.txt"), b"new").unwrap();
+        std::fs::write(proj.join("moves/fine.txt"), b"fine").unwrap();
+        std::fs::write(proj.join("top.txt"), b"top").unwrap();
+        // The destination already has the folder (no rename) and one clash.
+        std::fs::create_dir_all(dest_root.join("proj/skips/deep")).unwrap();
+        std::fs::write(dest_root.join("proj/skips/deep/clash.txt"), b"old").unwrap();
+
+        let mut ctx = test_ctx();
+        ctx.policy = Some(crate::ops::queue::ConflictChoice::SkipAll);
+        copy_op(&mut ctx, vec![proj.clone()], dest_root.clone(), true).unwrap();
+
+        let out = dest_root.join("proj");
+        assert_eq!(std::fs::read(out.join("skips/deep/clash.txt")).unwrap(), b"old");
+        assert_eq!(std::fs::read(out.join("moves/fine.txt")).unwrap(), b"fine");
+        assert_eq!(std::fs::read(out.join("top.txt")).unwrap(), b"top");
+        // The skipped file and the folders holding it stay; the rest is gone.
+        assert_eq!(std::fs::read(proj.join("skips/deep/clash.txt")).unwrap(), b"new");
+        assert!(!proj.join("moves").exists(), "fully moved folder removed");
+        assert!(!proj.join("top.txt").exists());
+
+        for d in [&src_root, &dest_root] {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    #[test]
+    fn folder_move_with_nothing_skipped_removes_the_folder() {
+        let src_root = tmp("mvall_src");
+        let dest_root = tmp("mvall_dest");
+        let proj = src_root.join("proj");
+        std::fs::create_dir_all(proj.join("sub")).unwrap();
+        std::fs::write(proj.join("sub/a.txt"), b"a").unwrap();
+        std::os::unix::fs::symlink("sub/a.txt", proj.join("link")).unwrap();
+        // Forces the copy path: the folder exists on the other side.
+        std::fs::create_dir_all(dest_root.join("proj")).unwrap();
+
+        copy_op(&mut test_ctx(), vec![proj.clone()], dest_root.clone(), true).unwrap();
+        assert!(!proj.exists());
+        assert_eq!(std::fs::read(dest_root.join("proj/sub/a.txt")).unwrap(), b"a");
+        assert!(dest_root.join("proj/link").is_symlink());
+
+        for d in [&src_root, &dest_root] {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    #[test]
+    fn move_with_a_mask_moves_only_what_matches() {
+        // Same device with a free name is rename's fast path, which has to
+        // yield to the mask; an existing folder goes the copy way. Both
+        // must end the same.
+        for existing in [false, true] {
+            let src_root = tmp("mvmask_src");
+            let dest_root = tmp("mvmask_dest");
+            let mix = src_root.join("mix");
+            std::fs::create_dir_all(&mix).unwrap();
+            std::fs::write(mix.join("keep.jpg"), b"jpg").unwrap();
+            std::fs::write(mix.join("other.txt"), b"txt").unwrap();
+            std::fs::write(src_root.join("single.txt"), b"one").unwrap();
+            if existing {
+                std::fs::create_dir_all(dest_root.join("mix")).unwrap();
+            }
+
+            let mut ctx = test_ctx();
+            ctx.set_options(crate::ops::queue::CopyOptions {
+                mask: Some("*.jpg".into()),
+                ..Default::default()
+            });
+            copy_op(
+                &mut ctx,
+                vec![mix.clone(), src_root.join("single.txt")],
+                dest_root.clone(),
+                true,
+            )
+            .unwrap();
+            assert!(dest_root.join("mix/keep.jpg").exists(), "existing={existing}");
+            assert!(!mix.join("keep.jpg").exists(), "existing={existing}");
+            assert_eq!(std::fs::read(mix.join("other.txt")).unwrap(), b"txt", "existing={existing}");
+            assert!(!dest_root.join("mix/other.txt").exists(), "existing={existing}");
+            assert!(src_root.join("single.txt").exists(), "existing={existing}");
+            assert!(!dest_root.join("single.txt").exists(), "existing={existing}");
+
+            for d in [&src_root, &dest_root] {
+                let _ = std::fs::remove_dir_all(d);
+            }
+        }
+    }
+
+    #[test]
+    fn rename_refuses_a_name_held_by_a_dangling_link() {
+        let dir = tmp("rn_dangling");
+        std::fs::write(dir.join("a.txt"), b"a").unwrap();
+        std::os::unix::fs::symlink("nowhere", dir.join("b.txt")).unwrap();
+        assert!(rename(&dir.join("a.txt"), "b.txt").unwrap_err().contains("already exists"));
+        assert!(dir.join("b.txt").is_symlink(), "the link is still there");
+        assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"a");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

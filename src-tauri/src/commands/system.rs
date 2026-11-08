@@ -1,8 +1,9 @@
 use crate::fs::local::{self, VolumeInfo};
+use crate::ops::safe_path::remove_if_link;
 use crate::platform;
 use crate::state::AppState;
 use std::path::{Path, PathBuf};
-use super::{blocking, media_input};
+use super::{blocking, require_absolute};
 use tauri::Manager;
 
 pub use crate::platform::OpenApp;
@@ -102,6 +103,7 @@ pub fn trash_dir() -> Result<PathBuf, String> {
 /// in `dir`. `tool` is "terminal", "vscode", or "zed".
 #[tauri::command]
 pub async fn open_in(tool: String, dir: PathBuf) -> Result<(), String> {
+    require_absolute(&dir)?;
     blocking(move || platform::open_in(&tool, &dir)).await
 }
 
@@ -159,12 +161,16 @@ pub async fn repair_video(
     path: PathBuf,
     on_progress: tauri::ipc::Channel<f32>,
 ) -> Result<PathBuf, String> {
-    media_input(&path)?;
+    require_absolute(&path)?;
     let ffmpeg = platform::find_ffmpeg().ok_or("ffmpeg not found")?;
     let tmp = repair_work_file(&path)?;
     let src = path.clone();
     let out_path = tmp.clone();
     blocking(move || {
+        // The name is predictable, and ffmpeg -y writes through a link: one
+        // left here (a folder that came from elsewhere) would have its target
+        // overwritten. A file of ours from an interrupted run is fine.
+        remove_if_link(&out_path)?;
         let total = probe_duration(&ffmpeg, &src);
         let mut command = std::process::Command::new(ffmpeg);
         command
@@ -253,32 +259,46 @@ pub async fn finish_repair(
     if tmp != repair_work_file(&original)? {
         return Err(format!("{}: not the repair file for this video", tmp.display()));
     }
-    blocking(move || match action.as_str() {
-        "discard" => {
-            let _ = std::fs::remove_file(&tmp);
-            Ok(None)
-        }
-        "overwrite" => {
-            std::fs::rename(&tmp, &original).map_err(|e| e.to_string())?;
-            Ok(Some(original))
-        }
-        "save" => {
-            let dir = original.parent().ok_or("no parent dir")?;
-            let stem = original
-                .file_stem()
-                .ok_or("no file name")?
-                .to_string_lossy()
-                .to_string();
-            let mut target = dir.join(format!("{stem}_fix.mp4"));
-            let mut n = 2;
-            while target.exists() {
-                target = dir.join(format!("{stem}_fix {n}.mp4"));
-                n += 1;
+    blocking(move || {
+        // Only a real file is kept: a link in the work file's place would
+        // land in the original's name.
+        let keepable = || {
+            if tmp.symlink_metadata().is_ok_and(|m| m.is_file()) {
+                Ok(())
+            } else {
+                Err(format!("{}: not a repaired file", tmp.display()))
             }
-            std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
-            Ok(Some(target))
+        };
+        match action.as_str() {
+            "discard" => {
+                let _ = std::fs::remove_file(&tmp);
+                Ok(None)
+            }
+            "overwrite" => {
+                keepable()?;
+                std::fs::rename(&tmp, &original).map_err(|e| e.to_string())?;
+                Ok(Some(original))
+            }
+            "save" => {
+                keepable()?;
+                let dir = original.parent().ok_or("no parent dir")?;
+                let stem = original
+                    .file_stem()
+                    .ok_or("no file name")?
+                    .to_string_lossy()
+                    .to_string();
+                let mut target = dir.join(format!("{stem}_fix.mp4"));
+                let mut n = 2;
+                // exists() follows links: rename would replace a dangling one.
+                while target.exists() || target.is_symlink() {
+                    target = dir.join(format!("{stem}_fix {n}.mp4"));
+                    n += 1;
+                }
+                std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+                Ok(Some(target))
+            }
+            other => Err(format!("unknown action: {other}")),
         }
-        other => Err(format!("unknown action: {other}")),
     })
     .await
 }
@@ -298,6 +318,7 @@ pub async fn open_with(app: String, paths: Vec<PathBuf>) -> Result<(), String> {
     if app.trim().is_empty() || paths.is_empty() {
         return Err("open_with: app and paths required".into());
     }
+    paths.iter().try_for_each(|p| require_absolute(p))?;
     blocking(move || platform::open_with(&app, &paths)).await
 }
 
@@ -311,6 +332,7 @@ pub async fn get_info(paths: Vec<PathBuf>) -> Result<(), String> {
 /// Open a local file or folder with its default app.
 #[tauri::command]
 pub async fn open_path(path: PathBuf) -> Result<(), String> {
+    require_absolute(&path)?;
     #[cfg(target_os = "macos")]
     if path
         .extension()
@@ -400,10 +422,49 @@ mod tests {
 
     #[test]
     fn media_tools_get_absolute_paths_only() {
-        assert!(media_input(Path::new("/Users/me/clip.mp4")).is_ok());
-        assert!(media_input(Path::new("/tmp/concat:a|b")).is_ok(), "a file, never a protocol");
+        assert!(require_absolute(Path::new("/Users/me/clip.mp4")).is_ok());
+        assert!(require_absolute(Path::new("/tmp/concat:a|b")).is_ok(), "a file, never a protocol");
         for bad in ["concat:/a|/b", "http://host/x.mp4", "-version", "pipe:0", "clip.mp4"] {
-            assert!(media_input(Path::new(bad)).is_err(), "{bad}");
+            assert!(require_absolute(Path::new(bad)).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn finish_repair_keeps_only_a_real_file_and_never_replaces_a_link() {
+        let dir = std::env::temp_dir().join(format!("yc_repair_ln_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("clip.mov");
+        let victim = dir.join("victim");
+        std::fs::write(&original, b"orig").unwrap();
+        std::fs::write(&victim, b"keep").unwrap();
+        let tmp = repair_work_file(&original).unwrap();
+        let run = |action: &str| {
+            tauri::async_runtime::block_on(finish_repair(
+                tmp.clone(),
+                original.clone(),
+                action.to_string(),
+            ))
+        };
+
+        // A link in the work file's place is never moved into a real name.
+        std::os::unix::fs::symlink(&victim, &tmp).unwrap();
+        for action in ["overwrite", "save"] {
+            assert!(run(action).is_err(), "{action}");
+            assert_eq!(std::fs::read(&original).unwrap(), b"orig", "{action}");
+            assert!(!dir.join("clip_fix.mp4").exists(), "{action}");
+        }
+        // Discard takes the link and leaves what it points at.
+        run("discard").unwrap();
+        assert!(tmp.symlink_metadata().is_err());
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+
+        // A dangling link holding the "_fix" name is passed over, not replaced.
+        std::os::unix::fs::symlink("nowhere", dir.join("clip_fix.mp4")).unwrap();
+        std::fs::write(&tmp, b"fixed").unwrap();
+        let saved = run("save").unwrap().unwrap();
+        assert_eq!(saved, dir.join("clip_fix 2.mp4"));
+        assert!(dir.join("clip_fix.mp4").is_symlink());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

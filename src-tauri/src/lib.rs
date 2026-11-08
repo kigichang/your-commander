@@ -15,6 +15,7 @@ mod lru;
 mod media_server;
 mod ops;
 mod platform;
+mod proc;
 mod state;
 mod stream_protocol;
 mod watch;
@@ -22,6 +23,30 @@ mod watch;
 use fnkeys::FnKeysState;
 use state::AppState;
 use tauri::{LogicalSize, Manager, WindowEvent};
+
+/// May a webview of this app go to `url`? Its own pages (the bundle, or the
+/// dev server) and the about: documents that previews use; nothing else, so no
+/// link or drop can replace the app with a page from elsewhere. Every frame
+/// passes through here: `about:srcdoc` is the HTML preview's iframe.
+fn is_app_url(url: &tauri::Url, dev_url: Option<&tauri::Url>) -> bool {
+    match url.scheme() {
+        "tauri" => url.host_str() == Some("localhost"),
+        "about" => matches!(url.path(), "srcdoc" | "blank"),
+        _ => dev_url.is_some_and(|dev| dev.origin() == url.origin()),
+    }
+}
+
+/// A plugin rather than a builder call, so it covers every webview alike:
+/// the main window comes from tauri.conf.json, not from a builder here.
+fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("navigation-guard")
+        .on_navigation(|webview, url| {
+            let config = webview.config();
+            let dev_url = config.build.dev_url.as_ref().filter(|_| tauri::is_dev());
+            is_app_url(url, dev_url)
+        })
+        .build()
+}
 
 /// Add "New Window" (⌘N) to the top of the default menu's File submenu.
 fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
@@ -76,6 +101,7 @@ pub fn run() {
     *app_state.config.lock().unwrap() = config::Config::load();
 
     let app = tauri::Builder::default()
+        .plugin(navigation_guard())
         .register_asynchronous_uri_scheme_protocol("stream", |_ctx, request, responder| {
             stream_protocol::handle(request, responder)
         })
@@ -216,6 +242,34 @@ pub fn run() {
 mod tests {
     use tauri::utils::config::{parse::read_from, Csp};
     use tauri::utils::platform::Target;
+
+    #[test]
+    fn webviews_stay_on_the_apps_own_pages() {
+        let url = |s: &str| tauri::Url::parse(s).unwrap();
+        let dev = url("http://localhost:1420");
+        for ok in ["tauri://localhost", "tauri://localhost/index.html", "about:srcdoc", "about:blank"] {
+            assert!(super::is_app_url(&url(ok), None), "{ok}");
+        }
+        assert!(super::is_app_url(&url("http://localhost:1420/src/x"), Some(&dev)));
+        for bad in [
+            "https://example.com/",
+            "http://localhost:1420/",
+            "http://localhost:9999/",
+            "tauri://evil.example/",
+            "file:///etc/passwd",
+            "asset://localhost/%2Fetc%2Fpasswd",
+            "stream://localhost/%2Fetc%2Fpasswd",
+            "about:config",
+            "data:text/html,x",
+            "blob:tauri://localhost/x",
+            "javascript:alert(1)",
+        ] {
+            assert!(!super::is_app_url(&url(bad), None), "{bad}");
+        }
+        // With a dev server, only its own origin joins the list.
+        assert!(!super::is_app_url(&url("http://localhost:9999/"), Some(&dev)));
+        assert!(!super::is_app_url(&url("https://localhost:1420/"), Some(&dev)));
+    }
 
     /// The CSP as Tauri builds it for `target` (base config merged with
     /// the platform file, the same way the build does).

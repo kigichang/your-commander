@@ -213,7 +213,16 @@ fn write_replacing(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> 
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
     let result = (|| {
-        let mut file = std::fs::File::create(&tmp)?;
+        use std::os::unix::fs::OpenOptionsExt;
+        // A leftover goes first, so create_new can hold: it never follows a
+        // link at this name, and the mode applies to a file it made. The
+        // config names servers and users: for this user's eyes only.
+        let _ = std::fs::remove_file(&tmp);
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         std::fs::rename(&tmp, path)
@@ -243,6 +252,25 @@ mod tests {
         assert!(super::write_replacing(&blocked, b"x").is_err());
         assert!(!dir.join("blocked.toml.tmp").exists());
         assert!(blocked.join("inside").is_dir(), "what was there is untouched");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn config_temp_file_is_private_and_never_followed() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("yc_cfg_link_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let victim = dir.join("victim");
+        std::fs::write(&victim, b"keep").unwrap();
+        std::os::unix::fs::symlink(&victim, dir.join("config.toml.tmp")).unwrap();
+
+        super::write_replacing(&path, b"a = 1\n").unwrap();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        assert_eq!(std::fs::read(&path).unwrap(), b"a = 1\n");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

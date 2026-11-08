@@ -92,20 +92,22 @@ fn known_hosts_file() -> PathBuf {
 }
 
 /// Accept the server key when `known_hosts` records it for host:port.
-/// A first-seen key is recorded when `trust_new`, else refused with
-/// `UnknownHostKey`; a different recorded key is always refused.
+/// A first-seen key is recorded only when it is the very one the user
+/// confirmed (`trusted`, its fingerprint), else refused with `UnknownHostKey`:
+/// the confirmation came from an earlier connection, and this one may be
+/// answered by someone else. A different recorded key is always refused.
 fn judge_host_key(
     known_hosts: &Path,
     host: &str,
     port: u16,
     key: &PublicKey,
-    trust_new: bool,
+    trusted: Option<&str>,
 ) -> Result<(), ConnectError> {
     let key_type = key.algorithm().to_string();
     let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
     match check_known_hosts_path(host, port, key, known_hosts) {
         Ok(true) => Ok(()),
-        Ok(false) if trust_new => {
+        Ok(false) if trusted == Some(fingerprint.as_str()) => {
             // russh would create a missing ~/.ssh with default permissions;
             // make it private, as ssh does.
             if let Some(dir) = known_hosts.parent()
@@ -138,9 +140,9 @@ struct Handler {
     known_hosts: PathBuf,
     host: String,
     port: u16,
-    /// Record a first-seen key in known_hosts instead of refusing it
-    /// (the user confirmed its fingerprint).
-    trust_new: bool,
+    /// The fingerprint the user confirmed: a first-seen key showing it is
+    /// recorded in known_hosts instead of refused.
+    trusted_fingerprint: Option<String>,
     verdict: Verdict,
 }
 
@@ -155,7 +157,8 @@ impl client::Handler for Handler {
             PublicKeyOrCertificate::PublicKey { key, .. } => key.clone(),
             PublicKeyOrCertificate::Certificate(cert) => PublicKey::from(cert.public_key().clone()),
         };
-        match judge_host_key(&self.known_hosts, &self.host, self.port, &key, self.trust_new) {
+        let trusted = self.trusted_fingerprint.as_deref();
+        match judge_host_key(&self.known_hosts, &self.host, self.port, &key, trusted) {
             Ok(()) => Ok(true),
             Err(verdict) => {
                 *self.verdict.lock().unwrap() = Some(verdict);
@@ -183,16 +186,34 @@ fn default_key_candidates() -> Vec<PathBuf> {
 
 /// Blocking connect; call from a worker thread. The server's host key must
 /// match ~/.ssh/known_hosts; a first-seen key is refused with
-/// `ConnectError::UnknownHostKey` unless `trust_host_key` is set, in which
-/// case it is recorded there.
+/// `ConnectError::UnknownHostKey` unless its fingerprint is
+/// `trusted_fingerprint`, in which case it is recorded there.
 pub fn connect(
     host: &str,
     port: u16,
     user: &str,
     auth: &SshAuth,
-    trust_host_key: bool,
+    trusted_fingerprint: Option<&str>,
 ) -> Result<Arc<SftpConnection>, ConnectError> {
-    connect_checked(&known_hosts_file(), host, port, user, auth, trust_host_key)
+    connect_checked(&known_hosts_file(), host, port, user, auth, trusted_fingerprint)
+}
+
+/// Tests' way past the fingerprint prompt: confirm whatever key the server
+/// shows, as a user clicking "Trust" would.
+#[cfg(test)]
+pub(crate) fn connect_confirming_key(
+    known_hosts: &Path,
+    host: &str,
+    port: u16,
+    user: &str,
+    auth: &SshAuth,
+) -> Result<Arc<SftpConnection>, ConnectError> {
+    match connect_checked(known_hosts, host, port, user, auth, None) {
+        Err(ConnectError::UnknownHostKey { fingerprint, .. }) => {
+            connect_checked(known_hosts, host, port, user, auth, Some(&fingerprint))
+        }
+        other => other,
+    }
 }
 
 /// `connect` against a given known_hosts file.
@@ -202,14 +223,14 @@ pub(crate) fn connect_checked(
     port: u16,
     user: &str,
     auth: &SshAuth,
-    trust_host_key: bool,
+    trusted_fingerprint: Option<&str>,
 ) -> Result<Arc<SftpConnection>, ConnectError> {
     let verdict: Verdict = Arc::new(Mutex::new(None));
     let handler = Handler {
         known_hosts: known_hosts.to_path_buf(),
         host: host.to_string(),
         port,
-        trust_new: trust_host_key,
+        trusted_fingerprint: trusted_fingerprint.map(str::to_string),
         verdict: verdict.clone(),
     };
     let result = runtime().block_on(connect_with(handler, host, port, user, auth));
@@ -459,6 +480,27 @@ impl SftpConnection {
         })
     }
 
+    /// Remove a folder, which the server refuses unless it is empty.
+    pub fn remove_empty_dir(&self, path: &Path) -> Result<(), String> {
+        runtime().block_on(async {
+            self.session
+                .remove_dir(rp(path))
+                .await
+                .map_err(|e| format!("{}: {e}", path.display()))
+        })
+    }
+
+    /// `path` as the server resolves it, every link followed.
+    pub fn real_path(&self, path: &Path) -> Result<PathBuf, String> {
+        runtime().block_on(async {
+            self.session
+                .canonicalize(rp(path))
+                .await
+                .map(PathBuf::from)
+                .map_err(|e| format!("{}: {e}", path.display()))
+        })
+    }
+
     pub fn remove_recursive(&self, path: &Path) -> Result<(), String> {
         // lstat, not stat: a symlink is removed as a file, never recursed
         // into — deleting a link must not delete what it points to.
@@ -640,7 +682,7 @@ mod tests {
         );
         let known = tmp(name).join("known_hosts");
         let auth = SshAuth::Password(pass.to_string());
-        Some((connect_checked(&known, host, port, user, &auth, true).unwrap(), dir))
+        Some((connect_confirming_key(&known, host, port, user, &auth).unwrap(), dir))
     }
 
     #[test]
@@ -742,6 +784,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&local);
     }
 
+    fn fingerprint_of(openssh: &str) -> String {
+        key(openssh).fingerprint(HashAlg::Sha256).to_string()
+    }
+
     fn tmp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("yc_kh_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -752,7 +798,7 @@ mod tests {
     #[test]
     fn unknown_key_is_refused_unless_trusted_then_recorded() {
         let kh = tmp("new").join("known_hosts");
-        let err = judge_host_key(&kh, "box", 22, &key(KEY_A), false).unwrap_err();
+        let err = judge_host_key(&kh, "box", 22, &key(KEY_A), None).unwrap_err();
         match err {
             ConnectError::UnknownHostKey {
                 key_type,
@@ -765,13 +811,30 @@ mod tests {
         }
         assert!(!kh.exists(), "refusing must not write known_hosts");
 
-        judge_host_key(&kh, "box", 22, &key(KEY_A), true).unwrap();
+        judge_host_key(&kh, "box", 22, &key(KEY_A), Some(&fingerprint_of(KEY_A))).unwrap();
         let recorded = std::fs::read_to_string(&kh).unwrap();
         assert!(recorded.trim_start().starts_with("box ssh-ed25519 "), "{recorded}");
-        // Known now, no trust flag needed.
-        judge_host_key(&kh, "box", 22, &key(KEY_A), false).unwrap();
+        // Known now, no confirmation needed.
+        judge_host_key(&kh, "box", 22, &key(KEY_A), None).unwrap();
         // Same host on another port is a different entry.
-        assert!(judge_host_key(&kh, "box", 2222, &key(KEY_A), false).is_err());
+        assert!(judge_host_key(&kh, "box", 2222, &key(KEY_A), None).is_err());
+    }
+
+    /// The user confirmed one key on the first connection; the second one is
+    /// answered by another (a man in the middle waiting for the "trust").
+    #[test]
+    fn only_the_confirmed_key_is_recorded() {
+        let kh = tmp("swapped").join("known_hosts");
+        let confirmed = fingerprint_of(KEY_A);
+        match judge_host_key(&kh, "box", 22, &key(KEY_B), Some(&confirmed)).unwrap_err() {
+            ConnectError::UnknownHostKey { fingerprint, .. } => {
+                assert_eq!(fingerprint, fingerprint_of(KEY_B));
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(!kh.exists(), "nothing recorded");
+        judge_host_key(&kh, "box", 22, &key(KEY_A), Some(&confirmed)).unwrap();
+        assert!(kh.exists());
     }
 
     #[test]
@@ -779,18 +842,18 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let base = tmp("nossh");
         let kh = base.join(".ssh").join("known_hosts");
-        judge_host_key(&kh, "box", 22, &key(KEY_A), true).unwrap();
+        judge_host_key(&kh, "box", 22, &key(KEY_A), Some(&fingerprint_of(KEY_A))).unwrap();
         assert!(kh.is_file());
         let mode = std::fs::metadata(base.join(".ssh")).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700);
     }
 
     #[test]
-    fn changed_key_is_refused_even_when_trusting_new() {
+    fn changed_key_is_refused_even_when_confirmed() {
         let kh = tmp("changed").join("known_hosts");
         std::fs::write(&kh, format!("# comment\nother {KEY_B}\nbox {KEY_A}\n")).unwrap();
-        for trust in [false, true] {
-            match judge_host_key(&kh, "box", 22, &key(KEY_B), trust).unwrap_err() {
+        for trust in [None, Some(fingerprint_of(KEY_B))] {
+            match judge_host_key(&kh, "box", 22, &key(KEY_B), trust.as_deref()).unwrap_err() {
                 ConnectError::HostKeyChanged { key_type, .. } => {
                     assert_eq!(key_type, "ssh-ed25519")
                 }
@@ -819,21 +882,28 @@ mod tests {
             passphrase: None,
         };
         let kh = tmp("live").join("known_hosts");
-        let connect = |trust: bool| {
+        let connect = |trust: Option<&str>| {
             connect_checked(&kh, "127.0.0.1", port, &user, &auth, trust)
         };
-        let fail = |trust: bool| match connect(trust) {
+        let fail = |trust: Option<&str>| match connect(trust) {
             Err(e) => e,
-            Ok(_) => panic!("connect succeeded with trust={trust}"),
+            Ok(_) => panic!("connect succeeded with trust={trust:?}"),
         };
 
-        let fingerprint = match fail(false) {
+        let fingerprint = match fail(None) {
             ConnectError::UnknownHostKey { fingerprint, .. } => fingerprint,
             other => panic!("{other:?}"),
         };
         assert!(!kh.exists());
 
-        let conn = connect(true).unwrap_or_else(|e| panic!("{e}"));
+        // Confirming some other key does not let this one in.
+        assert!(matches!(
+            fail(Some(&fingerprint_of(KEY_B))),
+            ConnectError::UnknownHostKey { .. }
+        ));
+        assert!(!kh.exists());
+
+        let conn = connect(Some(&fingerprint)).unwrap_or_else(|e| panic!("{e}"));
         assert!(conn.home.is_absolute());
         drop(conn);
         let recorded = std::fs::read_to_string(&kh).unwrap();
@@ -841,11 +911,11 @@ mod tests {
         let known = key(recorded.trim().split(' ').skip(1).collect::<Vec<_>>().join(" ").as_str());
         assert_eq!(known.fingerprint(HashAlg::Sha256).to_string(), fingerprint);
 
-        connect(false).unwrap_or_else(|e| panic!("{e}"));
+        connect(None).unwrap_or_else(|e| panic!("{e}"));
 
         // The server now presents a key other than the recorded one.
         std::fs::write(&kh, format!("[127.0.0.1]:{port} {KEY_B}\n")).unwrap();
-        for trust in [false, true] {
+        for trust in [None, Some(fingerprint.as_str())] {
             assert!(matches!(fail(trust), ConnectError::HostKeyChanged { .. }));
         }
     }
@@ -869,7 +939,7 @@ mod tests {
         };
         let kh = tmp("list").join("known_hosts");
         let user = std::env::var("USER").unwrap();
-        let conn = connect_checked(&kh, "127.0.0.1", port.parse().unwrap(), &user, &auth, true)
+        let conn = connect_confirming_key(&kh, "127.0.0.1", port.parse().unwrap(), &user, &auth)
             .unwrap_or_else(|e| panic!("{e}"));
         let t = std::time::Instant::now();
         let entries = conn.list(Path::new(&dir)).unwrap();

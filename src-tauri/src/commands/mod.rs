@@ -10,11 +10,11 @@ pub mod smb;
 pub mod sync;
 pub mod system;
 
-/// A file path handed to ffmpeg/ffprobe must be absolute. Those tools read
-/// a relative "concat:…", "http://…" or "pipe:" as a protocol, and ffprobe
-/// takes a leading "-" as an option; an absolute path starts with "/", which
-/// no protocol name or option can.
-pub(crate) fn media_input(path: &std::path::Path) -> Result<(), String> {
+/// A file path handed to an external program must be absolute. ffmpeg and
+/// ffprobe read a relative "concat:…", "http://…" or "pipe:" as a protocol,
+/// `open` and editors' CLIs take a leading "-" as an option; an absolute path
+/// starts with "/", which no protocol name or option can.
+pub(crate) fn require_absolute(path: &std::path::Path) -> Result<(), String> {
     if path.is_absolute() {
         Ok(())
     } else {

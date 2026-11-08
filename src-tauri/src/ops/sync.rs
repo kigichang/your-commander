@@ -5,7 +5,7 @@
 use crate::fs::provider::epoch_millis;
 use crate::fs::sftp::SftpConnection;
 use crate::ops::queue::{cancelled_err, ConflictChoice, OpCtx};
-use crate::ops::safe_path::is_listing_name;
+use crate::ops::safe_path::{create_dir_inside, is_listing_name};
 use crate::ops::transfer;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -177,7 +177,8 @@ fn unchecked_parents(known: &mut HashSet<PathBuf>, base: &Path, rel: &str) -> Ve
     out
 }
 
-/// Make sure every folder along `rel`'s parent chain exists on the remote.
+/// Make sure every folder along `rel`'s parent chain exists on the remote,
+/// and that none already there is a link leading out of `base`.
 fn ensure_remote_parents(
     conn: &SftpConnection,
     known: &mut HashSet<PathBuf>,
@@ -187,9 +188,24 @@ fn ensure_remote_parents(
     for dir in unchecked_parents(known, base, rel) {
         if conn.exists(&dir).is_none() {
             conn.mkdir(&dir)?;
+        } else if !conn.real_path(&dir)?.starts_with(conn.real_path(base)?) {
+            return Err(format!("{}: path escapes the destination folder", dir.display()));
         }
     }
     Ok(())
+}
+
+/// Where `dest` really goes under the local folder `base`: its parent chain
+/// is created, and refused if a link along it leads out of `base`. Compare
+/// skips links, so such a row reads as a file missing on this side.
+fn real_local_dest(base: &Path, dest: &Path) -> Result<PathBuf, String> {
+    let root = base
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", base.display()))?;
+    let (Some(parent), Some(name)) = (dest.parent(), dest.file_name()) else {
+        return Err(format!("{}: not a file path", dest.display()));
+    };
+    Ok(create_dir_inside(&root, parent)?.join(name))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -244,10 +260,7 @@ pub fn sync_op(
         ctx.report(&item.rel);
         match (src_conn, dest_conn) {
             (None, None) => {
-                if let Some(parent) = dest.parent() {
-                    std::fs::create_dir_all(parent)
-                        .map_err(|e| format!("{}: {e}", parent.display()))?;
-                }
+                let dest = real_local_dest(dest_base, &dest)?;
                 transfer::copy_file(ctx, &src, &dest)?;
             }
             (None, Some(conn)) => {
@@ -255,10 +268,7 @@ pub fn sync_op(
                 conn.upload_file(ctx, &src, &dest)?;
             }
             (Some(conn), None) => {
-                if let Some(parent) = dest.parent() {
-                    std::fs::create_dir_all(parent)
-                        .map_err(|e| format!("{}: {e}", parent.display()))?;
-                }
+                let dest = real_local_dest(dest_base, &dest)?;
                 conn.download_file(ctx, &src, &dest)?;
             }
             (Some(_), Some(_)) => unreachable!(),
@@ -374,5 +384,109 @@ mod tests {
             .map(|i| unchecked_parents(&mut known, base, &format!("p/q/r/s/f{i}.txt")).len())
             .sum();
         assert_eq!(checks, 4);
+    }
+
+    #[test]
+    fn sync_does_not_write_through_a_parent_link_leaving_the_folder() {
+        let work = tmp("parent_link");
+        let (left, right, outside) = (work.join("l"), work.join("r"), work.join("outside"));
+        std::fs::create_dir_all(left.join("sub")).unwrap();
+        std::fs::create_dir_all(&right).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(left.join("sub/f.txt"), b"x").unwrap();
+        std::os::unix::fs::symlink(&outside, right.join("sub")).unwrap();
+
+        // Compare skips the link, so the row reads as "only on the left".
+        let rows = compare(None, &left, None, &right, false).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].right.is_none());
+
+        let item = || SyncItem { rel: "sub/f.txt".into(), direction: Direction::Ltr, size: None };
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        let err = sync_op(&mut ctx, None, left.clone(), None, right.clone(), vec![item()])
+            .unwrap_err();
+        assert!(err.contains("escapes"), "{err}");
+        assert!(!outside.join("f.txt").exists());
+
+        // A link that stays inside the folder still works.
+        std::fs::remove_file(right.join("sub")).unwrap();
+        std::fs::create_dir_all(right.join("real")).unwrap();
+        std::os::unix::fs::symlink("real", right.join("sub")).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        sync_op(&mut ctx, None, left.clone(), None, right.clone(), vec![item()]).unwrap();
+        assert_eq!(std::fs::read(right.join("real/f.txt")).unwrap(), b"x");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// Against a real sshd (`YC_TEST_SSHD_PORT`, `YC_TEST_SSH_KEY`): the same
+    /// guard on the remote side of a sync, and on a download into a local link.
+    #[test]
+    fn remote_sync_does_not_follow_parent_links_out_of_the_folder() {
+        use crate::fs::sftp::{connect_confirming_key, SshAuth};
+        let (Ok(port), Ok(key_path)) = (
+            std::env::var("YC_TEST_SSHD_PORT"),
+            std::env::var("YC_TEST_SSH_KEY"),
+        ) else {
+            eprintln!("skipped: set YC_TEST_SSHD_PORT and YC_TEST_SSH_KEY");
+            return;
+        };
+        let work = tmp("remote_parent").canonicalize().unwrap();
+        let auth = SshAuth::Key {
+            path: Some(PathBuf::from(key_path)),
+            passphrase: None,
+        };
+        let user = std::env::var("USER").unwrap();
+        let conn = connect_confirming_key(
+            &work.join("known_hosts"),
+            "127.0.0.1",
+            port.parse().unwrap(),
+            &user,
+            &auth,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let (left, right, outside) = (work.join("l"), work.join("r"), work.join("outside"));
+        std::fs::create_dir_all(left.join("sub")).unwrap();
+        std::fs::create_dir_all(&right).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(left.join("sub/f.txt"), b"x").unwrap();
+        std::os::unix::fs::symlink(&outside, right.join("sub")).unwrap();
+        let item = |direction| SyncItem { rel: "sub/f.txt".into(), direction, size: None };
+
+        // Upload: the destination is the remote side.
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        let err = sync_op(
+            &mut ctx,
+            None,
+            left.clone(),
+            Some(conn.clone()),
+            right.clone(),
+            vec![item(Direction::Ltr)],
+        )
+        .unwrap_err();
+        assert!(err.contains("escapes"), "{err}");
+        assert!(!outside.join("f.txt").exists());
+
+        // Download: the destination is the local side.
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        let err = sync_op(
+            &mut ctx,
+            Some(conn.clone()),
+            left.clone(),
+            None,
+            right.clone(),
+            vec![item(Direction::Ltr)],
+        );
+        // Ltr with a remote left: the source is remote, the local right is written.
+        let err = err.unwrap_err();
+        assert!(err.contains("escapes"), "{err}");
+        assert!(!outside.join("f.txt").exists());
+
+        // A plain folder on the remote side still works.
+        std::fs::remove_file(right.join("sub")).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        sync_op(&mut ctx, None, left.clone(), Some(conn), right.clone(), vec![item(Direction::Ltr)])
+            .unwrap();
+        assert_eq!(std::fs::read(right.join("sub/f.txt")).unwrap(), b"x");
+        let _ = std::fs::remove_dir_all(&work);
     }
 }
