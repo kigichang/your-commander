@@ -47,6 +47,8 @@ struct Search {
     params: FindParams,
     count: usize,
     last_scan: Instant,
+    /// Content-search buffer, allocated once per search, not per file.
+    buf: Vec<u8>,
 }
 
 impl Search {
@@ -81,7 +83,7 @@ impl Search {
 
     /// Case-insensitive (ASCII) substring search, streamed in chunks with an
     /// overlap so matches across chunk borders are not lost.
-    fn contains_text(&self, entry: &FsEntry) -> bool {
+    fn contains_text(&mut self, entry: &FsEntry) -> bool {
         if entry.size > CONTENT_MAX {
             return false;
         }
@@ -90,19 +92,29 @@ impl Search {
                 let Ok(file) = std::fs::File::open(&entry.path) else {
                     return false;
                 };
-                self.scan_reader(file)
+                self.scan_reader(file.take(CONTENT_MAX))
             }
-            Some(conn) => match conn.read_limited(&entry.path, CONTENT_MAX) {
-                Ok(bytes) => self.scan_reader(std::io::Cursor::new(bytes)),
+            // Streamed chunk by chunk: a match or a cancel stops the
+            // download instead of waiting for the whole file.
+            Some(conn) => match conn.open_reader(&entry.path) {
+                Ok(reader) => self.scan_reader(reader.take(CONTENT_MAX)),
                 Err(_) => false,
             },
         }
     }
 
-    fn scan_reader<R: Read>(&self, mut reader: R) -> bool {
+    fn scan_reader<R: Read>(&mut self, reader: R) -> bool {
+        let keep = self.needle.len().saturating_sub(1);
+        let mut buf = std::mem::take(&mut self.buf);
+        buf.resize(CHUNK + keep, 0);
+        let found = self.scan_with(reader, &mut buf);
+        self.buf = buf;
+        found
+    }
+
+    fn scan_with<R: Read>(&self, mut reader: R, buf: &mut [u8]) -> bool {
         let needle = &self.needle;
         let keep = needle.len().saturating_sub(1);
-        let mut buf = vec![0u8; CHUNK + keep];
         let mut filled = 0usize;
         loop {
             if self.cancelled() {
@@ -196,6 +208,7 @@ pub fn start_find(
             params,
             count: 0,
             last_scan: Instant::now(),
+            buf: Vec::new(),
         };
         search.walk(&dir);
         let _ = search.channel.send(FindEvent::Done {
@@ -211,5 +224,48 @@ pub fn start_find(
 pub fn cancel_find(state: State<'_, AppState>, find_id: u64) {
     if let Some(cancel) = state.finds.lock().unwrap().get(&find_id) {
         cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn search(needle: &str) -> Search {
+        Search {
+            cancel: Arc::new(AtomicBool::new(false)),
+            channel: Channel::new(|_| Ok(())),
+            conn: None,
+            mask: vec![],
+            needle: needle.as_bytes().to_vec(),
+            params: FindParams {
+                mask: String::new(),
+                content: Some(needle.into()),
+                modified_after: None,
+                min_size: None,
+                max_size: None,
+            },
+            count: 0,
+            last_scan: Instant::now(),
+            buf: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn content_scan_reuses_its_buffer_without_carrying_bytes_over() {
+        let mut s = search("needle");
+        // A match straddling a chunk border is still found.
+        let mut big = vec![b'x'; CHUNK - 3];
+        big.extend_from_slice(b"NeEdLe");
+        assert!(s.scan_reader(std::io::Cursor::new(big)));
+        let cap = s.buf.capacity();
+        // One file ending in "nee" and the next starting with "dle" must
+        // not add up to a match through the reused buffer.
+        let mut tail = vec![b'x'; CHUNK + 100];
+        tail.extend_from_slice(b"nee");
+        assert!(!s.scan_reader(std::io::Cursor::new(tail)));
+        assert!(!s.scan_reader(std::io::Cursor::new(b"dle and more".to_vec())));
+        assert!(s.scan_reader(std::io::Cursor::new(b"a needle".to_vec())));
+        assert_eq!(s.buf.capacity(), cap, "buffer allocated once, then reused");
     }
 }

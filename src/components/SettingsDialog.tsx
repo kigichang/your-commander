@@ -20,7 +20,6 @@ import { Overlay } from "./Overlay";
 import appIcon from "../../src-tauri/icons/128x128@2x.png";
 
 const SECTIONS = ["general", "appearance", "favorites", "quickview", "hotkeys", "panes", "tools", "plugins", "about"] as const;
-const READY = new Set(["general", "appearance", "favorites", "quickview", "hotkeys", "panes", "tools", "plugins", "about"]);
 
 export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }> }) {
   const { t } = useTranslation();
@@ -71,9 +70,7 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
             <button
               key={s}
               className={clsx(section === s && "on")}
-              disabled={!READY.has(s)}
-              title={READY.has(s) ? "" : t("status.comingSoon")}
-              onClick={() => READY.has(s) && setSection(s)}
+              onClick={() => setSection(s)}
             >
               {t(`settings.sec_${s}`)}
             </button>

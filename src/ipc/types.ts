@@ -183,6 +183,8 @@ export type SyncDirection = "ltr" | "rtl";
 export interface SyncActionItem {
   rel: string;
   direction: SyncDirection;
+  /** Source side's size from the compare, for progress on remote sources. */
+  size?: number;
 }
 
 export type IfExists = "ask" | "skip" | "replaceOlder" | "rename";

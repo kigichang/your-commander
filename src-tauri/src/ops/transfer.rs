@@ -7,16 +7,25 @@ const CHUNK: usize = 1024 * 1024;
 /// Walk sources and sum file sizes so progress has a denominator, honoring
 /// the mask and follow-symlinks options.
 pub(super) fn total_bytes(ctx: &OpCtx, paths: &[PathBuf]) -> u64 {
+    // One lstat per entry; a link is stat'ed again only when followed.
     fn walk(ctx: &OpCtx, path: &Path) -> u64 {
-        if path.is_symlink() && !(ctx.options.follow_symlinks && path.is_file()) {
+        let Ok(meta) = path.symlink_metadata() else {
             return 0;
+        };
+        let masked = || ctx.mask_matches(&path.file_name().unwrap_or_default().to_string_lossy());
+        if meta.is_symlink() {
+            // Only file links count, and only when followed.
+            return match path.metadata() {
+                Ok(m) if ctx.options.follow_symlinks && m.is_file() && masked() => m.len(),
+                _ => 0,
+            };
         }
-        if path.is_dir() {
+        if meta.is_dir() {
             std::fs::read_dir(path)
                 .map(|rd| rd.flatten().map(|e| walk(ctx, &e.path())).sum())
                 .unwrap_or(0)
-        } else if ctx.mask_matches(&path.file_name().unwrap_or_default().to_string_lossy()) {
-            path.metadata().map(|m| m.len()).unwrap_or(0)
+        } else if masked() {
+            meta.len()
         } else {
             0
         }
@@ -82,8 +91,13 @@ fn copy_item(ctx: &mut OpCtx, src: &Path, dest: &Path, remove_source: bool) -> R
         return Err(cancelled_err());
     }
 
-    // Fast path for move on the same device: a rename is instant.
-    if remove_source && !dest.exists() && same_device(src, dest.parent().unwrap_or(dest)) {
+    // Fast path for move on the same device: a rename is instant. Not over
+    // a dangling link either: rename would replace it without asking.
+    if remove_source
+        && !dest.exists()
+        && !dest.is_symlink()
+        && same_device(src, dest.parent().unwrap_or(dest))
+    {
         ctx.report(&src.to_string_lossy());
         if std::fs::rename(src, dest).is_ok() {
             return Ok(());
@@ -105,7 +119,9 @@ fn copy_item(ctx: &mut OpCtx, src: &Path, dest: &Path, remove_source: bool) -> R
 }
 
 fn copy_dir(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
-    if dest.exists() && !dest.is_dir() {
+    // exists() follows links: a dangling one would raise no conflict, and
+    // create_dir_all below would then fail on the name it holds.
+    if (dest.exists() || dest.is_symlink()) && !dest.is_dir() {
         match ctx.ask_conflict(src, dest) {
             ConflictChoice::Overwrite => {
                 std::fs::remove_file(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
@@ -126,7 +142,8 @@ fn copy_dir(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
         }
         let child_src = entry.path();
         let child_dest = dest.join(entry.file_name());
-        if child_src.is_dir() && !child_src.is_symlink() {
+        // From readdir: a link reports as a link, never as a directory.
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
             copy_dir(ctx, &child_src, &child_dest)?;
         } else {
             copy_file(ctx, &child_src, &child_dest)?;
@@ -141,7 +158,9 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), 
         return Ok(());
     }
     let mut dest = dest.to_path_buf();
-    if dest.exists() {
+    // exists() follows links: a dangling one would raise no conflict, and
+    // the write below would then create whatever file it points at.
+    if dest.exists() || dest.is_symlink() {
         match ctx.ask_conflict(src, &dest) {
             ConflictChoice::Overwrite => {}
             ConflictChoice::Skip => {
@@ -160,7 +179,7 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), 
     // streamed like regular files (directory links always stay links).
     if src.is_symlink() && !(ctx.options.follow_symlinks && src.is_file()) {
         let target = std::fs::read_link(src).map_err(|e| format!("{}: {e}", src.display()))?;
-        if dest.exists() {
+        if dest.exists() || dest.is_symlink() {
             let _ = std::fs::remove_file(&dest);
         }
         std::os::unix::fs::symlink(&target, &dest)
@@ -170,8 +189,9 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), 
 
     let mut reader =
         std::fs::File::open(src).map_err(|e| format!("{}: {e}", src.display()))?;
-    let mut writer =
-        std::fs::File::create(&dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    // Overwrite replaces a link at `dest` rather than writing into the file
+    // it points at; one that appears meanwhile fails the open.
+    let mut writer = super::safe_path::replace_file_nofollow(&dest)?;
     let mut buf = vec![0u8; CHUNK];
     loop {
         if ctx.cancelled() {
@@ -210,31 +230,44 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<(), 
 
 /// Byte-compare source and destination after a copy.
 fn verify_copy(ctx: &OpCtx, src: &Path, dest: &Path) -> Result<(), String> {
-    let fail = || format!("Verify failed: {}", dest.display());
-    let mut a = std::fs::File::open(src).map_err(|e| format!("{}: {e}", src.display()))?;
-    let mut b = std::fs::File::open(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    if same_contents(src, dest, &|| ctx.cancelled())? {
+        Ok(())
+    } else {
+        Err(format!("Verify failed: {}", dest.display()))
+    }
+}
+
+/// Byte-for-byte comparison of two local files (copy verification, sync's
+/// "compare by content"). `cancelled` is polled per chunk; a cancel is the
+/// usual cancel error.
+pub(crate) fn same_contents(
+    a: &Path,
+    b: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<bool, String> {
+    let mut fa = std::fs::File::open(a).map_err(|e| format!("{}: {e}", a.display()))?;
+    let mut fb = std::fs::File::open(b).map_err(|e| format!("{}: {e}", b.display()))?;
     let mut ba = vec![0u8; CHUNK];
     let mut bb = vec![0u8; CHUNK];
     loop {
-        if ctx.cancelled() {
+        if cancelled() {
             return Err(cancelled_err());
         }
-        let na = a.read(&mut ba).map_err(|e| e.to_string())?;
+        let na = fa.read(&mut ba).map_err(|e| e.to_string())?;
         let mut filled = 0;
         while filled < na {
-            let n = b.read(&mut bb[filled..na]).map_err(|e| e.to_string())?;
+            let n = fb.read(&mut bb[filled..na]).map_err(|e| e.to_string())?;
             if n == 0 {
-                return Err(fail());
+                return Ok(false);
             }
             filled += n;
         }
         if ba[..na] != bb[..na] {
-            return Err(fail());
+            return Ok(false);
         }
         if na == 0 {
-            // Source exhausted: destination must be too.
-            let n = b.read(&mut bb[..1]).map_err(|e| e.to_string())?;
-            return if n == 0 { Ok(()) } else { Err(fail()) };
+            // `a` exhausted: `b` must be too.
+            return Ok(fb.read(&mut bb[..1]).map_err(|e| e.to_string())? == 0);
         }
     }
 }
@@ -349,6 +382,33 @@ pub fn new_folder(dir: &Path, name: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::ops::queue::OpCtx;
+
+    #[test]
+    fn same_contents_compares_bytes_and_length() {
+        let dir = std::env::temp_dir().join(format!("yc_tr_same_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let big: Vec<u8> = (0..CHUNK * 2 + 7).map(|i| (i % 253) as u8).collect();
+        let write = |name: &str, data: &[u8]| {
+            let p = dir.join(name);
+            std::fs::write(&p, data).unwrap();
+            p
+        };
+        let a = write("a", &big);
+        let same = write("same", &big);
+        let mut flipped = big.clone();
+        *flipped.last_mut().unwrap() ^= 1;
+        let differs = write("differs", &flipped);
+        let longer = write("longer", &[&big[..], b"!"].concat());
+        let never = || false;
+        assert!(same_contents(&a, &same, &never).unwrap());
+        assert!(!same_contents(&a, &differs, &never).unwrap());
+        assert!(!same_contents(&a, &longer, &never).unwrap());
+        assert!(!same_contents(&longer, &a, &never).unwrap());
+        assert_eq!(same_contents(&a, &same, &|| true).unwrap_err(), cancelled_err());
+        assert!(same_contents(&a, &dir.join("missing"), &never).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn test_ctx() -> OpCtx {
         OpCtx::for_test(ConflictChoice::CancelOp)
@@ -606,5 +666,150 @@ mod tests {
         for d in [&src_root, &dest_root] {
             let _ = std::fs::remove_dir_all(d);
         }
+    }
+
+    #[test]
+    fn folder_copied_onto_a_dangling_link_raises_a_conflict() {
+        let work = tmp("dir_dangling");
+        let (src, dest) = (work.join("src"), work.join("dest"));
+        std::fs::create_dir_all(src.join("proj")).unwrap();
+        std::fs::write(src.join("proj/a.txt"), b"new").unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        let target = work.join("missing");
+        let link = dest.join("proj");
+        let reset = || {
+            let _ = std::fs::remove_dir_all(&dest);
+            std::fs::create_dir_all(&dest).unwrap();
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+        };
+        let copy = |choice| {
+            let mut ctx = OpCtx::for_test(choice);
+            copy_op(&mut ctx, vec![src.join("proj")], dest.clone(), false)
+        };
+
+        reset();
+        copy(ConflictChoice::Skip).unwrap();
+        assert!(link.is_symlink(), "skip leaves the link");
+
+        reset();
+        copy(ConflictChoice::KeepBoth).unwrap();
+        assert!(link.is_symlink(), "keep both leaves the link");
+        assert_eq!(std::fs::read(dest.join("proj 2/a.txt")).unwrap(), b"new");
+
+        reset();
+        copy(ConflictChoice::Overwrite).unwrap();
+        assert!(!link.is_symlink(), "overwrite replaces the link");
+        assert_eq!(std::fs::read(link.join("a.txt")).unwrap(), b"new");
+        assert!(!target.exists(), "nothing was created at the link's target");
+
+        // A link to a real folder is still a folder to merge into.
+        let real = work.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let _ = std::fs::remove_dir_all(&dest);
+        std::fs::create_dir_all(&dest).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        copy(ConflictChoice::CancelOp).unwrap();
+        assert_eq!(std::fs::read(real.join("a.txt")).unwrap(), b"new");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn dangling_link_at_dest_is_a_conflict_not_a_way_out() {
+        let work = tmp("dangle");
+        let src = work.join("src");
+        let dest = work.join("dest");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(src.join("a.txt"), b"new").unwrap();
+        let target = work.join("planted.txt");
+        std::os::unix::fs::symlink(&target, dest.join("a.txt")).unwrap();
+
+        // Cancel at the prompt: the prompt was raised, nothing was written.
+        let err = copy_op(&mut test_ctx(), vec![src.join("a.txt")], dest.clone(), false)
+            .unwrap_err();
+        assert_eq!(err, cancelled_err());
+        assert!(!target.exists(), "no file created at the link's target");
+
+        // Overwrite replaces the link itself.
+        let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+        copy_op(&mut ctx, vec![src.join("a.txt")], dest.clone(), false).unwrap();
+        assert!(!target.exists());
+        assert!(!dest.join("a.txt").is_symlink());
+        assert_eq!(std::fs::read(dest.join("a.txt")).unwrap(), b"new");
+
+        // A move on the same device asks too, rather than renaming over it.
+        std::fs::remove_file(dest.join("a.txt")).unwrap();
+        std::os::unix::fs::symlink(&target, dest.join("a.txt")).unwrap();
+        let err = copy_op(&mut test_ctx(), vec![src.join("a.txt")], dest.clone(), true)
+            .unwrap_err();
+        assert_eq!(err, cancelled_err());
+        assert!(dest.join("a.txt").is_symlink(), "the link is left alone");
+        assert!(src.join("a.txt").exists(), "the source stays");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn overwrite_replaces_a_link_instead_of_writing_through_it() {
+        let work = tmp("through");
+        let src = work.join("src");
+        let dest = work.join("dest");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(src.join("a.txt"), b"new").unwrap();
+        let victim = work.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+        std::os::unix::fs::symlink(&victim, dest.join("a.txt")).unwrap();
+
+        let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+        copy_op(&mut ctx, vec![src.join("a.txt")], dest.clone(), false).unwrap();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        assert!(!dest.join("a.txt").is_symlink());
+        assert_eq!(std::fs::read(dest.join("a.txt")).unwrap(), b"new");
+
+        // A link copied over a dangling link replaces it too.
+        std::os::unix::fs::symlink("elsewhere", src.join("l")).unwrap();
+        std::os::unix::fs::symlink(work.join("gone2"), dest.join("l")).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+        copy_op(&mut ctx, vec![src.join("l")], dest.clone(), false).unwrap();
+        assert_eq!(std::fs::read_link(dest.join("l")).unwrap(), PathBuf::from("elsewhere"));
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// A tree with a file, a folder, a link to each, and a broken link.
+    fn link_tree(work: &Path) -> PathBuf {
+        let src = work.join("src");
+        std::fs::create_dir_all(src.join("dir")).unwrap();
+        std::fs::write(src.join("f.txt"), b"12345").unwrap();
+        std::fs::write(src.join("dir/inner.txt"), b"123").unwrap();
+        std::os::unix::fs::symlink("f.txt", src.join("file_link")).unwrap();
+        std::os::unix::fs::symlink("dir", src.join("dir_link")).unwrap();
+        std::os::unix::fs::symlink("missing", src.join("broken")).unwrap();
+        src
+    }
+
+    #[test]
+    fn totals_and_folder_copies_treat_links_as_before() {
+        let work = tmp("links");
+        let src = link_tree(&work);
+
+        // Links count nothing unless followed; then only file links do.
+        let mut ctx = test_ctx();
+        assert_eq!(total_bytes(&ctx, std::slice::from_ref(&src)), 8);
+        let mut opts = ctx.options.clone();
+        opts.follow_symlinks = true;
+        ctx.set_options(opts);
+        assert_eq!(total_bytes(&ctx, std::slice::from_ref(&src)), 13);
+        assert_eq!(total_bytes(&ctx, &[src.join("broken")]), 0);
+
+        // A folder copy recreates links, never walks into a folder link.
+        let dest = work.join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+        copy_op(&mut test_ctx(), vec![src.clone()], dest.clone(), false).unwrap();
+        let out = dest.join("src");
+        assert!(out.join("dir_link").is_symlink());
+        assert!(out.join("file_link").is_symlink());
+        assert!(out.join("broken").is_symlink());
+        assert_eq!(std::fs::read(out.join("dir/inner.txt")).unwrap(), b"123");
+        let _ = std::fs::remove_dir_all(&work);
     }
 }

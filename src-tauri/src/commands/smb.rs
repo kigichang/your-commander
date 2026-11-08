@@ -82,25 +82,38 @@ pub async fn smb_unmount(path: PathBuf) -> Result<(), String> {
     blocking(move || smb::unmount(&path)).await
 }
 
+// The credential store can block (an unlock prompt), so these run off the
+// main thread.
+
 /// Stored password for a saved SMB connection (Keychain).
 #[tauri::command]
-pub fn smb_saved_password(username: String, server: String, share: String) -> Option<String> {
-    keychain::load(&keychain::smb_account(&username, &server, &share))
+pub async fn smb_saved_password(username: String, server: String, share: String) -> Option<String> {
+    blocking(move || Ok::<_, String>(keychain::load(&keychain::smb_account(&username, &server, &share))))
+        .await
+        .ok()
+        .flatten()
 }
 
 #[tauri::command]
-pub fn smb_store_password(
+pub async fn smb_store_password(
     username: String,
     server: String,
     share: String,
     password: String,
 ) -> Result<(), String> {
-    keychain::store(&keychain::smb_account(&username, &server, &share), &password)
+    blocking(move || {
+        keychain::store(&keychain::smb_account(&username, &server, &share), &password)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn smb_forget_password(username: String, server: String, share: String) {
-    keychain::remove(&keychain::smb_account(&username, &server, &share));
+pub async fn smb_forget_password(username: String, server: String, share: String) {
+    let _ = blocking(move || {
+        keychain::remove(&keychain::smb_account(&username, &server, &share));
+        Ok::<_, String>(())
+    })
+    .await;
 }
 
 #[cfg(test)]

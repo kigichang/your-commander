@@ -449,15 +449,19 @@ pub(crate) fn icon_names(key: &str) -> Vec<String> {
 }
 
 /// The user's icon theme, via gsettings (GNOME); themes fall back to
-/// Adwaita/hicolor in the lookup itself.
-fn icon_theme() -> String {
-    Command::new("gsettings")
-        .args(["get", "org.gnome.desktop.interface", "icon-theme"])
-        .output()
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().trim_matches('\'').to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "Adwaita".to_string())
+/// Adwaita/hicolor in the lookup itself. Asked once: icons are cached for
+/// the app's lifetime anyway, so a theme switch shows after a restart.
+fn icon_theme() -> &'static str {
+    static THEME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    THEME.get_or_init(|| {
+        Command::new("gsettings")
+            .args(["get", "org.gnome.desktop.interface", "icon-theme"])
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().trim_matches('\'').to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "Adwaita".to_string())
+    })
 }
 
 /// PNG bytes of the theme icon for `key`; None sends the frontend to its
@@ -466,7 +470,7 @@ pub fn icon_png(key: &str) -> Option<Vec<u8>> {
     let (key, size) = crate::icons::split_size(key);
     let theme = icon_theme();
     for name in icon_names(key) {
-        for t in [theme.as_str(), "Adwaita", "hicolor"] {
+        for t in [theme, "Adwaita", "hicolor"] {
             let Some(p) = freedesktop_icons::lookup(&name)
                 .with_theme(t)
                 .with_size(size)

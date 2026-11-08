@@ -195,11 +195,54 @@ impl Config {
         let Some(path) = Self::file_path() else {
             return;
         };
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         if let Ok(text) = toml::to_string_pretty(self) {
-            let _ = std::fs::write(&path, text);
+            let _ = write_replacing(&path, text.as_bytes());
         }
+    }
+}
+
+/// Write `bytes` to `path` all at once: into a sibling temp file, then
+/// renamed over `path`. A crash or full disk mid-write leaves the old file
+/// whole instead of a truncated one, which `load` would read as defaults.
+fn write_replacing(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    let result = (|| {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn config_writes_replace_the_file_whole() {
+        let dir = std::env::temp_dir().join(format!("yc_cfg_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("config.toml");
+        super::write_replacing(&path, b"first = 1\n").unwrap();
+        super::write_replacing(&path, b"second = 2\n").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"second = 2\n");
+        assert!(!dir.join("config.toml.tmp").exists(), "no temp file left behind");
+
+        // When the rename cannot happen (here: a folder holds the name),
+        // the temp file is cleaned up and the error comes back.
+        let blocked = dir.join("blocked.toml");
+        std::fs::create_dir_all(blocked.join("inside")).unwrap();
+        assert!(super::write_replacing(&blocked, b"x").is_err());
+        assert!(!dir.join("blocked.toml.tmp").exists());
+        assert!(blocked.join("inside").is_dir(), "what was there is untouched");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

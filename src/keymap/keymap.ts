@@ -5,7 +5,7 @@ import type { ActionId } from "./actions";
  *  letter keys lower-cased, named keys as KeyboardEvent.key. "mod" stands for
  *  the platform's primary modifier (⌘ / Ctrl) and is expanded by buildKeymap.
  *  The hotkey-settings screen edits a user overlay merged over this table. */
-export const defaultKeymap: Record<string, ActionId> = {
+const defaultKeymap: Record<string, ActionId> = {
   Tab: "switchPanel",
   Enter: "enter",
   Backspace: "up",
@@ -63,7 +63,7 @@ export const defaultKeymap: Record<string, ActionId> = {
 };
 
 /// "Finder-like" preset: Space previews, Enter renames, ⌘O / ⌘↓ open.
-export const finderDelta: Record<string, ActionId | ""> = {
+const finderDelta: Record<string, ActionId | ""> = {
   " ": "quickView",
   Enter: "renameOne",
   "mod+o": "enter",
@@ -92,7 +92,7 @@ export function expandChord(chord: string): string {
 
 export type PresetName = "commander" | "finder";
 
-export const PRESETS: Record<PresetName, Record<string, ActionId | "">> = {
+const PRESETS: Record<PresetName, Record<string, ActionId | "">> = {
   commander: {},
   finder: finderDelta,
 };

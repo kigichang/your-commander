@@ -131,16 +131,53 @@ pub fn replace_file_nofollow(path: &Path) -> Result<std::fs::File, String> {
     create_file_nofollow(path)
 }
 
-/// A directory-entry name as a single path piece: no separators, not
-/// `.`/`..`, not empty. Guards `dir.join(name)` against names a remote
-/// server made up.
+/// Delete a local file, link or folder tree. A link is removed itself,
+/// never the folder it points to.
+pub fn remove_nofollow(path: &Path) -> Result<(), String> {
+    if path.is_dir() && !path.is_symlink() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    }
+    .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// A name a directory listing may carry: exactly one path piece on Unix —
+/// not empty, not `.`/`..`, no `/` or NUL. `dir.join(name)` then stays
+/// one level under `dir` (an absolute name would replace `dir` outright).
+/// A backslash passes: here it is an ordinary file-name character.
+pub fn is_listing_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\0'])
+}
+
+/// A directory-entry name as a single path piece on any platform:
+/// `is_listing_name`, and no backslash either. Guards `dir.join(name)`
+/// against names a remote server made up.
 pub fn is_plain_name(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
+    is_listing_name(name) && !name.contains('\\')
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remove_nofollow_takes_links_not_their_targets() {
+        let dir = tmp("rmnf");
+        let real = dir.join("real");
+        std::fs::create_dir_all(real.join("sub")).unwrap();
+        std::fs::write(real.join("sub/f.txt"), b"keep").unwrap();
+        std::os::unix::fs::symlink(&real, dir.join("link")).unwrap();
+        remove_nofollow(&dir.join("link")).unwrap();
+        assert!(dir.join("link").symlink_metadata().is_err());
+        assert_eq!(std::fs::read(real.join("sub/f.txt")).unwrap(), b"keep");
+        std::fs::write(dir.join("file"), b"x").unwrap();
+        remove_nofollow(&dir.join("file")).unwrap();
+        remove_nofollow(&real).unwrap();
+        assert!(!real.exists() && !dir.join("file").exists());
+        assert!(remove_nofollow(&dir.join("gone")).unwrap_err().contains("gone"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("yc_sp_{}_{name}", std::process::id()));
@@ -204,6 +241,19 @@ mod tests {
         assert!(!is_plain_name(".."));
         assert!(!is_plain_name("a/b"));
         assert!(!is_plain_name("..\\x"));
+    }
+
+    #[test]
+    fn listing_names() {
+        assert!(is_listing_name("file.txt"));
+        assert!(is_listing_name("back\\slash"), "an ordinary character on Unix");
+        assert!(!is_listing_name(""));
+        assert!(!is_listing_name("."));
+        assert!(!is_listing_name(".."));
+        assert!(!is_listing_name("../x"));
+        assert!(!is_listing_name("/etc/passwd"));
+        assert!(!is_listing_name("a/b"));
+        assert!(!is_listing_name("nul\0byte"));
     }
 
     #[test]

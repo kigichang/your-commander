@@ -167,6 +167,12 @@ fn render_via_jar(java_override: &str, jar: &str, uml: &str) -> Result<String, S
     let mut child = std::process::Command::new(&java)
         .args([
             "-Djava.awt.headless=true",
+            // Quick View renders whatever file is under the cursor, so the
+            // diagram text is untrusted. PlantUML's default (LEGACY) profile
+            // lets it !include any local file into the SVG and fetch URLs;
+            // SANDBOX allows neither. The bundled stdlib (<C4/...>) still
+            // works: it lives inside the jar.
+            "-DPLANTUML_SECURITY_PROFILE=SANDBOX",
             "-jar",
             jar,
             "-pipe",
@@ -196,6 +202,15 @@ fn render_via_jar(java_override: &str, jar: &str, uml: &str) -> Result<String, S
     }
 }
 
+/// The render cache's key: the source plus every setting that changes the
+/// output, so editing the PlantUML settings re-renders instead of serving
+/// the old SVG. This is the only diagram cache (the frontend keeps none).
+fn cache_key(mode: &str, server: &str, jar: &str, java: &str, code: &str) -> u64 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    (mode, server, jar, java, code).hash(&mut hasher);
+    hasher.finish()
+}
+
 #[tauri::command]
 pub async fn render_plantuml(
     state: State<'_, AppState>,
@@ -214,11 +229,7 @@ pub async fn render_plantuml(
         return Err("PlantUML rendering is disabled — enable it in Settings".into());
     }
 
-    let key = {
-        let mut hasher = std::hash::DefaultHasher::new();
-        (&mode, &server, &jar, &java, &code).hash(&mut hasher);
-        hasher.finish()
-    };
+    let key = cache_key(&mode, &server, &jar, &java, &code);
     if let Some(svg) = state.plantuml_cache.lock().unwrap().get(&key) {
         return Ok(svg.as_ref().clone());
     }
@@ -245,6 +256,21 @@ pub async fn render_plantuml(
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[test]
+    fn cache_key_tracks_every_plantuml_setting() {
+        let base = cache_key("server", "https://a", "/p.jar", "java", "A -> B");
+        assert_eq!(base, cache_key("server", "https://a", "/p.jar", "java", "A -> B"));
+        for other in [
+            cache_key("jar", "https://a", "/p.jar", "java", "A -> B"),
+            cache_key("server", "https://b", "/p.jar", "java", "A -> B"),
+            cache_key("server", "https://a", "/q.jar", "java", "A -> B"),
+            cache_key("server", "https://a", "/p.jar", "/opt/java", "A -> B"),
+            cache_key("server", "https://a", "/p.jar", "java", "A -> C"),
+        ] {
+            assert_ne!(base, other);
+        }
+    }
 
     /// Decode the PlantUML alphabet + inflate — test-only inverse.
     fn decode(encoded: &str) -> Vec<u8> {
@@ -279,6 +305,29 @@ mod tests {
             .bytes()
             .all(|c| PLANTUML_ALPHABET.contains(&c)));
         assert_eq!(decode(&encoded), uml.as_bytes());
+    }
+
+    /// Opt-in: needs Java and a plantuml.jar, named by YC_PLANTUML_JAR.
+    #[test]
+    fn jar_rendering_cannot_include_local_files() {
+        let Ok(jar) = std::env::var("YC_PLANTUML_JAR") else {
+            eprintln!("skipped: set YC_PLANTUML_JAR");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("yc_puml_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let secret = dir.join("secret.txt");
+        std::fs::write(&secret, "A -> B : SECRETFILE42").unwrap();
+        let uml = format!("@startuml\n!include {}\nC -> D\n@enduml", secret.display());
+        let svg = render_via_jar("", &jar, &uml).unwrap();
+        assert!(!svg.contains("SECRETFILE42"), "local file leaked into the SVG");
+        // Plain diagrams and the stdlib bundled in the jar still render.
+        let svg = render_via_jar("", &jar, "@startuml\nAlice -> Bob : hi\n@enduml").unwrap();
+        assert!(svg.contains("Alice"));
+        let c4 = "@startuml\n!include <C4/C4_Context>\nPerson(u, \"Visitor\")\n@enduml";
+        assert!(render_via_jar("", &jar, c4).unwrap().contains("Visitor"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

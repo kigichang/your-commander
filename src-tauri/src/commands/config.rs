@@ -1,7 +1,9 @@
-use crate::config::Config;
+use crate::config::{Config, SshConnection};
+use crate::keychain;
 use crate::state::AppState;
 use serde_json::{Map, Value};
-use tauri::{AppHandle, Emitter, State};
+use super::blocking;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Event every window hears after the config changes: the changed fields
 /// only, and which window changed them (that window already has them).
@@ -53,30 +55,86 @@ pub fn apply_patch(
     Ok(())
 }
 
+/// Async, so the file write runs off the main (UI) thread; every
+/// navigation saves the panel state through here.
 #[tauri::command]
-pub fn update_config(
+pub async fn update_config(
     app: AppHandle,
     window: tauri::Window,
-    state: State<'_, AppState>,
     patch: Map<String, Value>,
 ) -> Result<(), String> {
-    apply_patch(&app, &state, window.label(), patch)
+    let source = window.label().to_string();
+    blocking(move || apply_patch(&app, &app.state::<AppState>(), &source, patch)).await
 }
 
-/// SSH password/passphrase storage, keyed like the old app: `ssh://user@host`.
+/// May a password saved under the old port-less key (`ssh://user@host`)
+/// be taken as this non-22 connection's? Before ports counted, the saved
+/// list held at most one connection per user@host, so the old entry is
+/// this one's exactly when it is still the only user@host connection. With
+/// any other (a port-22 one now owns the old key), it is not adopted.
+fn owns_legacy_key(conns: &[SshConnection], username: &str, host: &str, port: u16) -> bool {
+    let mut same = conns.iter().filter(|c| c.username == username && c.host == host);
+    port != 22 && matches!((same.next(), same.next()), (Some(c), None) if c.port == port)
+}
+
+fn saved_ssh_password(app: &AppHandle, username: &str, host: &str, port: u16) -> Option<String> {
+    let account = keychain::ssh_account(username, host, port);
+    if let Some(password) = keychain::load(&account) {
+        return Some(password);
+    }
+    // One-time move of a password saved before ports were part of the key.
+    let legacy = keychain::ssh_account(username, host, 22);
+    let owned = {
+        let state = app.state::<AppState>();
+        let config = state.config.lock().unwrap();
+        owns_legacy_key(&config.ssh_connections, username, host, port)
+    };
+    if !owned {
+        return None;
+    }
+    let password = keychain::load(&legacy)?;
+    if keychain::store(&account, &password).is_ok() {
+        keychain::remove(&legacy);
+    }
+    Some(password)
+}
+
+// The credential store can block (the Keychain or Secret Service asking
+// to be unlocked), so these run off the main thread like file I/O.
+
+/// SSH password/passphrase storage, keyed by user, host and port (see
+/// `keychain::ssh_account`).
 #[tauri::command]
-pub fn ssh_saved_password(username: String, host: String) -> Option<String> {
-    crate::keychain::load(&format!("ssh://{username}@{host}"))
+pub async fn ssh_saved_password(
+    app: AppHandle,
+    username: String,
+    host: String,
+    port: u16,
+) -> Option<String> {
+    blocking(move || Ok::<_, String>(saved_ssh_password(&app, &username, &host, port)))
+        .await
+        .ok()
+        .flatten()
 }
 
 #[tauri::command]
-pub fn ssh_store_password(username: String, host: String, password: String) -> Result<(), String> {
-    crate::keychain::store(&format!("ssh://{username}@{host}"), &password)
+pub async fn ssh_store_password(
+    username: String,
+    host: String,
+    port: u16,
+    password: String,
+) -> Result<(), String> {
+    blocking(move || keychain::store(&keychain::ssh_account(&username, &host, port), &password))
+        .await
 }
 
 #[tauri::command]
-pub fn ssh_forget_password(username: String, host: String) {
-    crate::keychain::remove(&format!("ssh://{username}@{host}"));
+pub async fn ssh_forget_password(username: String, host: String, port: u16) {
+    let _ = blocking(move || {
+        keychain::remove(&keychain::ssh_account(&username, &host, port));
+        Ok::<_, String>(())
+    })
+    .await;
 }
 
 #[cfg(test)]
@@ -104,6 +162,39 @@ mod tests {
         // Untouched fields survive, including ones only the backend writes.
         assert_eq!(next.theme, "dark");
         assert_eq!(next.window_size, Some((1200.0, 800.0)));
+    }
+
+    #[test]
+    fn ssh_keys_tell_ports_apart() {
+        use crate::keychain::ssh_account;
+        assert_eq!(ssh_account("me", "box", 22), "ssh://me@box", "old entries keep working");
+        assert_eq!(ssh_account("me", "box", 2222), "ssh://me@box:2222");
+        assert_ne!(ssh_account("me", "box", 2222), ssh_account("me", "box", 2223));
+        // An IPv6 host cannot pass for another host plus a port.
+        assert_eq!(ssh_account("me", "::1", 2222), "ssh://me@[::1]:2222");
+        assert_ne!(ssh_account("me", "::1", 2222), ssh_account("me", "::1:2222", 22));
+    }
+
+    #[test]
+    fn legacy_key_is_adopted_only_by_its_sole_owner() {
+        use super::owns_legacy_key;
+        use crate::config::SshConnection;
+        let conn = |port| SshConnection {
+            host: "box".into(),
+            username: "me".into(),
+            port,
+            ..Default::default()
+        };
+        // The only me@box connection: the old key was saved for it.
+        assert!(owns_legacy_key(&[conn(2222)], "me", "box", 2222));
+        // Port 22 reads the old key directly; nothing to adopt.
+        assert!(!owns_legacy_key(&[conn(22)], "me", "box", 22));
+        // A second me@box connection: whose the old key is, is unknown.
+        assert!(!owns_legacy_key(&[conn(2222), conn(2223)], "me", "box", 2222));
+        assert!(!owns_legacy_key(&[conn(22), conn(2222)], "me", "box", 2222));
+        // Not saved at all, or saved under another port.
+        assert!(!owns_legacy_key(&[], "me", "box", 2222));
+        assert!(!owns_legacy_key(&[conn(2223)], "me", "box", 2222));
     }
 
     #[test]

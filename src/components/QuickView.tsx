@@ -8,6 +8,7 @@ import { isJson, prettyJson } from "../lib/json";
 import { baseName, parentPath } from "../lib/path";
 import { isMac } from "../lib/platform";
 import { visibleEntries } from "../lib/selectors";
+import { decodeText } from "../lib/text";
 import { AudioPreview } from "./AudioPreview";
 import { HtmlPreview } from "./HtmlPreview";
 import { JsonPreview } from "./JsonPreview";
@@ -148,8 +149,19 @@ function OpenWithButton({ path }: { path: string }) {
     const onDown = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
+    // Like the context menu: Escape closes just this menu, not Quick View.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
     window.addEventListener("mousedown", onDown, true);
-    return () => window.removeEventListener("mousedown", onDown, true);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown, true);
+      window.removeEventListener("keydown", onKey, true);
+    };
   }, [open]);
 
   return (
@@ -282,7 +294,7 @@ export function QuickView() {
     const side = s.quickViewSide ?? 0;
     return s.panels[side].tabs[s.panels[side].active];
   });
-  const config = useSettings((s) => s.config);
+  const autoplay = useSettings((s) => s.config?.qv_autoplay ?? false);
   const browseSide = usePanels((s) => s.otherSide(s.quickViewSide ?? 0));
   const tab = usePanels((s) => s.panels[browseSide].tabs[s.panels[browseSide].active]);
   const showHidden = useSettings(selectShowHidden);
@@ -298,6 +310,13 @@ export function QuickView() {
   const [dims, setDims] = useState<string | null>(null);
   /** Video duration, already formatted. */
   const [duration, setDuration] = useState<string | null>(null);
+
+  // The poster's blob URL lives as long as it is the preview shown.
+  useEffect(() => {
+    if (preview.kind !== "video-poster") return;
+    const url = preview.url;
+    return () => URL.revokeObjectURL(url);
+  }, [preview]);
   /** Local helpers for undecodable videos (player app, ffmpeg). */
   const [tools, setTools] = useState<{ player: string | null; ffmpeg: boolean }>({
     player: null,
@@ -353,12 +372,8 @@ export function QuickView() {
       .videoPoster(path)
       .then((buf) => {
         if (isStale() || entryRef.current !== path) return; // cursor moved on
-        const bytes = new Uint8Array(buf);
-        let bin = "";
-        for (let i = 0; i < bytes.length; i += 0x8000) {
-          bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-        }
-        setPreview({ kind: "video-poster", url: `data:image/jpeg;base64,${btoa(bin)}` });
+        const url = URL.createObjectURL(new Blob([buf], { type: "image/jpeg" }));
+        setPreview({ kind: "video-poster", url });
       })
       .catch(() => {});
   };
@@ -471,18 +486,8 @@ export function QuickView() {
         } else if (TEXT_EXTS.has(entry.ext) || (entry.ext === "" && entry.size <= TEXT_MAX)) {
           const buf = await ipc.readPreview(tab.location, entry.path, TEXT_MAX);
           if (stale) return;
-          const bytes = new Uint8Array(buf);
-          // A UTF-16 BOM marks text even though its ASCII is full of NULs.
-          const utf16 =
-            bytes[0] === 0xff && bytes[1] === 0xfe
-              ? "utf-16le"
-              : bytes[0] === 0xfe && bytes[1] === 0xff
-                ? "utf-16be"
-                : null;
-          // Crude binary sniff: NUL byte in the first 8 KB means no text.
-          const probe = bytes.subarray(0, 8192);
-          if (!utf16 && probe.includes(0)) return setPreview({ kind: "none" });
-          setPreview({ kind: "text", text: new TextDecoder(utf16 ?? "utf-8").decode(bytes) });
+          const text = decodeText(buf);
+          setPreview(text === null ? { kind: "none" } : { kind: "text", text });
         } else {
           // Nothing knows how to preview this type.
           setPreview({ kind: "none" });
@@ -585,7 +590,7 @@ export function QuickView() {
           <VideoPreview
             key={preview.url}
             url={preview.url}
-            autoPlay={config?.qv_autoplay ?? false}
+            autoPlay={autoplay}
             isStale={preview.isStale}
             onMeta={(v) => {
               if (v.videoWidth > 0 && v.videoHeight > 0) {
@@ -600,7 +605,7 @@ export function QuickView() {
         ) : preview.kind === "video-failed" || preview.kind === "video-poster" ? (
           <div className="qv-fail">
             {preview.kind === "video-poster" ? (
-              <img className="qv-poster" src={preview.url} alt={entry.name} />
+              <img className="qv-poster" src={preview.url} alt={entry.name} draggable={false} />
             ) : null}
             <span className="none">{t("quickview.videoUnsupported")}</span>
             <div className="qv-fail-actions">
@@ -626,9 +631,13 @@ export function QuickView() {
             onDuration={(secs) => setDuration((d) => d ?? formatDuration(secs))}
           />
         ) : preview.kind === "image" ? (
+          // Not draggable: the blob: URL is same-origin with the app, and
+          // nothing should ever carry it to a navigation (an SVG there would
+          // be a document of the app's own origin).
           <img
             src={preview.url}
             alt={entry.name}
+            draggable={false}
             onLoad={(e) => {
               const img = e.currentTarget;
               // SVGs without intrinsic size report 0 — show nothing then.

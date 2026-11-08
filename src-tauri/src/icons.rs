@@ -7,10 +7,10 @@ use tauri::AppHandle;
 
 #[cfg(target_os = "macos")]
 mod imp {
+    use crate::platform::ns_string;
     use objc2::encode::{Encode, Encoding};
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
-    use std::ffi::CString;
 
     const NS_BITMAP_IMAGE_FILE_TYPE_PNG: usize = 4;
     const NS_COMPOSITING_OPERATION_COPY: usize = 1;
@@ -43,11 +43,6 @@ mod imp {
         }
     }
 
-    unsafe fn nsstring(s: &str) -> *mut AnyObject {
-        let c = CString::new(s).unwrap_or_default();
-        unsafe { msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()] }
-    }
-
     /// PNG bytes of the Finder icon for `key`: "folder", "generic", a
     /// lower-cased file extension, or "path:<abs path>" for an item's own
     /// icon (app bundles, favorite folders), optionally suffixed "#<px>" for a larger size.
@@ -59,7 +54,7 @@ mod imp {
             let workspace: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
             let image: *mut AnyObject = match key.strip_prefix("path:") {
                 Some(path) if std::path::Path::new(path).exists() => {
-                    msg_send![workspace, iconForFile: nsstring(path)]
+                    msg_send![workspace, iconForFile: ns_string(path)]
                 }
                 // Not on the local disk (SFTP, archive, unmounted volume):
                 // the generic app or folder icon.
@@ -69,13 +64,13 @@ mod imp {
                     } else {
                         "public.folder"
                     };
-                    msg_send![workspace, iconForFileType: nsstring(generic)]
+                    msg_send![workspace, iconForFileType: ns_string(generic)]
                 }
                 None => {
                     let file_type = match key {
-                        "folder" => nsstring("public.folder"),
-                        "generic" | "" => nsstring("public.data"),
-                        ext => nsstring(ext),
+                        "folder" => ns_string("public.folder"),
+                        "generic" | "" => ns_string("public.data"),
+                        ext => ns_string(ext),
                     };
                     msg_send![workspace, iconForFileType: file_type]
                 }
@@ -97,7 +92,7 @@ mod imp {
                 samplesPerPixel: 4isize,
                 hasAlpha: true,
                 isPlanar: false,
-                colorSpaceName: nsstring("NSDeviceRGBColorSpace"),
+                colorSpaceName: ns_string("NSDeviceRGBColorSpace"),
                 bytesPerRow: 0isize,
                 bitsPerPixel: 0isize
             ];

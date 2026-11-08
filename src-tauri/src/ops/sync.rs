@@ -5,9 +5,9 @@
 use crate::fs::provider::epoch_millis;
 use crate::fs::sftp::SftpConnection;
 use crate::ops::queue::{cancelled_err, ConflictChoice, OpCtx};
+use crate::ops::safe_path::is_listing_name;
 use crate::ops::transfer;
-use std::collections::BTreeMap;
-use std::io::Read;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -37,13 +37,15 @@ fn collect_local(base: &Path, rel: &str, out: &mut BTreeMap<String, SideInfo>) -
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         let child_rel = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
-        let path = entry.path();
-        if path.is_symlink() {
+        // file_type() comes from readdir itself on macOS/Linux, and for a
+        // non-link entry metadata()'s lstat is the stat: one call a file.
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_symlink() {
             continue;
         }
-        if path.is_dir() {
+        if kind.is_dir() {
             collect_local(base, &child_rel, out)?;
-        } else if let Ok(meta) = path.metadata() {
+        } else if let Ok(meta) = entry.metadata() {
             out.insert(
                 child_rel,
                 SideInfo {
@@ -89,27 +91,7 @@ fn collect_remote(
 }
 
 fn files_equal(a: &Path, b: &Path) -> Result<bool, String> {
-    let mut fa = std::fs::File::open(a).map_err(|e| format!("{}: {e}", a.display()))?;
-    let mut fb = std::fs::File::open(b).map_err(|e| format!("{}: {e}", b.display()))?;
-    let mut ba = vec![0u8; 256 * 1024];
-    let mut bb = vec![0u8; 256 * 1024];
-    loop {
-        let na = fa.read(&mut ba).map_err(|e| e.to_string())?;
-        let mut filled = 0;
-        while filled < na {
-            let n = fb.read(&mut bb[filled..na]).map_err(|e| e.to_string())?;
-            if n == 0 {
-                return Ok(false);
-            }
-            filled += n;
-        }
-        if ba[..na] != bb[..na] {
-            return Ok(false);
-        }
-        if na == 0 {
-            return Ok(fb.read(&mut bb[..1]).map_err(|e| e.to_string())? == 0);
-        }
-    }
+    super::transfer::same_contents(a, b, &|| false)
 }
 
 pub fn compare(
@@ -170,14 +152,39 @@ pub enum Direction {
 pub struct SyncItem {
     pub rel: String,
     pub direction: Direction,
+    /// The source side's size as compare saw it. A remote source would cost
+    /// a round trip per row to stat, so its share of the progress total
+    /// comes from here.
+    #[serde(default)]
+    pub size: Option<u64>,
+}
+
+/// The folders along `rel`'s parent chain under `base` not yet in `known`,
+/// shallowest first; they are added to `known`. Every row of a sync shares
+/// one `known`, so each remote folder is checked once per sync rather than
+/// once per file beneath it.
+fn unchecked_parents(known: &mut HashSet<PathBuf>, base: &Path, rel: &str) -> Vec<PathBuf> {
+    let mut dir = base.to_path_buf();
+    let mut out = Vec::new();
+    if let Some((parents, _file)) = rel.rsplit_once('/') {
+        for part in parents.split('/') {
+            dir.push(part);
+            if known.insert(dir.clone()) {
+                out.push(dir.clone());
+            }
+        }
+    }
+    out
 }
 
 /// Make sure every folder along `rel`'s parent chain exists on the remote.
-fn ensure_remote_parents(conn: &SftpConnection, base: &Path, rel: &str) -> Result<(), String> {
-    let mut dir = base.to_path_buf();
-    let parts: Vec<&str> = rel.split('/').collect();
-    for part in &parts[..parts.len().saturating_sub(1)] {
-        dir = dir.join(part);
+fn ensure_remote_parents(
+    conn: &SftpConnection,
+    known: &mut HashSet<PathBuf>,
+    base: &Path,
+    rel: &str,
+) -> Result<(), String> {
+    for dir in unchecked_parents(known, base, rel) {
         if conn.exists(&dir).is_none() {
             conn.mkdir(&dir)?;
         }
@@ -197,10 +204,17 @@ pub fn sync_op(
     if left_conn.is_some() && right_conn.is_some() {
         return Err("Remote-to-remote sync is not supported".to_string());
     }
+    // Rows come from `compare`, whose listings hold only plain names, but
+    // check anyway: each `rel` is joined onto both folders, and a "..",
+    // empty or absolute piece would land the copy outside them.
+    if let Some(bad) = items.iter().find(|i| !i.rel.split('/').all(is_listing_name)) {
+        return Err(format!("{:?}: not a path inside the folder", bad.rel));
+    }
     // The user already approved each row: overwrite without prompting.
     ctx.policy = Some(ConflictChoice::OverwriteAll);
 
-    // Best-effort total for the progress bar (local sources only).
+    // Progress total: a local source is stat'ed now; a remote one uses the
+    // size compare reported.
     ctx.total_bytes = items
         .iter()
         .map(|item| {
@@ -210,11 +224,12 @@ pub fn sync_op(
             };
             match conn {
                 None => dir.join(&item.rel).metadata().map(|m| m.len()).unwrap_or(0),
-                Some(_) => 0,
+                Some(_) => item.size.unwrap_or(0),
             }
         })
         .sum();
 
+    let mut remote_dirs = HashSet::new();
     let mut count = 0usize;
     for item in &items {
         if ctx.cancelled() {
@@ -236,7 +251,7 @@ pub fn sync_op(
                 transfer::copy_file(ctx, &src, &dest)?;
             }
             (None, Some(conn)) => {
-                ensure_remote_parents(conn, dest_base, &item.rel)?;
+                ensure_remote_parents(conn, &mut remote_dirs, dest_base, &item.rel)?;
                 conn.upload_file(ctx, &src, &dest)?;
             }
             (Some(conn), None) => {
@@ -286,10 +301,10 @@ mod tests {
         assert!(get("sub/deep.txt").right.is_none());
 
         let items = vec![
-            SyncItem { rel: "only_left.txt".into(), direction: Direction::Ltr },
-            SyncItem { rel: "sub/deep.txt".into(), direction: Direction::Ltr },
-            SyncItem { rel: "only_right.txt".into(), direction: Direction::Rtl },
-            SyncItem { rel: "diff.txt".into(), direction: Direction::Ltr },
+            SyncItem { rel: "only_left.txt".into(), direction: Direction::Ltr, size: None },
+            SyncItem { rel: "sub/deep.txt".into(), direction: Direction::Ltr, size: None },
+            SyncItem { rel: "only_right.txt".into(), direction: Direction::Rtl, size: None },
+            SyncItem { rel: "diff.txt".into(), direction: Direction::Ltr, size: None },
         ];
         let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
         let n = sync_op(&mut ctx, None, left.clone(), None, right.clone(), items).unwrap();
@@ -301,5 +316,63 @@ mod tests {
         for d in [&left, &right] {
             let _ = std::fs::remove_dir_all(d);
         }
+    }
+
+    #[test]
+    fn sync_refuses_paths_that_leave_the_folders() {
+        let work = tmp("esc");
+        let (left, right) = (work.join("l"), work.join("r"));
+        std::fs::create_dir_all(left.join("sub")).unwrap();
+        std::fs::create_dir_all(&right).unwrap();
+        std::fs::write(left.join("sub/f.txt"), b"x").unwrap();
+        let outside = work.join("f.txt");
+        for rel in ["../f.txt", "sub/../../f.txt", "/etc/f.txt", "", "sub//f.txt", "./sub/f.txt"] {
+            let items = vec![
+                // A good row first: nothing is copied when any row is bad.
+                SyncItem { rel: "sub/f.txt".into(), direction: Direction::Ltr, size: None },
+                SyncItem { rel: rel.into(), direction: Direction::Ltr, size: None },
+            ];
+            let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+            let err = sync_op(&mut ctx, None, left.clone(), None, right.clone(), items)
+                .unwrap_err();
+            assert!(err.contains("not a path inside"), "{rel:?}: {err}");
+            assert!(!right.join("sub/f.txt").exists(), "{rel:?}");
+        }
+        assert!(!outside.exists());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_listing_skips_links() {
+        let base = tmp("links");
+        std::fs::create_dir_all(base.join("dir")).unwrap();
+        std::fs::write(base.join("dir/a.txt"), b"abc").unwrap();
+        std::os::unix::fs::symlink("dir", base.join("dir_link")).unwrap();
+        std::os::unix::fs::symlink("dir/a.txt", base.join("file_link")).unwrap();
+        let mut out = BTreeMap::new();
+        collect_local(&base, "", &mut out).unwrap();
+        assert_eq!(out.keys().collect::<Vec<_>>(), vec!["dir/a.txt"]);
+        assert_eq!(out["dir/a.txt"].size, 3);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn each_remote_folder_is_checked_once_per_sync() {
+        let base = Path::new("/srv/dest");
+        let mut known = HashSet::new();
+        let mut check = |rel: &str| unchecked_parents(&mut known, base, rel);
+        assert_eq!(
+            check("a/b/c/one.txt"),
+            vec![base.join("a"), base.join("a/b"), base.join("a/b/c")]
+        );
+        assert!(check("a/b/c/two.txt").is_empty(), "same folder: nothing new");
+        assert_eq!(check("a/b/d/three.txt"), vec![base.join("a/b/d")]);
+        assert!(check("top.txt").is_empty(), "the base itself is never checked");
+        // 500 files four folders deep: four checks, not 2,000.
+        let mut known = HashSet::new();
+        let checks: usize = (0..500)
+            .map(|i| unchecked_parents(&mut known, base, &format!("p/q/r/s/f{i}.txt")).len())
+            .sum();
+        assert_eq!(checks, 4);
     }
 }

@@ -144,9 +144,14 @@ export function FileTable({
   );
 
   return (
-    <div className={clsx("ftable", hasMarks && "has-marks")}>
+    // Rows read the column template from --grid-cols, so a column drag
+    // restyles them through CSS without re-rendering a single memoized row.
+    <div
+      className={clsx("ftable", hasMarks && "has-marks")}
+      style={{ "--grid-cols": cols } as React.CSSProperties}
+    >
       {!brief && (
-        <div className="thead" style={{ gridTemplateColumns: cols }}>
+        <div className="thead" style={{ gridTemplateColumns: "var(--grid-cols)" }}>
           {COLUMNS.map((c) => (
             <div key={c.key} className="th">
               {c.col && <ColResize side={side} col={c.col} />}
@@ -256,7 +261,6 @@ export function FileTable({
                 brief={brief}
                 top={item.start}
                 height={item.size}
-                cols={cols}
                 isCursor={item.index === tab.cursor}
                 isMarked={tab.marked.has(visible[item.index].name)}
                 hasMarks={hasMarks}
@@ -377,7 +381,6 @@ const Row = memo(function Row({
   brief,
   top,
   height,
-  cols,
   isCursor,
   isMarked,
   hasMarks,
@@ -390,7 +393,6 @@ const Row = memo(function Row({
   brief: boolean;
   top: number;
   height: number;
-  cols: string;
   isCursor: boolean;
   isMarked: boolean;
   hasMarks: boolean;
@@ -403,7 +405,7 @@ const Row = memo(function Row({
     <div
       className={clsx("row", stateClasses(entry, isCursor, isMarked, hasMarks, isDropTarget, clipKind))}
       data-dir-path={entry.isDir ? entry.path : undefined}
-      style={{ top, height, gridTemplateColumns: brief ? "1fr" : cols }}
+      style={{ top, height, gridTemplateColumns: brief ? "1fr" : "var(--grid-cols)" }}
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}

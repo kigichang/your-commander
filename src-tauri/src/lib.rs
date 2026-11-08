@@ -7,6 +7,11 @@ mod fs;
 mod icons;
 mod keychain;
 mod lru;
+// Linux only: WebKitGTK sends no Range requests to custom schemes, so media
+// streams over localhost HTTP there; macOS streams through stream://.
+// Compiled under test everywhere so its tests run with the macOS suite.
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod media_server;
 mod ops;
 mod platform;
@@ -85,7 +90,9 @@ pub fn run() {
                 .unwrap()
                 .window_size;
             if let (Some((w, h)), Some(window)) = (size, app.get_webview_window("main")) {
-                let _ = window.set_size(LogicalSize::new(w.max(800.0), h.max(500.0)));
+                use commands::system::{MIN_HEIGHT, MIN_WIDTH};
+                let (w, h) = (f64::from(w).max(MIN_WIDTH), f64::from(h).max(MIN_HEIGHT));
+                let _ = window.set_size(LogicalSize::new(w, h));
             }
             dock::install(app.handle());
             add_new_window_menu(app.handle())?;
@@ -159,6 +166,7 @@ pub fn run() {
             commands::preview::read_preview,
             commands::preview::media_info,
             commands::preview::video_poster,
+            #[cfg(target_os = "linux")]
             media_server::media_url,
             commands::plantuml::render_plantuml,
             commands::sync::sync_compare,
@@ -202,4 +210,35 @@ pub fn run() {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use tauri::utils::config::{parse::read_from, Csp};
+    use tauri::utils::platform::Target;
+
+    /// The CSP as Tauri builds it for `target` (base config merged with
+    /// the platform file, the same way the build does).
+    fn media_src(target: Target) -> Vec<String> {
+        let (config, _) = read_from(target, std::path::Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let csp: Csp = serde_json::from_value(config["app"]["security"]["csp"].clone()).unwrap();
+        let policy = csp.to_string();
+        let media = policy
+            .split(';')
+            .map(str::trim)
+            .find_map(|d| d.strip_prefix("media-src "))
+            .unwrap_or_else(|| panic!("no media-src in {policy}"));
+        media.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn only_linux_lets_media_load_from_localhost_http() {
+        let mac = media_src(Target::MacOS);
+        let linux = media_src(Target::Linux);
+        assert!(!mac.iter().any(|s| s.contains("127.0.0.1")), "{mac:?}");
+        assert!(mac.contains(&"stream:".to_string()), "{mac:?}");
+        // Linux keeps everything macOS allows and adds the media server.
+        assert!(mac.iter().all(|s| linux.contains(s)), "{linux:?}");
+        assert!(linux.contains(&"http://127.0.0.1:*".to_string()), "{linux:?}");
+    }
 }

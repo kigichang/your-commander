@@ -21,7 +21,9 @@ pub fn list_dir(path: &Path) -> io::Result<Vec<FsEntry>> {
             entry.metadata()
         };
         let (is_dir, size, modified) = match meta {
-            Ok(m) => (path.is_dir(), m.len(), m.modified().ok().map(epoch_millis)),
+            // `m` is already the target's metadata (or a broken link's
+            // own): asking `path` again would cost one more stat per entry.
+            Ok(m) => (m.is_dir(), m.len(), m.modified().ok().map(epoch_millis)),
             Err(_) => (false, 0, None),
         };
         let ext = if is_dir {
@@ -77,16 +79,48 @@ fn statfs(path: &Path) -> Option<(u64, u64)> {
     Some((stat.f_bavail * block, stat.f_blocks * block))
 }
 
-/// statfs with a deadline: a sleeping disk or a dead network mount can hang
-/// the syscall for tens of seconds, which must not stall the drives menu.
-/// On timeout the stuck thread finishes (and is discarded) on its own.
-fn statfs_timeout(path: &Path, ms: u64) -> Option<(u64, u64)> {
+/// statfs for every mount at once under one shared deadline: a sleeping
+/// disk or a dead network mount can hang the syscall for tens of seconds,
+/// which must not stall the drives menu, and three dead mounts must cost
+/// one timeout, not three. Stuck threads finish (and are discarded) on
+/// their own.
+fn statfs_all(paths: &[PathBuf], ms: u64) -> Vec<Option<(u64, u64)>> {
+    stat_all_with(paths, ms, statfs)
+}
+
+fn stat_all_with(
+    paths: &[PathBuf],
+    ms: u64,
+    stat: fn(&Path) -> Option<(u64, u64)>,
+) -> Vec<Option<(u64, u64)>> {
     let (tx, rx) = std::sync::mpsc::channel();
-    let p = path.to_path_buf();
-    std::thread::spawn(move || {
-        let _ = tx.send(statfs(&p));
-    });
-    rx.recv_timeout(std::time::Duration::from_millis(ms)).ok()?
+    for (i, path) in paths.iter().enumerate() {
+        let (tx, path) = (tx.clone(), path.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send((i, stat(&path)));
+        });
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+    let mut out = vec![None; paths.len()];
+    for _ in 0..paths.len() {
+        let wait = deadline.saturating_duration_since(std::time::Instant::now());
+        match rx.recv_timeout(wait) {
+            Ok((i, result)) => out[i] = result,
+            Err(_) => break,
+        }
+    }
+    out
+}
+
+/// Free/total space for each volume; one that doesn't answer in 800 ms
+/// stays not ready.
+fn fill_space(volumes: &mut [VolumeInfo]) {
+    let paths: Vec<PathBuf> = volumes.iter().map(|v| v.path.clone()).collect();
+    for (v, stat) in volumes.iter_mut().zip(statfs_all(&paths, 800)) {
+        if let Some((free, total)) = stat {
+            (v.free, v.total, v.ready) = (free, total, true);
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -106,19 +140,17 @@ pub fn volumes() -> Vec<VolumeInfo> {
             let is_system = std::fs::read_link(&path)
                 .map(|t| t == Path::new("/"))
                 .unwrap_or(false);
-            let stat = statfs_timeout(&path, 800);
-            let ready = stat.is_some();
-            let (free, total) = stat.unwrap_or((0, 0));
             out.push(VolumeInfo {
                 name,
                 path,
-                free,
-                total,
-                ready,
+                free: 0,
+                total: 0,
+                ready: false,
                 is_system,
             });
         }
     }
+    fill_space(&mut out);
     out.sort_by_key(|v| v.name.to_lowercase());
     out
 }
@@ -130,13 +162,16 @@ pub fn volumes() -> Vec<VolumeInfo> {
     found.extend(gvfs_mounts());
     let mut out: Vec<VolumeInfo> = found
         .into_iter()
-        .map(|(name, path, is_system)| {
-            let stat = statfs_timeout(&path, 800);
-            let ready = stat.is_some();
-            let (free, total) = stat.unwrap_or((0, 0));
-            VolumeInfo { name, path, free, total, ready, is_system }
+        .map(|(name, path, is_system)| VolumeInfo {
+            name,
+            path,
+            free: 0,
+            total: 0,
+            ready: false,
+            is_system,
         })
         .collect();
+    fill_space(&mut out);
     // The root filesystem first, then the rest alphabetical.
     out.sort_by_key(|v| (!v.is_system, v.name.to_lowercase()));
     out
@@ -146,17 +181,14 @@ pub fn volumes() -> Vec<VolumeInfo> {
 /// $XDG_RUNTIME_DIR/gvfs, one directory per mount.
 #[cfg(target_os = "linux")]
 fn gvfs_mounts() -> Vec<(String, PathBuf, bool)> {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", unsafe { libc::getuid() })))
-        .join("gvfs");
-    let Ok(read) = std::fs::read_dir(&base) else {
+    use crate::platform::smb;
+    let Ok(read) = std::fs::read_dir(smb::gvfs_dir()) else {
         return vec![];
     };
     read.flatten()
         .map(|entry| {
             let dir = entry.file_name().to_string_lossy().to_string();
-            let name = linux_volumes::gvfs_display_name(&dir).unwrap_or_else(|| dir.clone());
+            let name = smb::display_name(&dir).unwrap_or_else(|| dir.clone());
             (name, entry.path(), false)
         })
         .collect()
@@ -252,26 +284,34 @@ mod linux_volumes {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "System".to_string())
     }
-
-    /// "smb-share:server=nas,share=media" → "media on nas".
-    pub fn gvfs_display_name(dir: &str) -> Option<String> {
-        let rest = dir.strip_prefix("smb-share:")?;
-        let mut server = None;
-        let mut share = None;
-        for kv in rest.split(',') {
-            match kv.split_once('=') {
-                Some(("server", v)) => server = Some(v),
-                Some(("share", v)) => share = Some(v),
-                _ => {}
-            }
-        }
-        Some(format!("{} on {}", share?, server?))
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::linux_volumes::{gvfs_display_name, parse_mountinfo};
+    use super::stat_all_with;
+    use std::path::Path;
+
+    #[test]
+    fn stuck_mounts_share_one_deadline() {
+        fn fake(path: &Path) -> Option<(u64, u64)> {
+            if path.to_string_lossy().starts_with("/dead") {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+            }
+            Some((path.as_os_str().len() as u64, 1))
+        }
+        let paths: Vec<PathBuf> = ["/dead1", "/ok", "/dead22", "/dead333", "/fine"]
+            .iter()
+            .map(PathBuf::from)
+            .collect();
+        let start = std::time::Instant::now();
+        let got = stat_all_with(&paths, 300, fake);
+        // One shared 300 ms deadline, not 300 ms per dead mount (900 ms).
+        assert!(start.elapsed() < std::time::Duration::from_millis(700), "{:?}", start.elapsed());
+        assert_eq!(got, vec![None, Some((3, 1)), None, None, Some((5, 1))]);
+        assert_eq!(stat_all_with(&[], 300, fake), vec![]);
+    }
+
+    use super::linux_volumes::parse_mountinfo;
     use std::path::PathBuf;
 
     // Trimmed from a real Ubuntu 24.04 desktop: root ext4, snap squashfs
@@ -314,16 +354,23 @@ mod tests {
     }
 
     #[test]
-    fn gvfs_names() {
-        assert_eq!(
-            gvfs_display_name("smb-share:server=nas,share=media"),
-            Some("media on nas".to_string())
-        );
-        assert_eq!(
-            gvfs_display_name("smb-share:server=nas,share=media,user=kigi"),
-            Some("media on nas".to_string())
-        );
-        assert_eq!(gvfs_display_name("sftp:host=box"), None);
-        assert_eq!(gvfs_display_name("smb-share:server=nas"), None);
+    fn listing_follows_links_for_type_and_size() {
+        let dir = std::env::temp_dir().join(format!("yc_local_ls_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("f.txt"), b"12345").unwrap();
+        std::os::unix::fs::symlink("sub", dir.join("dir_link")).unwrap();
+        std::os::unix::fs::symlink("f.txt", dir.join("file_link")).unwrap();
+        std::os::unix::fs::symlink("missing", dir.join("broken")).unwrap();
+        let list = super::list_dir(&dir).unwrap();
+        let get = |n: &str| list.iter().find(|e| e.name == n).unwrap();
+        assert!(get("sub").is_dir && !get("sub").is_symlink);
+        assert!(!get("f.txt").is_dir);
+        assert_eq!(get("f.txt").size, 5);
+        assert!(get("dir_link").is_dir && get("dir_link").is_symlink);
+        assert!(!get("file_link").is_dir && get("file_link").is_symlink);
+        assert_eq!(get("file_link").size, 5, "the target's size");
+        assert!(!get("broken").is_dir && get("broken").is_symlink);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

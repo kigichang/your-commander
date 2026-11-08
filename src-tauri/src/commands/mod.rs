@@ -10,6 +10,18 @@ pub mod smb;
 pub mod sync;
 pub mod system;
 
+/// A file path handed to ffmpeg/ffprobe must be absolute. Those tools read
+/// a relative "concat:…", "http://…" or "pipe:" as a protocol, and ffprobe
+/// takes a leading "-" as an option; an absolute path starts with "/", which
+/// no protocol name or option can.
+pub(crate) fn media_input(path: &std::path::Path) -> Result<(), String> {
+    if path.is_absolute() {
+        Ok(())
+    } else {
+        Err(format!("{}: not an absolute path", path.display()))
+    }
+}
+
 /// Run blocking work (file system, subprocesses, network) off the async
 /// runtime's core threads. A panicked worker comes back as an Err.
 pub(crate) async fn blocking<T, E, F>(work: F) -> Result<T, E>

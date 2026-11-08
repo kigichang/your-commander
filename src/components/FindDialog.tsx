@@ -45,41 +45,59 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
   const [size, setSize] = useState<(typeof SIZES)[number]["key"]>("any");
   const [results, setResults] = useState<FsEntry[]>([]);
   const [scanning, setScanning] = useState("");
-  const [findId, setFindId] = useState<number | null>(null);
+  const [running, setRunning] = useState(false);
   const [selected, setSelected] = useState(-1);
   const buffer = useRef<FsEntry[]>([]);
   const findIdRef = useRef<number | null>(null);
+  /** Bumped by every start, stop, and unmount. A search started under an
+   *  older number is cancelled as soon as its id arrives (the dialog closed
+   *  or Stop was hit while start_find was in flight), and its events are
+   *  dropped so two searches never mix results. */
+  const runRef = useRef(0);
+  /** A search is starting or running (a ref, so a quick double press sees
+   *  it before the re-render). */
+  const busyRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Stream batching: found entries pile into a ref and flush on a timer.
+  const flush = () => {
+    if (buffer.current.length > 0) {
+      const batch = buffer.current.splice(0);
+      setResults((r) => [...r, ...batch]);
+    }
+  };
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (buffer.current.length > 0) {
-        const batch = buffer.current.splice(0);
-        setResults((r) => [...r, ...batch]);
-      }
-    }, 120);
+    const timer = setInterval(flush, 120);
     return () => clearInterval(timer);
   }, []);
 
   // Cancel a still-running search when the dialog unmounts.
   useEffect(
     () => () => {
+      runRef.current++;
       if (findIdRef.current !== null) void ipc.cancelFind(findIdRef.current);
     },
     [],
   );
 
   const stop = () => {
-    if (findIdRef.current !== null) {
-      void ipc.cancelFind(findIdRef.current);
-      findIdRef.current = null;
-      setFindId(null);
-    }
+    runRef.current++;
+    busyRef.current = false;
+    if (findIdRef.current !== null) void ipc.cancelFind(findIdRef.current);
+    findIdRef.current = null;
+    setRunning(false);
+    setScanning("");
   };
 
   const search = async () => {
-    if (findIdRef.current !== null) return stop();
+    if (busyRef.current) return stop();
+    const run = ++runRef.current;
+    const live = () => runRef.current === run;
+    busyRef.current = true;
+    setRunning(true);
+    // Done can arrive before start_find's reply (a tiny folder): then the
+    // id must not be recorded as a running search.
+    let finished = false;
     setResults([]);
     setSelected(-1);
     buffer.current = [];
@@ -97,21 +115,33 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
           maxSize: sz.max,
         },
         (event) => {
+          if (!live()) return;
           if (event.type === "found") {
             buffer.current.push(event.entry);
           } else if (event.type === "scanning") {
             setScanning(event.dir);
           } else {
+            finished = true;
             findIdRef.current = null;
-            setFindId(null);
+            busyRef.current = false;
+            // In the same render as `running`, or a search that ends before
+            // the next tick shows the empty-state hint over its own hits.
+            flush();
+            setRunning(false);
             setScanning("");
             if (event.error) useOps.getState().toast(event.error, "error");
           }
         },
       );
-      findIdRef.current = id;
-      setFindId(id);
+      if (!live()) {
+        void ipc.cancelFind(id);
+        return;
+      }
+      if (!finished) findIdRef.current = id;
     } catch (e) {
+      if (!live()) return;
+      busyRef.current = false;
+      setRunning(false);
       useOps.getState().toast(String(e), "error");
     }
   };
@@ -194,19 +224,19 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
           </select>
         </div>
         <button className="btn primary find-go" onClick={() => void search()}>
-          {findId !== null ? t("find.stop") : `${t("find.search")} ↵`}
+          {running ? t("find.stop") : `${t("find.search")} ↵`}
         </button>
       </div>
       <div className="find-status">
         {t("find.results", { count: results.length })}
-        {findId !== null && scanning && (
+        {running && scanning && (
           <span className="scanning"> · {scanning}</span>
         )}
       </div>
       <div className="sync-rows" ref={scrollRef}>
         {results.length === 0 ? (
           <div className="none">
-            {findId !== null ? t("find.searching") : t("find.hint")}
+            {running ? t("find.searching") : t("find.hint")}
           </div>
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>

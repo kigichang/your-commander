@@ -49,16 +49,12 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   return defaultFence(tokens, idx, options, env, self);
 };
 
-/** Rendered-diagram cache; keyed by source so cursor moves are instant.
- *  Capped: every edit of a previewed diagram is a new source. Map order
- *  doubles as recency (hits are re-inserted). */
-const plantumlCache = new Map<string, string>();
-const PLANTUML_CACHED = 64;
-
 /** Render every `pre.plantuml` under `box` through the backend, replacing
  *  each block with an <img> (never inline SVG — nothing executes). Mode
- *  "off" appends a settings hint and leaves the source visible. */
-export async function renderPlantumlBlocks(
+ *  "off" appends a settings hint and leaves the source visible. Caching is
+ *  the backend's alone (keyed by source and the PlantUML settings), so a
+ *  revisited diagram is one cheap IPC and a settings change re-renders. */
+async function renderPlantumlBlocks(
   box: HTMLElement,
   isStale: () => boolean,
   hintText: string,
@@ -79,19 +75,9 @@ export async function renderPlantumlBlocks(
     nodes.map(async (node) => {
       const code = node.textContent ?? "";
       try {
-        let url = plantumlCache.get(code);
-        if (url) {
-          plantumlCache.delete(code);
-        } else {
-          const svg = await ipc.renderPlantuml(code);
-          url = `data:image/svg+xml,${encodeURIComponent(svg)}`;
-          if (plantumlCache.size >= PLANTUML_CACHED) {
-            const oldest = plantumlCache.keys().next().value;
-            if (oldest !== undefined) plantumlCache.delete(oldest);
-          }
-        }
-        plantumlCache.set(code, url);
+        const svg = await ipc.renderPlantuml(code);
         if (isStale()) return;
+        const url = `data:image/svg+xml,${encodeURIComponent(svg)}`;
         const img = document.createElement("img");
         img.src = url;
         img.alt = "PlantUML diagram";
@@ -177,13 +163,21 @@ export function MarkdownPreview({ text }: { text: string }) {
     };
   }, [html, t]);
 
-  // Links open in the system browser; nothing navigates the webview.
+  // Links open in the system browser; nothing navigates the webview. A
+  // middle click opens them the same way rather than asking the webview
+  // for a new window. (closest("a") also finds SVG links in diagrams.)
   const onClick = (e: React.MouseEvent) => {
-    const anchor = (e.target as HTMLElement).closest("a");
+    if (e.button !== 0 && e.button !== 1) return;
+    const anchor = (e.target as Element).closest("a");
     if (!anchor) return;
     e.preventDefault();
     const href = anchor.getAttribute("href") ?? "";
     if (/^https?:\/\//i.test(href)) void ipc.openPath(href);
+  };
+  // Links and images are not drag sources: a drop is the other way a URL
+  // could reach a navigation. Selected text still drags.
+  const onDragStart = (e: React.DragEvent) => {
+    if ((e.target as Element).closest?.("a, img")) e.preventDefault();
   };
 
   return (
@@ -191,6 +185,8 @@ export function MarkdownPreview({ text }: { text: string }) {
       ref={boxRef}
       className="markdown-body"
       onClick={onClick}
+      onAuxClick={onClick}
+      onDragStart={onDragStart}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

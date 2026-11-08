@@ -60,18 +60,28 @@ export default function App() {
     return () => window.removeEventListener("contextmenu", onContextMenu);
   }, []);
 
+  // A run cleaned up mid-way (StrictMode's dev double-mount) stops at the
+  // next await and drops a listener that lands late, so only one survives.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let gone = false;
     void (async () => {
       await useSettings.getState().load();
+      if (gone) return;
       useKeymap.getState().load();
       await usePanels.getState().init();
+      if (gone) return;
       // Directory watcher pings: watchId is the panel side.
-      unlisten = await listen<number>("fs:changed", (e) => {
+      const fn = await listen<number>("fs:changed", (e) => {
         void usePanels.getState().refresh(e.payload as Side, { silent: true });
       });
+      if (gone) fn();
+      else unlisten = fn;
     })();
-    return () => unlisten?.();
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
   }, []);
 
   // Files dragged in from Finder (or between panels) copy into a panel.

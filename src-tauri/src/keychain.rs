@@ -23,6 +23,23 @@ pub fn remove(account: &str) {
     }
 }
 
+/// Credential-store account key for an SSH login. Port 22 keeps the old
+/// `ssh://user@host` form, so entries saved before ports counted still
+/// work; any other port is part of the key, so two servers behind one
+/// host (containers, port forwards) never share or swap a password.
+/// An IPv6 host is bracketed so its colons cannot run into the port.
+pub fn ssh_account(username: &str, host: &str, port: u16) -> String {
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    match port {
+        22 => format!("ssh://{username}@{host}"),
+        _ => format!("ssh://{username}@{host}:{port}"),
+    }
+}
+
 /// Credential-store account key for an SMB share.
 pub fn smb_account(username: &str, server: &str, share: &str) -> String {
     format!("smb://{username}@{server}/{share}")

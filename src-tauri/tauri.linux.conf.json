@@ -21,5 +21,12 @@
         "recommends": ["ffmpeg", "smbclient"]
       }
     }
+  },
+  "app": {
+    "security": {
+      "csp": {
+        "media-src": ["'self'", "asset:", "http://asset.localhost", "stream:", "http://stream.localhost", "blob:", "http://127.0.0.1:*"]
+      }
+    }
   }
 }

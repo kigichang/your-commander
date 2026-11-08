@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { useEffect, useRef, useState } from "react";
@@ -49,6 +49,9 @@ export function PdfPreview({
     const canvas = canvasRef.current;
     if (!doc || !canvas || pages === 0) return;
     let gone = false;
+    // pdf.js refuses a second render() on a canvas still in use; a fast
+    // page flip must cancel the one in flight before the next starts.
+    let render: RenderTask | null = null;
     void (async () => {
       try {
         const pdfPage = await doc.getPage(page);
@@ -64,18 +67,22 @@ export function PdfPreview({
         canvas.style.height = `${Math.floor(viewport.height)}px`;
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
-        await pdfPage.render({
+        render = pdfPage.render({
           canvas,
           canvasContext: ctx,
           viewport,
           transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
-        }).promise;
+        });
+        await render.promise;
       } catch (e) {
-        if (!gone) setError(String(e));
+        if (!gone && !(e instanceof pdfjs.RenderingCancelledException)) {
+          setError(String(e));
+        }
       }
     })();
     return () => {
       gone = true;
+      render?.cancel();
     };
   }, [page, pages]);
 

@@ -32,9 +32,9 @@
     U+FFFD;
 }
 
-/* Graphite — monochrome palette, dark by default. The light values live in
-   one block each for the explicit choice ([data-theme="light"]) and for the
-   pre-JS system fallback; keep the three lists in sync. */
+/* Graphite — monochrome palette, dark by default; the light values below
+   apply under data-theme="light". public/theme-boot.js sets data-theme from
+   the system before the first paint, so no media-query copy is needed. */
 :root {
   color-scheme: dark;
   --color-bg: #121314;
@@ -122,38 +122,4 @@
   --syn-bracket-0: #a67c00;
   --syn-bracket-1: #a42ea4;
   --syn-bracket-2: #0b6fc0;
-}
-
-/* Before JS applies the saved choice, follow the system so a light desktop
-   never flashes dark (and vice versa). JS always sets an explicit value. */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme]) {
-    color-scheme: light;
-    --color-bg: #f1f1f3;
-    --color-surface: #ffffff;
-    --color-chrome: #e9e9eb;
-    --color-well: #ffffff;
-    --color-select: #0a64e0;
-    --color-select-text: #ffffff;
-    --color-select-inactive: #dcdcdf;
-    --color-text: #202124;
-    --color-accent: #1b1c1f;
-    --color-accent-2: #5a5b61;
-    --color-danger: #b43d3d;
-    --color-divider: color-mix(in srgb, #202124 14%, transparent);
-
-    --color-neutral-300: #55565b;
-    --color-neutral-600: #b5b6ba;
-    --color-neutral-900: #ebecee;
-
-    --shadow-sm: 0 0 0 1px #dddee1;
-    --shadow-md: 0 0 0 1px #c9cacd, 0 6px 18px rgba(20, 22, 26, 0.14);
-    --syn-key: #0e8a5c;
-    --syn-string: #1f5fcf;
-    --syn-number: #b56500;
-    --syn-literal: #a4502c;
-    --syn-bracket-0: #a67c00;
-    --syn-bracket-1: #a42ea4;
-    --syn-bracket-2: #0b6fc0;
-  }
 }

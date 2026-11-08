@@ -59,7 +59,8 @@ fn collect_tree(sources: &[PathBuf]) -> Result<Vec<(String, PathBuf, bool)>, Str
         rel: &str,
         path: &Path,
     ) -> Result<(), String> {
-        if path.is_dir() && !path.is_symlink() {
+        // lstat: a link to a folder is stored as a link, not walked.
+        if path.symlink_metadata().is_ok_and(|m| m.is_dir()) {
             out.push((rel.to_string(), path.to_path_buf(), true));
             let entries =
                 std::fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -108,8 +109,10 @@ pub fn compress_op(
     let tree = collect_tree(&sources)?;
     ctx.total_bytes = tree
         .iter()
-        .filter(|(_, p, is_dir)| !is_dir && !p.is_symlink())
-        .map(|(_, p, _)| p.metadata().map(|m| m.len()).unwrap_or(0))
+        .filter(|(_, _, is_dir)| !is_dir)
+        .filter_map(|(_, p, _)| p.symlink_metadata().ok())
+        .filter(|m| !m.is_symlink())
+        .map(|m| m.len())
         .sum();
 
     let result = match format {
@@ -344,7 +347,8 @@ pub fn extract_op(
                     total: len,
                     detail: detail.clone(),
                 });
-                let mut writer = std::fs::File::create(&out).map_err(|e| e.to_string())?;
+                // `target` is a fresh folder, but never write through a link.
+                let mut writer = create_file_nofollow(&out)?;
                 std::io::copy(&mut dec, &mut writer).map_err(|e| e.to_string())?;
                 Ok(())
             })(),
@@ -374,7 +378,7 @@ fn extract_zip(
     let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     // Progress inside this archive counts uncompressed bytes written.
     let total: u64 = (0..zip.len())
-        .filter_map(|i| zip.by_index_raw(i).ok().map(|e| e.size()))
+        .filter_map(|i| zip.by_index_data(i).ok().map(|e| e.size()))
         .sum();
     let mut read = 0u64;
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
@@ -428,13 +432,21 @@ fn extract_zip(
         };
         std::io::copy(&mut meter, &mut writer).map_err(|e| e.to_string())?;
         read = meter.read;
-        #[cfg(unix)]
-        if let Some(mode) = mode {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&out, std::fs::Permissions::from_mode(mode));
-        }
+        apply_mode(&out, mode);
     }
     Ok(())
+}
+
+/// Give a file just written from an archive the permission bits the
+/// archive recorded (the executable bit of a script, say). Only rwx: an
+/// archive's setuid/setgid/sticky bits are dropped, as tar's unpack does
+/// by default. Used by full extraction and by F5 copy-out of entries.
+pub(crate) fn apply_mode(path: &Path, mode: Option<u32>) {
+    #[cfg(unix)]
+    if let Some(mode) = mode {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o777));
+    }
 }
 
 fn extract_7z(
@@ -609,6 +621,27 @@ mod tests {
         assert!(link.is_symlink(), "zip must preserve symlinks");
         assert_eq!(std::fs::read_link(&link).unwrap(), PathBuf::from("real.txt"));
         assert_eq!(std::fs::read(&link).unwrap(), b"content");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn zip_extract_keeps_permission_bits() {
+        use std::os::unix::fs::PermissionsExt;
+        let work = tmp("zipmode");
+        let archive = work.join("m.zip");
+        {
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+            let opts = zip::write::SimpleFileOptions::default();
+            zip.start_file("run.sh", opts.unix_permissions(0o755)).unwrap();
+            zip.write_all(b"#!/bin/sh\n").unwrap();
+            zip.finish().unwrap();
+        }
+        let mut ctx = test_ctx();
+        extract_op(&mut ctx, vec![archive], work.join("x")).unwrap();
+        let mode = work.join("x/m/run.sh").metadata().unwrap().permissions().mode();
+        // (The zip writer itself drops setuid bits, so the rwx-only mask is
+        // covered by the tar case in archive_fs's copy-out test.)
+        assert_eq!(mode & 0o7777, 0o755);
         let _ = std::fs::remove_dir_all(&work);
     }
 

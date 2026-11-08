@@ -1,9 +1,12 @@
+import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
 import { TriangleAlert } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { Location } from "../ipc/types";
+import { useScaled } from "../lib/fontScale";
+import { joinPath, parentPath } from "../lib/path";
 import type { CaseMode, RenameRules } from "../lib/renameMask";
 import { DEFAULT_RULES, previewRenames } from "../lib/renameMask";
 import type { Dialog } from "../store/dialogs";
@@ -38,6 +41,16 @@ export function MultiRenameDialog({ d }: { d: Extract<Dialog, { type: "multiRena
     [d.items, rules, existing],
   );
   const invalid = rows.some((r) => r.problem !== null);
+  // Thousands of selected files: only the rows in view are rendered, so
+  // each keystroke in the rules re-renders a screenful, not the batch.
+  const previewRef = useRef<HTMLDivElement>(null);
+  const rowHeight = useScaled(20);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => previewRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 10,
+  });
   const changed = rows.filter((r) => r.changed && r.problem === null);
 
   const apply = async () => {
@@ -46,11 +59,10 @@ export function MultiRenameDialog({ d }: { d: Extract<Dialog, { type: "multiRena
     try {
       const count = await ipc.batchRename(tab.location, items);
       // Remember the reverse mapping for undo: new path → old name.
-      const dir = (p: string) => p.slice(0, p.lastIndexOf("/") + 1);
       lastBatch = {
         location: tab.location,
         items: changed.map((r) => ({
-          path: dir(r.entry.path) + r.newName,
+          path: joinPath(parentPath(r.entry.path) ?? "/", r.newName),
           newName: r.entry.name,
         })),
       };
@@ -154,22 +166,31 @@ export function MultiRenameDialog({ d }: { d: Extract<Dialog, { type: "multiRena
         </div>
       </div>
       <div className="mr-hint">[N] [E] [C:3] [YMD] [Y] [M] [D]</div>
-      <div className="mr-preview">
-        {rows.map((r) => (
-          <div key={r.entry.path} className={clsx("mr-row", r.problem && "bad")}>
-            <span className="old">{r.entry.name}</span>
-            <span className="arrow">→</span>
-            <span className={clsx("new", !r.changed && "same")}>
-              {r.newName}
-              {r.problem && (
-                <>
-                  {"  "}
-                  <Icon of={TriangleAlert} size={13} /> {t(r.problem)}
-                </>
-              )}
-            </span>
-          </div>
-        ))}
+      <div className="mr-preview" ref={previewRef}>
+        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+          {virtualizer.getVirtualItems().map((item) => {
+            const r = rows[item.index];
+            return (
+              <div
+                key={r.entry.path}
+                className={clsx("mr-row", r.problem && "bad")}
+                style={{ top: item.start, height: rowHeight }}
+              >
+                <span className="old">{r.entry.name}</span>
+                <span className="arrow">→</span>
+                <span className={clsx("new", !r.changed && "same")}>
+                  {r.newName}
+                  {r.problem && (
+                    <>
+                      {"  "}
+                      <Icon of={TriangleAlert} size={13} /> {t(r.problem)}
+                    </>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
       <div className="buttons">
         {hasUndo && (

@@ -43,6 +43,11 @@ type Saved =
   | { proto: "sftp"; ssh: SshConnection }
   | { proto: "smb"; smb: SmbConnection };
 
+/** One saved SSH connection per user, host and port: two servers behind
+ *  one host (containers, port forwards) are separate entries. */
+const sameSsh = (a: SshConnection, b: SshConnection) =>
+  a.host === b.host && a.username === b.username && a.port === b.port;
+
 export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" }) {
   const { t } = useTranslation();
   const close = useDialogs((s) => s.close);
@@ -106,7 +111,9 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     if (s.proto === "sftp") {
       setSsh(s.ssh);
       if (s.ssh.remember && s.ssh.use_password && s.ssh.username) {
-        void ipc.sshSavedPassword(s.ssh.username, s.ssh.host).then((p) => p && setSecret(p));
+        void ipc
+          .sshSavedPassword(s.ssh.username, s.ssh.host, s.ssh.port)
+          .then((p) => p && setSecret(p));
       }
     } else {
       setSmb(s.smb);
@@ -120,11 +127,9 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
 
   const remove = (s: Saved) => {
     if (s.proto === "sftp") {
-      void ipc.sshForgetPassword(s.ssh.username, s.ssh.host);
+      void ipc.sshForgetPassword(s.ssh.username, s.ssh.host, s.ssh.port);
       useSettings.getState().save({
-        ssh_connections: (config?.ssh_connections ?? []).filter(
-          (c) => !(c.host === s.ssh.host && c.username === s.ssh.username),
-        ),
+        ssh_connections: (config?.ssh_connections ?? []).filter((c) => !sameSsh(c, s.ssh)),
       });
     } else {
       if (s.smb.username)
@@ -146,11 +151,10 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     if (protocol === "sftp") {
       if (!ssh.host || !ssh.username) return;
       const name = ssh.name.trim() || `${ssh.username}@${ssh.host}`;
-      const rest = (config?.ssh_connections ?? []).filter(
-        (c) => !(c.host === ssh.host && c.username === ssh.username),
-      );
+      const rest = (config?.ssh_connections ?? []).filter((c) => !sameSsh(c, ssh));
       useSettings.getState().save({ ssh_connections: [...rest, { ...ssh, name }] });
-      if (ssh.use_password && secret) void ipc.sshStorePassword(ssh.username, ssh.host, secret);
+      if (ssh.use_password && secret)
+        void ipc.sshStorePassword(ssh.username, ssh.host, ssh.port, secret);
     } else if (protocol === "smb") {
       if (!smb.server || !share) return;
       const name = smb.name.trim() || `${smb.server}/${share}`;
