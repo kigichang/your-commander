@@ -419,6 +419,7 @@ impl SftpConnection {
                     modified: meta.mtime.map(|s| s as u64 * 1000),
                     ext,
                     is_hidden,
+                    is_cloud: false,
                 });
             }
             Ok(out)

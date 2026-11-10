@@ -211,6 +211,7 @@ pub fn list(archive: &Path, inner: &str) -> Result<Vec<FsEntry>, String> {
             };
             FsEntry {
                 is_hidden: name.starts_with('.'),
+                is_cloud: false,
                 path: PathBuf::from(format!("{prefix}{name}")),
                 is_dir: c.is_dir,
                 is_symlink: false,

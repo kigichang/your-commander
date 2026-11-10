@@ -26,6 +26,7 @@
     "network": "Connect to server"
   },
   "panel": {
+    "inCloud": "Not downloaded (in the cloud)",
     "home": "Home",
     "favorites": "Favorites",
     "addFavorite": "Add current folder to favorites",
@@ -431,6 +432,10 @@
     "prettyTitle": "Format the JSON; click again for the original text",
     "invalidJson": "Not valid JSON — can't format",
     "htmlViewTitle": "Render the page (scripts and remote content stay off); click again for the source",
+    "cloudNote": "This file is in the cloud and hasn't been downloaded yet.",
+    "download": "Download",
+    "downloading": "Downloading…",
+    "downloadFailed": "Download failed: {{error}}",
     "officeConverting": "Converting with LibreOffice…",
     "officeNeedsLo": "Previewing this format needs LibreOffice — install it, then try again.",
     "officeError": "Can't preview this file: {{error}}",

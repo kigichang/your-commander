@@ -367,6 +367,151 @@ pub fn media_info(path: &Path) -> Result<MediaInfo, String> {
     })
 }
 
+// <sys/resource.h>; not wrapped by the libc crate.
+const IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES: libc::c_int = 3;
+const IOPOL_SCOPE_PROCESS: libc::c_int = 0;
+const IOPOL_SCOPE_THREAD: libc::c_int = 1;
+const IOPOL_MATERIALIZE_DATALESS_FILES_DEFAULT: libc::c_int = 0;
+const IOPOL_MATERIALIZE_DATALESS_FILES_OFF: libc::c_int = 1;
+const IOPOL_MATERIALIZE_DATALESS_FILES_ON: libc::c_int = 2;
+
+unsafe extern "C" {
+    fn setiopolicy_np(iotype: libc::c_int, scope: libc::c_int, policy: libc::c_int) -> libc::c_int;
+}
+
+/// Let reads download cloud placeholders. Google Drive, iCloud Drive,
+/// OneDrive and other File Provider folders keep not-yet-downloaded files
+/// "dataless"; the system default refuses to fetch them for the reader and
+/// fails with EDEADLK ("Resource deadlock avoided"). Called once at
+/// startup, so Quick View, copy, move and compress fetch on demand the way
+/// Finder does. Child processes (LibreOffice, ffmpeg) inherit it.
+pub fn allow_cloud_downloads() {
+    unsafe {
+        setiopolicy_np(
+            IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES,
+            IOPOL_SCOPE_PROCESS,
+            IOPOL_MATERIALIZE_DATALESS_FILES_ON,
+        );
+    }
+}
+
+/// True for a cloud file not downloaded yet (Quick View offers a Download
+/// button instead of fetching it just because the cursor passed by).
+pub fn is_cloud_placeholder(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && crate::fs::local::is_dataless(&m))
+}
+
+/// Download a cloud placeholder: reading it through is what fetches it.
+/// Blocks until the provider has the whole file on disk.
+pub fn download_cloud_file(path: &Path) -> Result<(), String> {
+    /// Downloads on for this thread whatever the process policy, back to
+    /// following the process on drop (pool threads are reused).
+    struct Allow;
+    impl Drop for Allow {
+        fn drop(&mut self) {
+            unsafe {
+                setiopolicy_np(
+                    IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES,
+                    IOPOL_SCOPE_THREAD,
+                    IOPOL_MATERIALIZE_DATALESS_FILES_DEFAULT,
+                );
+            }
+        }
+    }
+    unsafe {
+        setiopolicy_np(
+            IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES,
+            IOPOL_SCOPE_THREAD,
+            IOPOL_MATERIALIZE_DATALESS_FILES_ON,
+        );
+    }
+    let _allow = Allow;
+    let err = |e: std::io::Error| format!("{}: {e}", path.display());
+    let mut file = std::fs::File::open(path).map_err(err)?;
+    std::io::copy(&mut file, &mut std::io::sink()).map_err(err)?;
+    Ok(())
+}
+
+/// Keep the calling thread from downloading cloud placeholders: a content
+/// search over a cloud folder must not fetch the whole drive. Reads of a
+/// placeholder then fail and the file is skipped. Only for a thread the
+/// caller owns (not a shared pool thread): it lasts for the thread's life.
+pub fn forbid_cloud_downloads_on_this_thread() {
+    unsafe {
+        setiopolicy_np(
+            IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES,
+            IOPOL_SCOPE_THREAD,
+            IOPOL_MATERIALIZE_DATALESS_FILES_OFF,
+        );
+    }
+}
+
+#[cfg(test)]
+mod cloud_policy_tests {
+    use super::*;
+
+    unsafe extern "C" {
+        fn getiopolicy_np(iotype: libc::c_int, scope: libc::c_int) -> libc::c_int;
+    }
+
+    fn policy(scope: libc::c_int) -> libc::c_int {
+        unsafe { getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, scope) }
+    }
+
+    #[test]
+    fn process_downloads_while_a_search_thread_does_not() {
+        allow_cloud_downloads();
+        assert_eq!(policy(IOPOL_SCOPE_PROCESS), IOPOL_MATERIALIZE_DATALESS_FILES_ON);
+        let on_search_thread = std::thread::spawn(|| {
+            forbid_cloud_downloads_on_this_thread();
+            policy(IOPOL_SCOPE_THREAD)
+        })
+        .join()
+        .unwrap();
+        assert_eq!(on_search_thread, IOPOL_MATERIALIZE_DATALESS_FILES_OFF);
+        // Other threads keep following the process policy.
+        assert_eq!(policy(IOPOL_SCOPE_PROCESS), IOPOL_MATERIALIZE_DATALESS_FILES_ON);
+    }
+
+    #[test]
+    fn a_local_file_is_no_placeholder() {
+        let file = std::env::temp_dir().join(format!("yc-cloud-{}", std::process::id()));
+        std::fs::write(&file, b"x").unwrap();
+        assert!(!is_cloud_placeholder(&file));
+        assert!(download_cloud_file(&file).is_ok());
+        std::fs::remove_file(&file).unwrap();
+    }
+
+    /// `YC_CLOUD_FILE=<a not-yet-downloaded Drive/iCloud file> cargo test --
+    /// --ignored cloud`: downloads it, even on a thread that forbids it.
+    #[test]
+    #[ignore = "needs a cloud placeholder file"]
+    fn cloud_placeholder_downloads_on_request() {
+        let path = PathBuf::from(std::env::var("YC_CLOUD_FILE").expect("YC_CLOUD_FILE"));
+        assert!(is_cloud_placeholder(&path), "already downloaded");
+        let listed = |path: &Path| {
+            crate::fs::local::list_dir(path.parent().unwrap())
+                .unwrap()
+                .into_iter()
+                .find(|e| e.path == path)
+                .unwrap()
+                .is_cloud
+        };
+        assert!(listed(&path), "the listing marks it");
+        std::thread::spawn(move || {
+            forbid_cloud_downloads_on_this_thread();
+            assert!(std::fs::read(&path).is_err());
+            download_cloud_file(&path).unwrap();
+            assert!(!is_cloud_placeholder(&path));
+            assert!(!listed(&path));
+            // The thread is back to its own policy afterwards.
+            assert_eq!(policy(IOPOL_SCOPE_THREAD), IOPOL_MATERIALIZE_DATALESS_FILES_DEFAULT);
+        })
+        .join()
+        .unwrap();
+    }
+}
+
 #[cfg(test)]
 mod disk_image_tests {
     use super::parse_hdiutil_mount;

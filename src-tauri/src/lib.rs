@@ -106,6 +106,7 @@ fn apply_fnkeys(app: &tauri::AppHandle, focused: bool) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    platform::allow_cloud_downloads();
     let app_state = AppState::default();
     *app_state.config.lock().unwrap() = config::Config::load();
 
@@ -209,6 +210,8 @@ pub fn run() {
             commands::system::reveal_in_finder,
             commands::system::file_tags,
             commands::preview::read_preview,
+            commands::preview::cloud_placeholder,
+            commands::preview::cloud_download,
             commands::office::office_sheets,
             commands::office::office_tools,
             commands::office::office_to_pdf,

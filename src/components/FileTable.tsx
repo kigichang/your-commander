@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
-import { ChevronDown, ChevronUp, CornerLeftUp } from "lucide-react";
+import { ChevronDown, ChevronUp, CloudDownload, CornerLeftUp } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FsEntry } from "../ipc/types";
@@ -372,6 +372,16 @@ function stateClasses(
   );
 }
 
+/** Finder's "not downloaded" mark after a cloud file's name. */
+function CloudBadge() {
+  const { t } = useTranslation();
+  return (
+    <span className="cloud-badge" title={t("panel.inCloud")}>
+      <Icon of={CloudDownload} size={14} />
+    </span>
+  );
+}
+
 /** Memoized with scalar props only: scrolling re-renders just the rows
  *  entering the viewport, a cursor move just the two rows that changed. */
 const Row = memo(function Row({
@@ -412,7 +422,8 @@ const Row = memo(function Row({
     >
       <span className="name">
         <FileIcon isDir={entry.isDir} ext={entry.ext} path={entry.path} />
-        {entry.name}
+        <span className="label">{entry.name}</span>
+        {entry.isCloud && <CloudBadge />}
       </span>
       {!brief && <span className="ext">{entry.ext}</span>}
       {!brief && (
@@ -468,7 +479,10 @@ const Tile = memo(function Tile({
       onDoubleClick={onDoubleClick}
     >
       <FileIcon isDir={entry.isDir} ext={entry.ext} path={entry.path} large />
-      <span className="name">{entry.name}</span>
+      <span className="name">
+        {entry.isCloud && <CloudBadge />}
+        {entry.name}
+      </span>
     </div>
   );
 });
