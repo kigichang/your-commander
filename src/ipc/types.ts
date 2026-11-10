@@ -14,6 +14,9 @@ export interface FsEntry {
   modified: number | null;
   ext: string;
   isHidden: boolean;
+  /** Cloud placeholder (Google Drive, iCloud…) not downloaded yet; absent
+   *  otherwise. */
+  isCloud?: boolean;
 }
 
 /** Mirrors `commands::office::Sheet`: one sheet's used range as text. */

@@ -26,6 +26,7 @@
     "network": "連線到伺服器"
   },
   "panel": {
+    "inCloud": "尚未下載（位於雲端）",
     "home": "家目錄",
     "favorites": "常用目錄",
     "addFavorite": "將目前資料夾加入常用目錄",
@@ -432,6 +433,10 @@
     "prettyTitle": "格式化 JSON；再按一次回復原始內容",
     "invalidJson": "不是有效的 JSON，無法格式化",
     "htmlViewTitle": "顯示網頁呈現結果（不執行腳本、不載入遠端內容）；再按一次回到原始碼",
+    "cloudNote": "此檔案位於雲端，尚未下載。",
+    "download": "下載",
+    "downloading": "下載中…",
+    "downloadFailed": "下載失敗：{{error}}",
     "officeConverting": "正在以 LibreOffice 轉換…",
     "officeNeedsLo": "預覽此格式需要 LibreOffice，安裝後再試一次。",
     "officeError": "無法預覽此檔案：{{error}}",

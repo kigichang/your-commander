@@ -17,6 +17,10 @@ pub struct FsEntry {
     /// Lower-cased extension for files, empty for folders.
     pub ext: String,
     pub is_hidden: bool,
+    /// A cloud placeholder (Google Drive, iCloud…) whose data isn't
+    /// downloaded yet. Sent only when true.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_cloud: bool,
 }
 
 pub fn epoch_millis(t: SystemTime) -> u64 {

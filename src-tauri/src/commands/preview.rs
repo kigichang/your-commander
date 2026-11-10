@@ -43,6 +43,21 @@ pub async fn video_poster(path: PathBuf) -> Result<Response, String> {
     .map(Response::new)
 }
 
+/// Whether a local file is a cloud placeholder not downloaded yet (Google
+/// Drive, iCloud…); Quick View then waits for the Download button.
+#[tauri::command]
+pub async fn cloud_placeholder(path: PathBuf) -> Result<bool, String> {
+    require_absolute(&path)?;
+    blocking(move || Ok(crate::platform::is_cloud_placeholder(&path))).await
+}
+
+/// Fetch a cloud placeholder's contents to disk; resolves once it's there.
+#[tauri::command]
+pub async fn cloud_download(path: PathBuf) -> Result<(), String> {
+    require_absolute(&path)?;
+    blocking(move || crate::platform::download_cloud_file(&path)).await
+}
+
 /// Raw file bytes for the Quick View pane (PDF.js, images, text). Works for
 /// local and SFTP paths alike; capped at `max_bytes`.
 #[tauri::command]

@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { Folder, X } from "lucide-react";
+import { CloudDownload, Folder, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
@@ -154,6 +154,8 @@ type Preview =
   | { kind: "office-note"; text: string }
   /** ffmpeg-extracted still frame for videos the decoder can't render. */
   | { kind: "video-poster"; url: string }
+  /** A cloud file not downloaded yet: nothing is read until the user asks. */
+  | { kind: "cloud" }
   /** Still reading the file — show nothing, not "no preview". */
   | { kind: "loading" }
   | { kind: "none" };
@@ -361,6 +363,39 @@ export function QuickView() {
   /** Path under the cursor right now — guards async results that outlive it. */
   const entryRef = useRef<string | null>(null);
   entryRef.current = entry?.path ?? null;
+  /** Cloud files being downloaded; kept per path so leaving and coming
+   *  back still shows the download in progress. */
+  const [downloading, setDownloading] = useState<ReadonlySet<string>>(() => new Set());
+  /** Bumped when a download finishes, to preview the file now on disk. */
+  const [reload, setReload] = useState(0);
+
+  const download = (path: string) => {
+    setDownloading((s) => new Set(s).add(path));
+    void ipc
+      .cloudDownload(path)
+      .then(() => {
+        if (entryRef.current === path) setReload((n) => n + 1);
+        // Drop the cloud mark from the listing showing this folder.
+        const panels = usePanels.getState();
+        for (const side of [0, 1] as const) {
+          const p = panels.panels[side];
+          const shown = p.tabs[p.active];
+          if (shown?.location.kind === "local" && shown.path === parentPath(path)) {
+            void panels.refresh(side, { silent: true });
+          }
+        }
+      })
+      .catch((e) =>
+        useOps.getState().toast(t("quickview.downloadFailed", { error: String(e) }), "error"),
+      )
+      .finally(() =>
+        setDownloading((s) => {
+          const next = new Set(s);
+          next.delete(path);
+          return next;
+        }),
+      );
+  };
 
   useEffect(() => {
     void ipc.videoTools().then(setTools).catch(() => {});
@@ -442,6 +477,13 @@ export function QuickView() {
         void ipc.fileTags(entry.path).then((v) => {
           if (!stale) setTags(v);
         });
+        // A cloud placeholder would be downloaded by any read below (or by
+        // LibreOffice, ffmpeg, the video stream): wait for the button.
+        if (isMac && (await ipc.cloudPlaceholder(entry.path).catch(() => false))) {
+          if (!stale) setPreview({ kind: "cloud" });
+          return;
+        }
+        if (stale) return;
         const isVideo = VIDEO_EXTS.has(entry.ext);
         if (!hex && (isVideo || AUDIO_EXTS.has(entry.ext))) {
           void ipc
@@ -604,7 +646,7 @@ export function QuickView() {
     };
     // `t` only words the Office messages; a language switch need not reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry?.path, entry?.modified, tab?.location, hex, soffice, officeUseLo]);
+  }, [entry?.path, entry?.modified, tab?.location, hex, soffice, officeUseLo, reload]);
 
   const isJsonText = entry?.ext === "json" && preview.kind === "text";
   const isHtmlText = !!entry && HTML_EXTS.has(entry.ext) && preview.kind === "text";
@@ -749,6 +791,20 @@ export function QuickView() {
                 </button>
               )}
               {repairButton}
+            </div>
+          </div>
+        ) : preview.kind === "cloud" ? (
+          <div className="qv-fail">
+            <Icon of={CloudDownload} size={32} />
+            <span className="none">{t("quickview.cloudNote")}</span>
+            <div className="qv-fail-actions">
+              <button
+                className="btn primary"
+                disabled={downloading.has(entry.path)}
+                onClick={() => download(entry.path)}
+              >
+                {downloading.has(entry.path) ? t("quickview.downloading") : t("quickview.download")}
+              </button>
             </div>
           </div>
         ) : preview.kind === "audio" ? (

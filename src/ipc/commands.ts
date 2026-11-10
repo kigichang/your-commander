@@ -74,6 +74,14 @@ export const officeToPdf = async (
 export const videoPoster = async (path: string): Promise<ArrayBuffer> =>
   invoke("video_poster", { path });
 
+/** True for a cloud file (Google Drive, iCloud…) not downloaded yet. */
+export const cloudPlaceholder = (path: string): Promise<boolean> =>
+  invoke("cloud_placeholder", { path });
+
+/** Download a cloud placeholder; resolves once it is on disk. */
+export const cloudDownload = (path: string): Promise<void> =>
+  invoke("cloud_download", { path });
+
 export const startOp = (
   request: OpRequest,
   onEvent: (event: OpEvent) => void,

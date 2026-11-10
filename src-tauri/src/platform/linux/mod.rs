@@ -489,6 +489,22 @@ pub fn icon_png(key: &str) -> Option<Vec<u8>> {
     None
 }
 
+/// No cloud placeholders to fetch on Linux (GVfs mounts read through).
+pub fn allow_cloud_downloads() {}
+
+/// See `allow_cloud_downloads`.
+pub fn forbid_cloud_downloads_on_this_thread() {}
+
+/// See `allow_cloud_downloads`.
+pub fn is_cloud_placeholder(_path: &Path) -> bool {
+    false
+}
+
+/// See `allow_cloud_downloads`.
+pub fn download_cloud_file(_path: &Path) -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

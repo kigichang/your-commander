@@ -20,11 +20,11 @@ pub fn list_dir(path: &Path) -> io::Result<Vec<FsEntry>> {
         } else {
             entry.metadata()
         };
-        let (is_dir, size, modified) = match meta {
+        let (is_dir, size, modified, is_cloud) = match meta {
             // `m` is already the target's metadata (or a broken link's
             // own): asking `path` again would cost one more stat per entry.
-            Ok(m) => (m.is_dir(), m.len(), m.modified().ok().map(epoch_millis)),
-            Err(_) => (false, 0, None),
+            Ok(m) => (m.is_dir(), m.len(), m.modified().ok().map(epoch_millis), is_dataless(&m)),
+            Err(_) => (false, 0, None, false),
         };
         let ext = if is_dir {
             String::new()
@@ -43,9 +43,25 @@ pub fn list_dir(path: &Path) -> io::Result<Vec<FsEntry>> {
             modified,
             ext,
             is_hidden,
+            is_cloud,
         });
     }
     Ok(entries)
+}
+
+/// A cloud placeholder not downloaded yet (macOS File Provider: Google
+/// Drive, iCloud Drive, OneDrive…).
+#[cfg(target_os = "macos")]
+pub fn is_dataless(meta: &std::fs::Metadata) -> bool {
+    use std::os::macos::fs::MetadataExt;
+    /// `SF_DATALESS` in <sys/stat.h>.
+    const SF_DATALESS: u32 = 0x4000_0000;
+    meta.st_flags() & SF_DATALESS != 0
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn is_dataless(_meta: &std::fs::Metadata) -> bool {
+    false
 }
 
 pub fn home_dir() -> PathBuf {

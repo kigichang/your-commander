@@ -649,6 +649,28 @@ svg.li {
   gap: 7px;
   min-width: 0;
 }
+.row .name .label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Finder's cloud mark: a not-yet-downloaded file, at the name's far end. */
+.cloud-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+.row.sel .cloud-badge,
+.tile.sel .cloud-badge {
+  color: color-mix(in srgb, var(--color-select-text) 82%, transparent);
+}
+.tile .cloud-badge {
+  display: inline;
+  margin-right: 3px;
+  vertical-align: -2px;
+}
 .row .icon {
   flex: none;
   width: 16px;

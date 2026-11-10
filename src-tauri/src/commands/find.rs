@@ -194,6 +194,8 @@ pub fn start_find(
     let conn = state.resolve(&location)?.conn_or_err("Search")?;
     let (id, cancel) = state.new_find();
     std::thread::spawn(move || {
+        // Cloud placeholders are skipped, not downloaded, by the content scan.
+        crate::platform::forbid_cloud_downloads_on_this_thread();
         let mut search = Search {
             cancel,
             channel: on_event,
