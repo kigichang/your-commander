@@ -41,6 +41,39 @@ pub(crate) fn find_cli(name: &str, candidates: &[&str]) -> Option<PathBuf> {
     (!path.is_empty()).then(|| PathBuf::from(path))
 }
 
+/// LibreOffice's `soffice` for Office previews: the path set in Settings
+/// when it points at a file, else the usual install locations, else PATH.
+pub fn find_soffice(override_path: &str) -> Option<PathBuf> {
+    let custom = override_path.trim();
+    if !custom.is_empty() {
+        let p = PathBuf::from(custom);
+        // Only an absolute path: a relative one would resolve against
+        // whatever the app's working directory happens to be.
+        return (p.is_absolute() && p.is_file()).then_some(p);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let in_apps = |root: PathBuf| root.join("LibreOffice.app/Contents/MacOS/soffice");
+        for p in [
+            in_apps(PathBuf::from("/Applications")),
+            in_apps(crate::fs::local::home_dir().join("Applications")),
+        ] {
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+        find_cli("soffice", &["/opt/homebrew/bin/soffice", "/usr/local/bin/soffice"])
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        find_cli(
+            "soffice",
+            &["/usr/bin/soffice", "/usr/bin/libreoffice", "/snap/bin/libreoffice"],
+        )
+        .or_else(|| find_cli("libreoffice", &[]))
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]

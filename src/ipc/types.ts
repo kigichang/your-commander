@@ -16,6 +16,21 @@ export interface FsEntry {
   isHidden: boolean;
 }
 
+/** Mirrors `commands::office::Sheet`: one sheet's used range as text. */
+export interface Sheet {
+  name: string;
+  rows: string[][];
+  totalRows: number;
+  totalCols: number;
+  firstRow: number;
+  firstCol: number;
+  error: string | null;
+}
+
+export interface Workbook {
+  sheets: Sheet[];
+}
+
 export interface VolumeInfo {
   name: string;
   path: string;
@@ -93,6 +108,8 @@ export interface Config {
   plantuml_server: string;
   plantuml_jar: string;
   plantuml_java: string;
+  office_soffice: string;
+  office_use_lo: boolean;
   menu_vscode: boolean;
   menu_zed: boolean;
   external_tools: ExternalTool[];

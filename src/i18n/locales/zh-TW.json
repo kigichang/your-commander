@@ -257,6 +257,13 @@
     "plantumlJavaPath": "java 執行檔",
     "plantumlJavaAuto": "自動偵測（java_home／Homebrew／PATH）",
     "plantumlJarNote": "由本機 java 渲染——內容不會離開這台電腦。",
+    "office": "Office 文件",
+    "officeFound": "LibreOffice：{{path}}",
+    "officeMissing": "找不到 LibreOffice。.docx、.xlsx、.pptx 仍可預覽；.xls 以純表格顯示；.doc／.ppt 需要 LibreOffice。",
+    "officeSofficePath": "soffice 執行檔",
+    "officeSofficeAuto": "自動偵測（LibreOffice.app／PATH）",
+    "officeUseLo": ".docx／.xlsx／.pptx 也使用 LibreOffice（更接近原始版面，較慢）",
+    "officeNote": "檔案在本機背景轉換，不會傳送到外部。",
     "favNone": "還沒有我的最愛——在路徑列旁按 ★ 加入。",
     "favHint": "此處的順序就是磁碟選單中的顯示順序。",
     "favUp": "上移",
@@ -424,6 +431,17 @@
     "noPreview": "無可用預覽",
     "prettyTitle": "格式化 JSON；再按一次回復原始內容",
     "invalidJson": "不是有效的 JSON，無法格式化",
-    "htmlViewTitle": "顯示網頁呈現結果（不執行腳本、不載入遠端內容）；再按一次回到原始碼"
+    "htmlViewTitle": "顯示網頁呈現結果（不執行腳本、不載入遠端內容）；再按一次回到原始碼",
+    "officeConverting": "正在以 LibreOffice 轉換…",
+    "officeNeedsLo": "預覽此格式需要 LibreOffice，安裝後再試一次。",
+    "officeError": "無法預覽此檔案：{{error}}",
+    "officePages": "{{ext}} · {{count}} 頁",
+    "officeSlides": "{{ext}} · {{count}} 張投影片",
+    "officeSheets": "{{ext}} · {{count}} 個工作表",
+    "noSlides": "沒有投影片",
+    "slideNo": "投影片 {{n}}",
+    "slideHidden": "已隱藏",
+    "sheetEmpty": "空白工作表",
+    "sheetCut": "顯示前 {{rows}} 列 × {{cols}} 欄（共 {{totalRows}} × {{totalCols}}）"
   }
 }

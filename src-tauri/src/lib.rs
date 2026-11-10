@@ -209,6 +209,9 @@ pub fn run() {
             commands::system::reveal_in_finder,
             commands::system::file_tags,
             commands::preview::read_preview,
+            commands::office::office_sheets,
+            commands::office::office_tools,
+            commands::office::office_to_pdf,
             commands::preview::media_info,
             commands::preview::video_poster,
             #[cfg(target_os = "linux")]

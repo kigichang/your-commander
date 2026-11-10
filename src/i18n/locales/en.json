@@ -257,6 +257,13 @@
     "plantumlJavaPath": "java binary",
     "plantumlJavaAuto": "auto-detect (java_home / Homebrew / PATH)",
     "plantumlJarNote": "Rendered locally via java — nothing leaves the machine.",
+    "office": "Office documents",
+    "officeFound": "LibreOffice: {{path}}",
+    "officeMissing": "LibreOffice not found. .docx, .xlsx and .pptx still preview; .xls shows as a plain table, and .doc / .ppt need LibreOffice.",
+    "officeSofficePath": "soffice binary",
+    "officeSofficeAuto": "auto-detect (LibreOffice.app / PATH)",
+    "officeUseLo": "Use LibreOffice for .docx / .xlsx / .pptx too (closer to the original layout, slower)",
+    "officeNote": "Files are converted locally in the background — nothing leaves the machine.",
     "favNone": "No favorites yet — add one with the ★ next to the path bar.",
     "favHint": "The order here is the order in the drives menu.",
     "favUp": "Move up",
@@ -423,6 +430,17 @@
     "noPreview": "No preview available",
     "prettyTitle": "Format the JSON; click again for the original text",
     "invalidJson": "Not valid JSON — can't format",
-    "htmlViewTitle": "Render the page (scripts and remote content stay off); click again for the source"
+    "htmlViewTitle": "Render the page (scripts and remote content stay off); click again for the source",
+    "officeConverting": "Converting with LibreOffice…",
+    "officeNeedsLo": "Previewing this format needs LibreOffice — install it, then try again.",
+    "officeError": "Can't preview this file: {{error}}",
+    "officePages": "{{ext}} · {{count}} pages",
+    "officeSlides": "{{ext}} · {{count}} slides",
+    "officeSheets": "{{ext}} · {{count}} sheets",
+    "noSlides": "No slides",
+    "slideNo": "Slide {{n}}",
+    "slideHidden": "hidden",
+    "sheetEmpty": "Empty sheet",
+    "sheetCut": "Showing the first {{rows}} rows × {{cols}} columns of {{totalRows}} × {{totalCols}}"
   }
 }

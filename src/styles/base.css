@@ -1022,6 +1022,189 @@ svg.li {
   border-radius: var(--radius-sm);
   background: #fff;
 }
+/* ── Office previews ─────────────────────────────────────────────── */
+/* Word: the sandboxed page frame keeps the document's real page width
+   and is scaled down (never up) to the pane. */
+.qv-docx {
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.qv-docx-frame {
+  align-self: flex-start;
+  flex: none;
+  overflow: hidden;
+}
+.qv-docx-page {
+  transform-origin: top left;
+}
+.qv-docx-page .qv-html {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background: #e8e8ea;
+}
+/* PowerPoint: one card per slide. */
+.qv-slides {
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.qv-slide {
+  flex: none;
+  padding: var(--space-4) var(--space-6);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-divider);
+  font-size: calc(12.5px * var(--font-scale));
+  line-height: 1.5;
+  user-select: text;
+}
+.qv-slide.hidden {
+  opacity: 0.55;
+}
+.qv-slide-no {
+  font-size: calc(10.5px * var(--font-scale));
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+.qv-slide h3 {
+  margin: 0 0 6px;
+  font-size: calc(15px * var(--font-scale));
+  font-weight: 600;
+}
+.qv-slide p {
+  margin: 0 0 3px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+.qv-slide-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.qv-body .qv-slide-images img {
+  max-width: min(100%, 280px);
+  max-height: 180px;
+  background: #fff;
+}
+/* Spreadsheets: sticky column letters and row numbers, tabs below. */
+.qv-sheet {
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-well);
+}
+.sheet-cut {
+  flex: none;
+  padding: 4px var(--space-3);
+  font-size: calc(11px * var(--font-scale));
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--color-divider);
+}
+.sheet-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  font-size: calc(12px * var(--font-scale));
+  user-select: text;
+}
+.sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+}
+.sheet-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+}
+.sh-corner,
+.sh-col,
+.sh-num,
+.sh-cell {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--color-divider);
+}
+.sh-corner,
+.sh-col,
+.sh-num {
+  background: var(--color-chrome);
+  color: var(--text-faint);
+  font-size: calc(11px * var(--font-scale));
+  justify-content: center;
+}
+.sh-corner,
+.sh-num {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+.sh-corner {
+  z-index: 3;
+}
+.sh-cell {
+  font-variant-numeric: tabular-nums;
+}
+.sheet-tabs {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px;
+  overflow-x: auto;
+  border-top: 1px solid var(--color-divider);
+  background: var(--color-chrome);
+}
+.sheet-tabs button {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  font-size: calc(11.5px * var(--font-scale));
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.sheet-tabs button:hover:not(.on) {
+  background: var(--hover-tint);
+  color: var(--color-text);
+}
+.sheet-tabs button.on {
+  background: var(--capsule-on);
+  color: var(--color-text);
+}
+.qv-body .qv-office-note {
+  max-width: 420px;
+  text-align: center;
+  line-height: 1.5;
+}
+.settings-note.office-status {
+  margin: 0 0 4px 22px;
+  overflow-wrap: anywhere;
+}
+
 /* Pretty JSON: syntax colors and bracket-depth colors from tokens.css. */
 .qv-json .key {
   color: var(--syn-key);

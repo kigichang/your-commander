@@ -69,6 +69,8 @@ pub struct AppState {
     /// Rendered PlantUML SVGs keyed by hash(mode config + source). Capped:
     /// every edit of a previewed diagram renders a new source.
     pub plantuml_cache: Mutex<Lru<u64, Arc<String>, 64>>,
+    /// LibreOffice conversions for Office previews (cache and gate).
+    pub office: Arc<crate::commands::office::OfficeState>,
 }
 
 impl AppState {

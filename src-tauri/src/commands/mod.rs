@@ -2,6 +2,7 @@ pub mod config;
 pub mod drag;
 pub mod find;
 pub mod fs;
+pub mod office;
 pub mod ops;
 pub mod plantuml;
 pub mod preview;

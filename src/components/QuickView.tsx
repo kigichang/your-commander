@@ -27,6 +27,15 @@ const PdfPreview = lazy(() =>
 const MarkdownPreview = lazy(() =>
   import("./MarkdownPreview").then((m) => ({ default: m.MarkdownPreview })),
 );
+const DocxPreview = lazy(() =>
+  import("./OfficePreview").then((m) => ({ default: m.DocxPreview })),
+);
+const PptxPreview = lazy(() =>
+  import("./OfficePreview").then((m) => ({ default: m.PptxPreview })),
+);
+const SheetPreview = lazy(() =>
+  import("./OfficePreview").then((m) => ({ default: m.SheetPreview })),
+);
 const PlantUmlPreview = lazy(() =>
   import("./MarkdownPreview").then((m) => ({ default: m.PlantUmlPreview })),
 );
@@ -51,6 +60,15 @@ function formatDuration(secs: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 const MD_EXTS = new Set(["md", "markdown"]);
+// Office: Word/PowerPoint render in the frontend, workbooks are read by the
+// backend; the legacy binary formats need LibreOffice (xls aside, which the
+// backend reads too).
+const DOCX_EXTS = new Set(["docx", "docm", "dotx"]);
+const PPTX_EXTS = new Set(["pptx", "pptm", "ppsx", "potx"]);
+const SHEET_EXTS = new Set(["xlsx", "xlsm", "xlsb", "ods"]);
+const LEGACY_EXTS = new Set(["doc", "ppt", "xls"]);
+const isOffice = (ext: string) =>
+  DOCX_EXTS.has(ext) || PPTX_EXTS.has(ext) || SHEET_EXTS.has(ext) || LEGACY_EXTS.has(ext);
 const HTML_EXTS = new Set(["html", "htm", "xhtml"]);
 const PUML_EXTS = new Set(["puml", "plantuml", "pu"]);
 const TEXT_EXTS = new Set([
@@ -86,6 +104,8 @@ function hexDump(bytes: Uint8Array, truncated: boolean): string {
 // pdf.js needs the whole file; past this size show no preview instead of
 // freezing the pane on a huge download.
 const PDF_MAX = 64 * 1024 * 1024;
+// .docx/.pptx are unzipped in the webview; same reasoning as PDF_MAX.
+const OFFICE_MAX = 64 * 1024 * 1024;
 // Video streams through the app's stream:// protocol, which serves the
 // requested range in 16 MB chunks — unlike the built-in asset protocol's
 // ~1 MB cap, which starves AVFoundation on network mounts and left large
@@ -125,6 +145,13 @@ type Preview =
   | { kind: "markdown"; text: string }
   | { kind: "plantuml"; text: string }
   | { kind: "pdf"; data: ArrayBuffer }
+  | { kind: "docx"; data: ArrayBuffer }
+  | { kind: "pptx"; data: ArrayBuffer }
+  | { kind: "sheet"; book: import("../ipc/types").Workbook }
+  /** LibreOffice is converting the file to PDF. */
+  | { kind: "office-pending" }
+  /** An Office file that can't be shown, with the reason. */
+  | { kind: "office-note"; text: string }
   /** ffmpeg-extracted still frame for videos the decoder can't render. */
   | { kind: "video-poster"; url: string }
   /** Still reading the file — show nothing, not "no preview". */
@@ -339,6 +366,22 @@ export function QuickView() {
     void ipc.videoTools().then(setTools).catch(() => {});
   }, []);
 
+  /** LibreOffice for Office previews: undefined until detected, null when
+   *  missing. Re-detected when Settings changes its path. */
+  const sofficeSetting = useSettings((s) => s.config?.office_soffice ?? "");
+  const officeUseLo = useSettings((s) => s.config?.office_use_lo ?? false);
+  const [soffice, setSoffice] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    let gone = false;
+    void ipc
+      .officeTools(sofficeSetting)
+      .then((r) => !gone && setSoffice(r.soffice))
+      .catch(() => !gone && setSoffice(null));
+    return () => {
+      gone = true;
+    };
+  }, [sofficeSetting]);
+
   /** Repair (re-encode) button in the failure pane. */
   const repairButton =
     entry && !entry.isDir && tab?.location.kind === "local" && tools.ffmpeg ? (
@@ -464,6 +507,57 @@ export function QuickView() {
           const buf = await ipc.readPreview(tab.location, entry.path, HEX_MAX);
           if (stale) return;
           setPreview({ kind: "hex", text: hexDump(new Uint8Array(buf), entry.size > HEX_MAX) });
+        } else if (isOffice(entry.ext)) {
+          const ext = entry.ext;
+          const legacy = LEGACY_EXTS.has(ext);
+          // Detection still running: the effect reruns when it lands.
+          if (soffice === undefined) return;
+          if (soffice && (legacy || officeUseLo)) {
+            setPreview({ kind: "office-pending" });
+            try {
+              // "superseded" while the cursor is still here means another
+              // window's conversion went first; ask again.
+              for (let attempt = 0; ; attempt++) {
+                try {
+                  const buf = await ipc.officeToPdf(
+                    tab.location,
+                    entry.path,
+                    entry.size,
+                    entry.modified ?? 0,
+                  );
+                  if (stale) return;
+                  setPreview({ kind: "pdf", data: buf });
+                  return;
+                } catch (e) {
+                  if (stale) return;
+                  if (String(e) !== "superseded" || attempt >= 4) throw e;
+                }
+              }
+            } catch (e) {
+              if (stale) return;
+              // A modern file still has the built-in view to fall back on.
+              if (legacy && ext !== "xls") {
+                setPreview({
+                  kind: "office-note",
+                  text: t("quickview.officeError", { error: String(e) }),
+                });
+                return;
+              }
+            }
+          }
+          if (ext === "doc" || ext === "ppt") {
+            setPreview({ kind: "office-note", text: t("quickview.officeNeedsLo") });
+          } else if (SHEET_EXTS.has(ext) || ext === "xls") {
+            const book = await ipc.officeSheets(tab.location, entry.path);
+            if (stale) return;
+            setPreview({ kind: "sheet", book });
+          } else if (entry.size <= OFFICE_MAX) {
+            const data = await ipc.readPreview(tab.location, entry.path, OFFICE_MAX);
+            if (stale) return;
+            setPreview({ kind: DOCX_EXTS.has(ext) ? "docx" : "pptx", data });
+          } else {
+            setPreview({ kind: "none" });
+          }
         } else if (entry.ext === "pdf" && entry.size <= PDF_MAX) {
           const buf = await ipc.readPreview(tab.location, entry.path, PDF_MAX);
           if (stale) return;
@@ -492,8 +586,14 @@ export function QuickView() {
           // Nothing knows how to preview this type.
           setPreview({ kind: "none" });
         }
-      } catch {
-        if (!stale) setPreview({ kind: "none" });
+      } catch (e) {
+        if (stale) return;
+        // Office readers explain themselves (too big, not a workbook…).
+        setPreview(
+          isOffice(entry.ext)
+            ? { kind: "office-note", text: t("quickview.officeError", { error: String(e) }) }
+            : { kind: "none" },
+        );
       }
     }, 180);
 
@@ -502,7 +602,9 @@ export function QuickView() {
       clearTimeout(timer);
       if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [entry?.path, entry?.modified, tab?.location, hex]);
+    // `t` only words the Office messages; a language switch need not reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry?.path, entry?.modified, tab?.location, hex, soffice, officeUseLo]);
 
   const isJsonText = entry?.ext === "json" && preview.kind === "text";
   const isHtmlText = !!entry && HTML_EXTS.has(entry.ext) && preview.kind === "text";
@@ -529,7 +631,16 @@ export function QuickView() {
       ? t("quickview.folder")
       : entry.ext === "pdf" && pdfPages > 0
         ? t("quickview.pdfPages", { count: pdfPages })
-        : entry.ext
+        : preview.kind === "pdf" && pdfPages > 0
+          ? t("quickview.officePages", { ext: entry.ext.toUpperCase(), count: pdfPages })
+          : preview.kind === "pptx" && pdfPages > 0
+            ? t("quickview.officeSlides", { ext: entry.ext.toUpperCase(), count: pdfPages })
+            : preview.kind === "sheet"
+              ? t("quickview.officeSheets", {
+                  ext: entry.ext.toUpperCase(),
+                  count: preview.book.sheets.length,
+                })
+              : entry.ext
           ? entry.ext.toUpperCase()
           : t("quickview.file");
 
@@ -578,6 +689,22 @@ export function QuickView() {
           <Suspense fallback={<span className="none">…</span>}>
             <PdfPreview data={preview.data} onPages={setPdfPages} />
           </Suspense>
+        ) : preview.kind === "docx" ? (
+          <Suspense fallback={<span className="none">…</span>}>
+            <DocxPreview data={preview.data} />
+          </Suspense>
+        ) : preview.kind === "pptx" ? (
+          <Suspense fallback={<span className="none">…</span>}>
+            <PptxPreview data={preview.data} onSlides={setPdfPages} />
+          </Suspense>
+        ) : preview.kind === "sheet" ? (
+          <Suspense fallback={<span className="none">…</span>}>
+            <SheetPreview book={preview.book} />
+          </Suspense>
+        ) : preview.kind === "office-pending" ? (
+          <span className="none">{t("quickview.officeConverting")}</span>
+        ) : preview.kind === "office-note" ? (
+          <span className="none qv-office-note">{preview.text}</span>
         ) : preview.kind === "markdown" ? (
           <Suspense fallback={<span className="none">…</span>}>
             <MarkdownPreview text={preview.text} />
