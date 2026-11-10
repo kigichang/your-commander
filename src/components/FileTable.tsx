@@ -288,17 +288,26 @@ const DRAG_THRESHOLD = 4;
  *  hand the files to a native drag session so they can be dropped on other
  *  apps. Dragging a marked row carries the whole mark set; any other row
  *  goes alone. Local files only — SFTP and archive entries have no path
- *  another app could open. */
-function armDragOut(e: React.MouseEvent, side: Side, entry: FsEntry) {
-  if (usePanels.getState().activeTab(side).location.kind !== "local") return;
+ *  another app could open. `onClick` runs when the press is released
+ *  without having turned into a drag (any location). */
+function armDragOut(e: React.MouseEvent, side: Side, entry: FsEntry, onClick?: () => void) {
+  const canDrag = usePanels.getState().activeTab(side).location.kind === "local";
+  if (!canDrag && !onClick) return;
   const x0 = e.clientX;
   const y0 = e.clientY;
   const disarm = () => {
     window.removeEventListener("mousemove", move);
-    window.removeEventListener("mouseup", disarm);
+    window.removeEventListener("mouseup", release);
+  };
+  const release = () => {
+    disarm();
+    onClick?.();
   };
   const move = (ev: MouseEvent) => {
-    if (Math.abs(ev.clientX - x0) < DRAG_THRESHOLD && Math.abs(ev.clientY - y0) < DRAG_THRESHOLD)
+    if (
+      !canDrag ||
+      (Math.abs(ev.clientX - x0) < DRAG_THRESHOLD && Math.abs(ev.clientY - y0) < DRAG_THRESHOLD)
+    )
       return;
     // The native session owns the pointer from here: no mouseup will
     // reach the webview, so stop listening now.
@@ -314,7 +323,7 @@ function armDragOut(e: React.MouseEvent, side: Side, entry: FsEntry) {
     ).catch((err) => console.error("drag-out failed:", err));
   };
   window.addEventListener("mousemove", move);
-  window.addEventListener("mouseup", disarm);
+  window.addEventListener("mouseup", release);
 }
 
 /** Mouse behavior shared by list rows and icon tiles. */
@@ -327,8 +336,15 @@ function entryHandlers(side: Side, index: number, entry: FsEntry) {
     } else if (e.shiftKey) {
       s.markRange(side, index);
     } else {
+      // A plain click selects this row alone. A marked row keeps the mark
+      // set until release so dragging it still carries every marked file;
+      // released without a drag, it collapses to this row (Finder style).
+      const wasMarked = s.activeTab(side).marked.has(entry.name);
+      if (!wasMarked) s.unmarkAll(side);
       s.setCursor(side, index);
-      if (e.button === 0) armDragOut(e, side, entry);
+      const collapse = wasMarked ? () => usePanels.getState().unmarkAll(side) : undefined;
+      if (e.button === 0) armDragOut(e, side, entry, collapse);
+      else collapse?.();
     }
   };
 
