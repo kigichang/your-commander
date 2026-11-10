@@ -14,6 +14,9 @@ export type ActionId =
   | "switchPanel"
   | "enter"
   | "up"
+  | "goBack"
+  | "goForward"
+  | "focusSearch"
   | "cursorUp"
   | "cursorDown"
   | "cursorLeft"
@@ -115,16 +118,16 @@ function copyText(text: string) {
 function openHere(tool: "terminal" | "vscode" | "zed") {
   const s = panels();
   const tab = s.activeTab(s.activeSide);
-  if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
+  if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"), "warning");
   void ipc.openIn(tool, tab.path).catch((e) => ops().toast(String(e), "error"));
 }
 
 /** ⌘C/⌘X: put the selection on the in-app clipboard for a later paste. */
 function clipTake(move: boolean) {
   const { tab, items } = activeTargets();
-  if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+  if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"), "warning");
   if (move && tab.location.kind === "archive")
-    return ops().toast(i18n.t("status.archiveReadOnly"));
+    return ops().toast(i18n.t("status.archiveReadOnly"), "warning");
   useClipboard.getState().set({ items, location: tab.location, move });
   ops().toast(i18n.t(move ? "status.clipCut" : "status.clipCopied", { count: items.length }));
 }
@@ -132,7 +135,7 @@ function clipTake(move: boolean) {
 function openCopyMove(move: boolean) {
   const { side, items } = activeTargets();
   if (items.length === 0) {
-    ops().toast(i18n.t("status.nothingSelected"));
+    ops().toast(i18n.t("status.nothingSelected"), "warning");
     return;
   }
   const other = panels().otherSide(side);
@@ -171,6 +174,16 @@ export const actions: Record<ActionId, Action> = {
   },
 
   up: { run: () => panels().up(panels().activeSide) },
+  goBack: { run: () => panels().goBack(panels().activeSide) },
+  goForward: { run: () => panels().goForward(panels().activeSide) },
+  // The toolbar's search field (live filter of the active panel).
+  focusSearch: {
+    run: () => {
+      const el = document.querySelector<HTMLInputElement>(".search-cap input");
+      el?.focus();
+      el?.select();
+    },
+  },
 
   cursorUp: {
     run: (mods) =>
@@ -220,8 +233,8 @@ export const actions: Record<ActionId, Action> = {
   getInfo: {
     run: () => {
       const { tab, items } = activeTargets();
-      if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
-      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+      if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"), "warning");
+      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"), "warning");
       void ipc
         .getInfo(items.map((e) => e.path))
         .catch((e) => ops().toast(String(e), "error"));
@@ -239,18 +252,18 @@ export const actions: Record<ActionId, Action> = {
   clipPaste: {
     run: () => {
       const clip = useClipboard.getState().clip;
-      if (!clip) return ops().toast(i18n.t("status.clipEmpty"));
+      if (!clip) return ops().toast(i18n.t("status.clipEmpty"), "warning");
       const s = panels();
       const tab = s.activeTab(s.activeSide);
       if (tab.location.kind === "archive")
-        return ops().toast(i18n.t("status.archiveReadOnly"));
+        return ops().toast(i18n.t("status.archiveReadOnly"), "warning");
       // Cut and pasted back where it came from: nothing to move. The cut
       // stays on the clipboard for a paste somewhere else.
       if (
         clip.move &&
         alreadyIn(clip.location, clip.items.map((e) => e.path), tab.location, tab.path)
       )
-        return ops().toast(i18n.t("status.moveSameFolder"), "error");
+        return ops().toast(i18n.t("status.moveSameFolder"), "warning");
       ops().copy({
         src: clip.location,
         sources: clip.items.map((e) => ({ path: e.path, isDir: e.isDir, isSymlink: e.isSymlink })),
@@ -272,7 +285,7 @@ export const actions: Record<ActionId, Action> = {
       const s = panels();
       const side = s.activeSide;
       const entry = s.visible(side)[s.activeTab(side).cursor];
-      if (!entry) return ops().toast(i18n.t("status.nothingSelected"));
+      if (!entry) return ops().toast(i18n.t("status.nothingSelected"), "warning");
       dialogs().open({ type: "rename", side, entry });
     },
   },
@@ -280,7 +293,7 @@ export const actions: Record<ActionId, Action> = {
   multiRename: {
     run: () => {
       const { side, items } = activeTargets();
-      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"), "warning");
       dialogs().open({ type: "multiRename", side, items });
     },
   },
@@ -298,7 +311,7 @@ export const actions: Record<ActionId, Action> = {
       const le = l.entry;
       const re = r.entry;
       if (!le || !re || le.isDir || re.isDir) {
-        return ops().toast(i18n.t("compare.needTwo"));
+        return ops().toast(i18n.t("compare.needTwo"), "warning");
       }
       dialogs().open({
         type: "compare",
@@ -311,7 +324,7 @@ export const actions: Record<ActionId, Action> = {
   copyPath: {
     run: () => {
       const { items } = activeTargets();
-      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"), "warning");
       copyText(items.map((e) => e.path).join("\n"));
       ops().toast(i18n.t("status.pathCopied", { count: items.length }));
     },
@@ -351,8 +364,8 @@ export const actions: Record<ActionId, Action> = {
     run: () => {
       const { side, tab, items } = activeTargets();
       if (tab.location.kind === "archive")
-        return ops().toast(i18n.t("status.archiveReadOnly"));
-      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+        return ops().toast(i18n.t("status.archiveReadOnly"), "warning");
+      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"), "warning");
       const remote = tab.location.kind === "sftp";
       // Local trash is restorable: do it without a dialog, like Finder.
       if (!remote) {
@@ -371,8 +384,8 @@ export const actions: Record<ActionId, Action> = {
     run: () => {
       const { tab, items } = activeTargets();
       if (!isTrashDir(tab.location, tab.path, useSettings.getState().trashDir))
-        return ops().toast(i18n.t("status.notInTrash"));
-      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+        return ops().toast(i18n.t("status.notInTrash"), "warning");
+      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"), "warning");
       void ops().run(
         i18n.t("action.restore"),
         { op: "restore", items: items.map((e) => e.path) },
@@ -389,8 +402,8 @@ export const actions: Record<ActionId, Action> = {
     run: () => {
       const { side, tab, items } = activeTargets();
       if (tab.location.kind === "archive")
-        return ops().toast(i18n.t("status.archiveReadOnly"));
-      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+        return ops().toast(i18n.t("status.archiveReadOnly"), "warning");
+      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"), "warning");
       dialogs().open({
         type: "confirmDelete",
         side,
@@ -403,8 +416,8 @@ export const actions: Record<ActionId, Action> = {
   compress: {
     run: () => {
       const { side, tab, items } = activeTargets();
-      if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
-      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+      if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"), "warning");
+      if (items.length === 0) return ops().toast(i18n.t("status.nothingSelected"), "warning");
       const other = panels().otherSide(side);
       dialogs().open({
         type: "compress",
@@ -418,11 +431,11 @@ export const actions: Record<ActionId, Action> = {
   extract: {
     run: () => {
       const { side, tab, items } = activeTargets();
-      if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
+      if (tab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"), "warning");
       const archives = items.filter((e) => !e.isDir && ARCHIVE_RE.test(e.name));
-      if (archives.length === 0) return ops().toast(i18n.t("status.nothingSelected"));
+      if (archives.length === 0) return ops().toast(i18n.t("status.nothingSelected"), "warning");
       const otherTab = panels().activeTab(panels().otherSide(side));
-      if (otherTab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"));
+      if (otherTab.location.kind !== "local") return ops().toast(i18n.t("panel2.localOnly"), "warning");
       void ops().run(
         i18n.t("action.extract"),
         { op: "extract", archives: archives.map((e) => e.path), destDir: otherTab.path },
@@ -472,7 +485,7 @@ export const actions: Record<ActionId, Action> = {
   },
 
   openSettings: {
-    run: () => dialogs().open({ type: "settings", section: "hotkeys" }),
+    run: () => dialogs().open({ type: "settings", section: "general" }),
   },
 
   // Show the Trash's / Desktop's contents in the active panel.

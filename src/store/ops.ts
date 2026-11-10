@@ -46,15 +46,19 @@ export interface PendingConflict {
 interface Toast {
   id: number;
   text: string;
-  kind: "info" | "error";
+  kind: ToastKind;
 }
+
+/** info: something happened; warning: a request was refused or needs a
+ *  second look; error: an operation failed. */
+export type ToastKind = "info" | "warning" | "error";
 
 interface OpsStore {
   jobs: Job[];
   pausedAll: boolean;
   conflict: PendingConflict | null;
   toasts: Toast[];
-  toast: (text: string, kind?: "info" | "error") => void;
+  toast: (text: string, kind?: ToastKind) => void;
   dismissToast: (id: number) => void;
   /** Start right away (parallel). */
   run: (label: string, request: OpRequest, done?: (e: DoneEvent) => void) => void;
@@ -255,7 +259,7 @@ export const useOps = create<OpsStore>((set, get) => {
     toast: (text, kind = "info") => {
       const id = toastSeq++;
       set((s) => ({ toasts: [...s.toasts, { id, text, kind }] }));
-      setTimeout(() => get().dismissToast(id), kind === "error" ? 8000 : 4000);
+      setTimeout(() => get().dismissToast(id), kind === "info" ? 4000 : kind === "warning" ? 6000 : 8000);
     },
 
     dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),

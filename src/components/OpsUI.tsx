@@ -1,7 +1,15 @@
-import { Pause, Play, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { CircleX, Info, Pause, Play, TriangleAlert, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { ToastKind } from "../store/ops";
 import { useOps } from "../store/ops";
 import { Icon } from "./icons";
+
+const TOAST_ICON: Record<ToastKind, LucideIcon> = {
+  info: Info,
+  warning: TriangleAlert,
+  error: CircleX,
+};
 
 function formatEta(sec: number | null): string {
   if (sec === null) return "";
@@ -67,9 +75,11 @@ export function OpsUI() {
             <div
               key={toast.id}
               className={`toast ${toast.kind}`}
+              role={toast.kind === "info" ? "status" : "alert"}
               onClick={() => ops().dismissToast(toast.id)}
             >
-              {toast.text}
+              <Icon of={TOAST_ICON[toast.kind]} size={16} className="toast-icon" />
+              <span className="toast-text">{toast.text}</span>
             </div>
           ))}
         </div>

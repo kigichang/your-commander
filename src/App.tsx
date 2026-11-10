@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useRef } from "react";
 import { ContextMenu } from "./components/ContextMenu";
 import { Dialogs } from "./components/Dialogs";
@@ -6,6 +7,7 @@ import { FKeyBar } from "./components/FKeyBar";
 import { OpsUI } from "./components/OpsUI";
 import { Panel } from "./components/Panel";
 import { Toolbar } from "./components/Toolbar";
+import { actions } from "./keymap/actions";
 import { useKeyboard } from "./keymap/useKeyboard";
 import { dragRegion } from "./lib/platform";
 import { initFileDrop } from "./store/fileDrop";
@@ -78,6 +80,19 @@ export default function App() {
       if (gone) fn();
       else unlisten = fn;
     })();
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // App menu → Settings… (⌘,), sent to this window only when it is in front.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let gone = false;
+    void getCurrentWebviewWindow()
+      .listen("menu:settings", () => actions.openSettings.run())
+      .then((fn) => (gone ? fn() : (unlisten = fn)));
     return () => {
       gone = true;
       unlisten?.();

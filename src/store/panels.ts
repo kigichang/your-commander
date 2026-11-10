@@ -27,7 +27,30 @@ export interface TabState {
   sortKey: SortKey;
   sortDir: 1 | -1;
   filter: string;
+  /** Back/forward history (in memory only, never persisted). */
+  back: HistEntry[];
+  fwd: HistEntry[];
 }
+
+/** A place a tab has been, for Back/Forward. */
+export interface HistEntry {
+  location: Location;
+  path: string;
+  remoteLabel: string | null;
+}
+
+const HISTORY_MAX = 50;
+
+const sameLocation = (a: Location, b: Location) =>
+  a.kind === b.kind &&
+  (a.kind !== "sftp" || a.connId === (b as typeof a).connId) &&
+  (a.kind !== "archive" || a.archive === (b as typeof a).archive);
+
+const histOf = (t: TabState): HistEntry => ({
+  location: t.location,
+  path: t.path,
+  remoteLabel: t.remoteLabel,
+});
 
 export type ColKey = "ext" | "size" | "date";
 export type ColWidths = Record<ColKey, number>;
@@ -60,6 +83,8 @@ function newTab(location: Location, path: string, remoteLabel: string | null = n
     sortKey: "name",
     sortDir: 1,
     filter: "",
+    back: [],
+    fwd: [],
   };
 }
 
@@ -79,7 +104,16 @@ interface PanelsStore {
   otherSide: (side?: Side) => Side;
 
   setActiveSide: (side: Side) => void;
-  navigate: (side: Side, path: string, location?: Location, remoteLabel?: string | null) => Promise<void>;
+  /** `history: false` leaves the Back/Forward stacks alone (goBack/goForward). */
+  navigate: (
+    side: Side,
+    path: string,
+    location?: Location,
+    remoteLabel?: string | null,
+    opts?: { history?: false },
+  ) => Promise<void>;
+  goBack: (side: Side) => void;
+  goForward: (side: Side) => void;
   refresh: (side: Side, opts?: { silent?: boolean }) => Promise<void>;
   up: (side: Side) => void;
   setCursor: (side: Side, index: number, opts?: { anchor?: boolean }) => void;
@@ -289,10 +323,16 @@ export const usePanels = create<PanelsStore>((set, get) => ({
 
   setActiveSide: (side) => set({ activeSide: side }),
 
-  navigate: async (side, path, location, remoteLabel) => {
+  navigate: async (side, path, location, remoteLabel, opts) => {
     const tab = get().activeTab(side);
     if (!tab) return;
     const loc = location ?? tab.location;
+    // Recorded up front, so a folder that fails to list is still a step back.
+    const moved = path !== tab.path || !sameLocation(loc, tab.location);
+    const history =
+      moved && opts?.history !== false
+        ? { back: [...tab.back, histOf(tab)].slice(-HISTORY_MAX), fwd: [] }
+        : {};
     const seq = ++listingSeq;
     latestListing.set(tab.id, seq);
     latestNavigate.set(tab.id, seq);
@@ -305,6 +345,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
         loading: true,
         error: null,
         filter: "",
+        ...history,
       }),
     }));
     try {
@@ -387,6 +428,32 @@ export const usePanels = create<PanelsStore>((set, get) => ({
         panels: updateTab(s.panels, side, tab.id, { loading: false, error: String(e) }),
       }));
     }
+  },
+
+  goBack: (side) => {
+    const tab = get().activeTab(side);
+    const prev = tab?.back.at(-1);
+    if (!prev) return;
+    set((s) => ({
+      panels: updateTab(s.panels, side, tab.id, {
+        back: tab.back.slice(0, -1),
+        fwd: [...tab.fwd, histOf(tab)],
+      }),
+    }));
+    void get().navigate(side, prev.path, prev.location, prev.remoteLabel, { history: false });
+  },
+
+  goForward: (side) => {
+    const tab = get().activeTab(side);
+    const next = tab?.fwd.at(-1);
+    if (!next) return;
+    set((s) => ({
+      panels: updateTab(s.panels, side, tab.id, {
+        fwd: tab.fwd.slice(0, -1),
+        back: [...tab.back, histOf(tab)],
+      }),
+    }));
+    void get().navigate(side, next.path, next.location, next.remoteLabel, { history: false });
   },
 
   up: (side) => {
@@ -669,10 +736,12 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   disconnectSftp: (connId) => {
     void ipc.sftpDisconnect(connId);
     const home = useSettings.getState().home ?? "/";
+    // History entries on that connection could never be reopened.
+    const live = (h: HistEntry) => !(h.location.kind === "sftp" && h.location.connId === connId);
     set((s) => ({
       panels: s.panels.map((panel) => ({
         ...panel,
-        tabs: panel.tabs.map((tab) =>
+        tabs: panel.tabs.map((t) => ({ ...t, back: t.back.filter(live), fwd: t.fwd.filter(live) })).map((tab) =>
           tab.location.kind === "sftp" && tab.location.connId === connId
             ? {
                 ...tab,

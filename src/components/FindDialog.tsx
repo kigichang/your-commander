@@ -36,7 +36,7 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
   const { t } = useTranslation();
   const close = useDialogs((s) => s.close);
   const home = useSettings((s) => s.home);
-  const [mask, setMask] = useState("*.*");
+  const [mask, setMask] = useState(d.mask ?? "*.*");
   const [inDir, setInDir] = useState(
     d.location.kind === "local" ? displayPath(d.dir, home) : d.dir,
   );

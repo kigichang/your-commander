@@ -103,7 +103,7 @@ function CopyMoveDialog({ d }: { d: Extract<Dialog, { type: "copyMove" }> }) {
       d.move &&
       alreadyIn(srcTab.location, d.items.map((e) => e.path), destLocation, dest)
     ) {
-      useOps.getState().toast(t("status.moveSameFolder"), "error");
+      useOps.getState().toast(t("status.moveSameFolder"), "warning");
       return;
     }
     useOps.getState().copy({

@@ -42,6 +42,10 @@
   /* Finder-style split: window chrome a lighter black, file lists deep. */
   --color-chrome: #222326;
   --color-well: #0c0d0e;
+  /* Finder-style toolbar capsules and form controls (Settings). */
+  --capsule-bg: #2e2f33;
+  --capsule-on: #48494e;
+  --capsule-border: rgba(255, 255, 255, 0.07);
   /* Finder-style selection: blue in the active panel, grey elsewhere. */
   --color-select: #2a5cd6;
   --color-select-text: #ffffff;
@@ -50,6 +54,8 @@
   --color-accent: #f5f5f6;
   --color-accent-2: #b7b8bd;
   --color-danger: #e08a8a;
+  --color-warning: #e3b555;
+  --color-info: #6f9cf0;
   --color-divider: color-mix(in srgb, #dcdde0 15%, transparent);
 
   --color-neutral-300: #cbccd0;
@@ -100,6 +106,9 @@
   --color-surface: #ffffff;
   --color-chrome: #e9e9eb;
   --color-well: #ffffff;
+  --capsule-bg: #ffffff;
+  --capsule-on: #e2e2e5;
+  --capsule-border: rgba(0, 0, 0, 0.09);
   --color-select: #0a64e0;
   --color-select-text: #ffffff;
   --color-select-inactive: #dcdcdf;
@@ -107,6 +116,8 @@
   --color-accent: #1b1c1f;
   --color-accent-2: #5a5b61;
   --color-danger: #b43d3d;
+  --color-warning: #a86a00;
+  --color-info: #0a64e0;
   --color-divider: color-mix(in srgb, #202124 14%, transparent);
 
   --color-neutral-300: #55565b;

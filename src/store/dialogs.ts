@@ -8,7 +8,7 @@ export type Dialog =
   | { type: "newFolder"; side: Side }
   | { type: "rename"; side: Side; entry: FsEntry }
   | { type: "multiRename"; side: Side; items: FsEntry[] }
-  | { type: "find"; side: Side; location: Location; dir: string }
+  | { type: "find"; side: Side; location: Location; dir: string; mask?: string }
   | { type: "settings"; section?: "general" | "hotkeys" }
   | { type: "palette" }
   | {

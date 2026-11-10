@@ -48,8 +48,9 @@ fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
         .build()
 }
 
-/// Add "New Window" (⌘N) to the top of the default menu's File submenu.
-fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+/// Extend the default menu: "New Window" (⌘N) at the top of File, and on
+/// macOS "Settings…" (⌘,) in the app menu, where Mac apps keep it.
+fn extend_default_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem};
     let Some(menu) = app.menu() else {
         return Ok(());
@@ -61,11 +62,19 @@ fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .unwrap()
         .language
         .clone();
-    let title = if lang.as_deref().is_some_and(|l| l.starts_with("zh")) {
-        "開新視窗"
-    } else {
-        "New Window"
-    };
+    let zh = lang.as_deref().is_some_and(|l| l.starts_with("zh"));
+    let title = if zh { "開新視窗" } else { "New Window" };
+
+    // The app menu is the first submenu; its default layout is About,
+    // separator, Services, …, so Settings goes right after the separator.
+    #[cfg(target_os = "macos")]
+    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+        let label = if zh { "設定…" } else { "Settings…" };
+        let settings = MenuItem::with_id(app, "settings", label, true, Some("CmdOrCtrl+,"))?;
+        app_menu.insert(&settings, 2)?;
+        app_menu.insert(&PredefinedMenuItem::separator(app)?, 3)?;
+    }
+
     for item in menu.items()? {
         if let MenuItemKind::Submenu(sub) = item
             && sub.text()? == "File"
@@ -121,12 +130,22 @@ pub fn run() {
                 let _ = window.set_size(LogicalSize::new(w, h));
             }
             dock::install(app.handle());
-            add_new_window_menu(app.handle())?;
+            extend_default_menu(app.handle())?;
             Ok(())
         })
         .on_menu_event(|app, event| {
             if event.id() == "new-window" {
                 let _ = commands::system::open_new_window(app);
+            } else if event.id() == "settings" {
+                // Only the window in front opens its Settings.
+                use tauri::Emitter;
+                if let Some(win) = app
+                    .webview_windows()
+                    .into_values()
+                    .find(|w| w.is_focused().unwrap_or(false))
+                {
+                    let _ = app.emit_to(win.label(), "menu:settings", ());
+                }
             }
         })
         .on_window_event(|window, event| match event {
