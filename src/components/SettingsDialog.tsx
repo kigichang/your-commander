@@ -77,6 +77,7 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
               chord: prettyChord(chord),
               action: t(`action.${owner}`),
             }),
+            "warning",
           );
         }
         setCapture(null);
