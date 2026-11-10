@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { listFontFamilies } from "../ipc/commands";
+import { listFontFamilies, officeTools } from "../ipc/commands";
 import { isMac } from "../lib/platform";
 import type { ActionId } from "../keymap/actions";
 import { actions } from "../keymap/actions";
@@ -327,7 +327,61 @@ function PluginsPane() {
           <div className="settings-note">{t("settings.plantumlJarNote")}</div>
         </>
       )}
+      <OfficeSettings />
     </div>
+  );
+}
+
+/** Office previews: LibreOffice status, its path, and whether the modern
+ *  formats go through it too. */
+function OfficeSettings() {
+  const { t } = useTranslation();
+  const config = useSettings((s) => s.config);
+  const custom = config?.office_soffice ?? "";
+  const [soffice, setSoffice] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    let gone = false;
+    // Typing a path re-checks it; a short pause keeps that to one lookup.
+    const timer = setTimeout(() => {
+      void officeTools(custom)
+        .then((r) => !gone && setSoffice(r.soffice))
+        .catch(() => !gone && setSoffice(null));
+    }, 300);
+    return () => {
+      gone = true;
+      clearTimeout(timer);
+    };
+  }, [custom]);
+
+  return (
+    <>
+      <label>{t("settings.office")}</label>
+      <div className="settings-note office-status">
+        {soffice === undefined
+          ? "…"
+          : soffice
+            ? t("settings.officeFound", { path: soffice })
+            : t("settings.officeMissing")}
+      </div>
+      <label>{t("settings.officeSofficePath")}</label>
+      <input
+        className="wide-in"
+        value={custom}
+        spellCheck={false}
+        placeholder={t("settings.officeSofficeAuto")}
+        onChange={(e) => useSettings.getState().save({ office_soffice: e.target.value })}
+      />
+      <label className="check">
+        <input
+          type="checkbox"
+          disabled={!soffice}
+          checked={!!soffice && (config?.office_use_lo ?? false)}
+          onChange={(e) => useSettings.getState().save({ office_use_lo: e.target.checked })}
+        />
+        {t("settings.officeUseLo")}
+      </label>
+      <div className="settings-note">{t("settings.officeNote")}</div>
+    </>
   );
 }
 

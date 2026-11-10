@@ -117,6 +117,12 @@ pub struct Config {
     /// When the webview's decoder can't render a video, show a still frame
     /// extracted with ffmpeg instead of just the failure message.
     pub qv_ffmpeg_poster: bool,
+    /// Explicit LibreOffice `soffice` binary for Office previews; empty =
+    /// auto-detect (LibreOffice.app, the usual Linux paths, PATH).
+    pub office_soffice: String,
+    /// Convert .docx/.xlsx/.pptx with LibreOffice too (the legacy formats
+    /// always go through it when it is installed).
+    pub office_use_lo: bool,
     /// Column widths [ext, size, date] in px; Name takes the rest.
     pub left_cols: Vec<u32>,
     pub right_cols: Vec<u32>,
@@ -165,6 +171,8 @@ impl Default for Config {
             qv_autoplay: false,
             qv_mute: false,
             qv_ffmpeg_poster: false,
+            office_soffice: String::new(),
+            office_use_lo: false,
             left_cols: Vec::new(),
             right_cols: Vec::new(),
             window_size: None,

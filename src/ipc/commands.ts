@@ -12,6 +12,7 @@ import type {
   SshConfigHost,
   SyncRow,
   VolumeInfo,
+  Workbook,
 } from "./types";
 
 export const listDir = (location: Location, path: string) =>
@@ -53,6 +54,23 @@ export const readPreview = async (
   invoke("read_preview", { location, path, maxBytes });
 
 /** JPEG frame extracted with ffmpeg: the static video-preview fallback. */
+/** Every sheet of a workbook as display strings (capped per sheet). */
+export const officeSheets = (location: Location, path: string) =>
+  invoke<Workbook>("office_sheets", { location, path });
+
+/** The LibreOffice binary Office previews would use, if installed. */
+export const officeTools = (sofficePath: string) =>
+  invoke<{ soffice: string | null }>("office_tools", { sofficePath });
+
+/** An Office file converted to PDF by LibreOffice. Rejects with
+ *  "superseded" when a newer conversion was asked for meanwhile. */
+export const officeToPdf = async (
+  location: Location,
+  path: string,
+  size: number,
+  modified: number,
+): Promise<ArrayBuffer> => invoke("office_to_pdf", { location, path, size, modified });
+
 export const videoPoster = async (path: string): Promise<ArrayBuffer> =>
   invoke("video_poster", { path });
 

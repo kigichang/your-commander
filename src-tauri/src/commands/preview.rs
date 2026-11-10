@@ -53,24 +53,49 @@ pub async fn read_preview(
     max_bytes: u64,
 ) -> Result<Response, String> {
     let resolved = state.resolve(&location)?;
-    let bytes = blocking(move || -> Result<Vec<u8>, String> {
-        match resolved {
-            Resolved::Local => {
-                let mut file = std::fs::File::open(&path)
-                    .map_err(|e| format!("{}: {e}", path.display()))?;
-                let mut buf = Vec::new();
-                file.by_ref()
-                    .take(max_bytes)
-                    .read_to_end(&mut buf)
-                    .map_err(|e| format!("{}: {e}", path.display()))?;
-                Ok(buf)
-            }
-            Resolved::Sftp(c) => c.read_limited(&path, max_bytes),
-            Resolved::Archive(archive) => {
-                archive_fs::read_entry(&archive, &path.to_string_lossy(), max_bytes)
-            }
-        }
-    })
-    .await?;
+    let bytes = blocking(move || read_bytes(resolved, &path, max_bytes)).await?;
     Ok(Response::new(bytes))
+}
+
+/// Up to `max_bytes` of a file wherever it lives: local disk, SFTP or
+/// inside an archive.
+pub(crate) fn read_bytes(
+    resolved: Resolved,
+    path: &std::path::Path,
+    max_bytes: u64,
+) -> Result<Vec<u8>, String> {
+    match resolved {
+        Resolved::Local => {
+            let mut file =
+                std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let mut buf = Vec::new();
+            file.by_ref()
+                .take(max_bytes)
+                .read_to_end(&mut buf)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            Ok(buf)
+        }
+        Resolved::Sftp(c) => c.read_limited(path, max_bytes),
+        Resolved::Archive(archive) => {
+            archive_fs::read_entry(&archive, &path.to_string_lossy(), max_bytes)
+        }
+    }
+}
+
+/// The whole file, or an error when it is bigger than `max_bytes` (a
+/// truncated workbook or document would not parse anyway).
+pub(crate) fn read_whole(
+    resolved: Resolved,
+    path: &std::path::Path,
+    max_bytes: u64,
+) -> Result<Vec<u8>, String> {
+    let buf = read_bytes(resolved, path, max_bytes + 1)?;
+    if buf.len() as u64 > max_bytes {
+        return Err(format!(
+            "{}: larger than {} MB, too big to preview",
+            path.display(),
+            max_bytes / (1024 * 1024)
+        ));
+    }
+    Ok(buf)
 }
