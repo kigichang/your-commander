@@ -14,6 +14,9 @@ export type ActionId =
   | "switchPanel"
   | "enter"
   | "up"
+  | "goBack"
+  | "goForward"
+  | "focusSearch"
   | "cursorUp"
   | "cursorDown"
   | "cursorLeft"
@@ -171,6 +174,16 @@ export const actions: Record<ActionId, Action> = {
   },
 
   up: { run: () => panels().up(panels().activeSide) },
+  goBack: { run: () => panels().goBack(panels().activeSide) },
+  goForward: { run: () => panels().goForward(panels().activeSide) },
+  // The toolbar's search field (live filter of the active panel).
+  focusSearch: {
+    run: () => {
+      const el = document.querySelector<HTMLInputElement>(".search-cap input");
+      el?.focus();
+      el?.select();
+    },
+  },
 
   cursorUp: {
     run: (mods) =>
@@ -472,7 +485,7 @@ export const actions: Record<ActionId, Action> = {
   },
 
   openSettings: {
-    run: () => dialogs().open({ type: "settings", section: "hotkeys" }),
+    run: () => dialogs().open({ type: "settings", section: "general" }),
   },
 
   // Show the Trash's / Desktop's contents in the active panel.

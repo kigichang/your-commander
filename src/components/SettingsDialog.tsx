@@ -1,6 +1,21 @@
 import { getName, getTauriVersion, getVersion } from "@tauri-apps/api/app";
 import clsx from "clsx";
-import { ChevronDown, ChevronUp, GripVertical, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Columns2,
+  Eye,
+  GripVertical,
+  Info,
+  Keyboard,
+  Palette,
+  Puzzle,
+  Settings,
+  Star,
+  Wrench,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listFontFamilies } from "../ipc/commands";
@@ -19,12 +34,23 @@ import { Icon } from "./icons";
 import { Overlay } from "./Overlay";
 import appIcon from "../../src-tauri/icons/128x128@2x.png";
 
-const SECTIONS = ["general", "appearance", "favorites", "quickview", "hotkeys", "panes", "tools", "plugins", "about"] as const;
+/** Finder-style toolbar tabs: icon over label. */
+const SECTIONS: ReadonlyArray<{ id: string; icon: LucideIcon }> = [
+  { id: "general", icon: Settings },
+  { id: "appearance", icon: Palette },
+  { id: "favorites", icon: Star },
+  { id: "quickview", icon: Eye },
+  { id: "hotkeys", icon: Keyboard },
+  { id: "panes", icon: Columns2 },
+  { id: "tools", icon: Wrench },
+  { id: "plugins", icon: Puzzle },
+  { id: "about", icon: Info },
+];
 
 export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }> }) {
   const { t } = useTranslation();
   const close = useDialogs((s) => s.close);
-  const [section, setSection] = useState<string>(d.section ?? "hotkeys");
+  const [section, setSection] = useState<string>(d.section ?? "general");
   // Which action is recording a new chord, and which chord it replaces.
   const [capture, setCapture] = useState<{ action: ActionId; replace?: string } | null>(null);
 
@@ -63,19 +89,27 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
   // While a chord is being recorded, the handler above owns Escape.
   return (
     <Overlay onClose={close} onEscape={() => !capture && close()} className="wide settings">
-      <h2>{t("settings.title")}</h2>
-      <div className="settings-grid">
-        <nav className="settings-nav">
-          {SECTIONS.map((s) => (
-            <button
-              key={s}
-              className={clsx(section === s && "on")}
-              onClick={() => setSection(s)}
-            >
-              {t(`settings.sec_${s}`)}
-            </button>
-          ))}
-        </nav>
+      <header className="settings-head">
+        <button className="settings-close" title={t("settings.done")} onClick={close}>
+          <Icon of={X} size={13} />
+        </button>
+        <h2>{t("settings.title")}</h2>
+      </header>
+      <nav className="settings-tabs" role="tablist">
+        {SECTIONS.map(({ id, icon }) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={section === id}
+            className={clsx(section === id && "on")}
+            onClick={() => setSection(id)}
+          >
+            <Icon of={icon} size={22} />
+            <span>{t(`settings.sec_${id}`)}</span>
+          </button>
+        ))}
+      </nav>
+      <div className="settings-body">
         {section === "general" ? (
           <GeneralPane />
         ) : section === "appearance" ? (
@@ -95,11 +129,6 @@ export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }>
         ) : (
           <HotkeysPane capture={capture} setCapture={setCapture} />
         )}
-      </div>
-      <div className="buttons">
-        <button className="btn primary" onClick={close}>
-          {t("settings.done")}
-        </button>
       </div>
     </Overlay>
   );

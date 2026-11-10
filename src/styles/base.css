@@ -96,6 +96,136 @@ input:focus {
   align-self: stretch;
 }
 
+/* Finder-style capsule: a pill of icon buttons with hairline separators. */
+.cap {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 30px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--capsule-bg);
+  box-shadow: inset 0 0 0 1px var(--capsule-border);
+}
+.cap > button,
+.tb-more > button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 24px;
+  border-radius: 999px;
+  color: var(--text-muted);
+}
+/* Hairline between neighbours (not inside the segmented view switch). */
+.cap:not(.cap-seg):not(.search-cap) > * + *::before {
+  content: "";
+  position: absolute;
+  left: -0.5px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: var(--color-divider);
+}
+.tb-more {
+  position: relative;
+  display: inline-flex;
+}
+.cap > button:hover:not(:disabled),
+.tb-more > button:hover {
+  color: var(--color-text);
+  background: var(--hover-tint);
+}
+.cap > button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.cap-seg {
+  gap: 2px;
+}
+.cap-seg > button {
+  width: 38px;
+}
+.cap > button.on,
+.tb-more > button.on,
+.cap-seg > button.on:hover {
+  background: var(--capsule-on);
+  color: var(--color-text);
+}
+
+/* "…" dropdown: the drive-menu look, right-aligned rows with chords. */
+.menu.tb-menu {
+  top: calc(100% + 8px);
+  min-width: 240px;
+  max-height: none;
+}
+.menu.tb-menu .item {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  white-space: nowrap;
+  font-size: calc(12.5px * var(--font-scale));
+}
+.menu.tb-menu .tb-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.menu.tb-menu .tb-check {
+  display: inline-flex;
+  width: 14px;
+  color: var(--color-text);
+}
+.menu.tb-menu .tb-chord {
+  font-size: calc(10.5px * var(--font-scale));
+  color: var(--text-faint);
+}
+
+/* Search: a wider capsule holding a borderless input. */
+.search-cap {
+  flex: 0 1 260px;
+  min-width: 120px;
+  gap: 6px;
+  padding: 0 8px 0 11px;
+  color: var(--text-muted);
+  cursor: text;
+}
+.search-cap input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-text);
+  font-size: calc(13px * var(--font-scale));
+}
+.search-cap input::placeholder {
+  color: var(--text-faint);
+}
+.search-cap:focus-within {
+  box-shadow:
+    inset 0 0 0 1px var(--capsule-border),
+    0 0 0 3px color-mix(in srgb, var(--color-select) 45%, transparent);
+}
+.search-cap .search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--text-faint);
+  color: var(--color-chrome);
+}
+.search-cap .search-clear:hover {
+  background: var(--text-muted);
+}
+
 .tbtn {
   display: inline-flex;
   align-items: center;
@@ -1640,77 +1770,215 @@ svg.li {
 /* ── Settings dialog ───────────────────────────────────────────────── */
 
 .dialog.settings {
-  width: 720px;
-  max-width: 720px;
-}
-.settings-grid {
-  display: grid;
-  grid-template-columns: 140px 1fr;
-  gap: var(--space-6);
-  min-height: 380px;
-}
-.settings-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  border-right: 1px solid var(--color-divider);
-  padding-right: var(--space-3);
+  width: 780px;
+  min-width: 0;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 64px);
+  padding: 0;
+  overflow: hidden;
+  background: var(--color-chrome);
 }
-.settings-nav button {
-  text-align: left;
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
+/* Window-style title row: close at the left, title centered. */
+.settings-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  flex: none;
+}
+.dialog.settings .settings-head h2 {
+  margin: 0;
   font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
   color: var(--text-muted);
 }
-.settings-nav button:hover:not(:disabled) {
+.settings-close {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: var(--text-faint);
+}
+.settings-close:hover {
   background: var(--hover-tint);
   color: var(--color-text);
 }
-.settings-nav button.on {
-  background: var(--cursor-tint);
-  color: var(--color-accent);
+/* Finder Settings toolbar: icon over label, the current one in a tile. */
+.settings-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  padding: 2px var(--space-3) var(--space-3);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-divider);
+  flex: none;
 }
-.settings-nav button:disabled {
-  opacity: 0.4;
+.settings-tabs button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  gap: 3px;
+  min-width: 58px;
+  padding: 6px 8px 5px;
+  border-radius: var(--radius-md);
+  font-size: calc(11px * var(--font-scale));
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.settings-tabs button:hover:not(.on) {
+  background: var(--hover-tint);
+  color: var(--color-text);
+}
+.settings-tabs button.on {
+  background: var(--capsule-on);
+  color: color-mix(in srgb, var(--color-select) 70%, #ffffff);
+}
+:root[data-theme="light"] .settings-tabs button.on {
+  background: color-mix(in srgb, var(--color-text) 9%, transparent);
+  color: var(--color-select);
+}
+.settings-body {
+  flex: 1;
+  min-height: 300px;
+  overflow-y: auto;
+  padding: var(--space-6) 32px 28px;
+  background: var(--color-surface);
 }
 .settings-pane {
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
+/* Section heading, Finder's "Show these items on the desktop:". */
 .settings-pane > label:not(.check) {
-  font-size: calc(11px * var(--font-scale));
-  color: var(--text-faint);
-  margin: var(--space-3) 0 3px;
+  font-size: calc(13px * var(--font-scale));
+  color: var(--color-text);
+  margin: 22px 0 8px;
 }
 .settings-pane > label:first-child {
   margin-top: 0;
 }
-.settings-pane select {
-  align-self: flex-start;
-  min-width: 180px;
-}
 .settings-pane .check {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: calc(12.5px * var(--font-scale));
-  color: var(--text-muted);
-  margin-top: var(--space-4);
+  gap: 9px;
+  font-size: calc(13px * var(--font-scale));
+  color: var(--color-text);
+  margin-top: 12px;
 }
-.settings-pane .check input {
-  accent-color: var(--color-accent);
+.settings-pane > .check:first-child,
+.settings-pane > label:not(.check) + .check {
+  margin-top: 0;
+}
+/* Options listed under a heading sit indented, as in Finder. */
+.settings-pane > label:not(.check) ~ .check {
+  margin-left: 22px;
+}
+.settings-pane .check + .check {
+  margin-top: 10px;
+}
+
+/* Finder controls: filled blue checkbox, rounded pop-up button. */
+.dialog.settings input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: var(--capsule-on);
+  box-shadow: inset 0 0 0 1px var(--capsule-border);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+}
+.dialog.settings input[type="checkbox"]::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  background: var(--color-select-text);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.2 6.4l2.4 2.4 5.2-5.6' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.2 6.4l2.4 2.4 5.2-5.6' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  transform: scale(0);
+  transition: transform 80ms ease-out;
+}
+.dialog.settings input[type="checkbox"]:checked {
+  background: var(--color-select);
+  box-shadow: none;
+}
+.dialog.settings input[type="checkbox"]:checked::after {
+  transform: scale(1);
+}
+.dialog.settings input[type="checkbox"]:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.dialog.settings input[type="checkbox"]:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-select) 50%, transparent);
+  outline-offset: 1px;
+}
+.dialog.settings select {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  color: var(--color-text);
+  height: 30px;
+  padding: 0 32px 0 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14'%3E%3Cpath d='M2 5l3-3 3 3M2 9l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      right 11px center / 9px 13px no-repeat,
+    var(--capsule-on);
+  box-shadow: inset 0 0 0 1px var(--capsule-border);
+  cursor: pointer;
+}
+.dialog.settings select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-select) 50%, transparent);
+  outline-offset: 1px;
+}
+.settings-pane select {
+  align-self: flex-start;
+  min-width: 240px;
+}
+.settings-pane > label:not(.check) + select,
+.settings-pane > label:not(.check) + input {
+  margin-left: 22px;
 }
 .settings-pane .wide-in {
-  width: 100%;
+  width: auto;
+  align-self: stretch;
   font-family: var(--font-mono);
   font-size: calc(12px * var(--font-scale));
 }
 .settings-note {
-  font-size: calc(11px * var(--font-scale));
+  font-size: calc(11.5px * var(--font-scale));
   color: var(--text-faint);
-  margin-top: 4px;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+/* A note explaining the option just above it lines up with its text. */
+.settings-pane > .check + .settings-note {
+  margin-left: 27px;
+}
+.settings-pane > label:not(.check) ~ .check + .settings-note {
+  margin-left: 49px;
 }
 .about-pane {
   align-items: center;
