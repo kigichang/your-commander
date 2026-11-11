@@ -35,6 +35,7 @@ const defaultKeymap: Record<string, ActionId> = {
   F6: "move",
   F7: "newFolder",
   F8: "trash",
+  F9: "toggleCompact",
   "mod+Backspace": "trash",
   "mod+shift+Backspace": "deletePermanent",
 

@@ -54,6 +54,7 @@ export type ActionId =
   | "newVscodeHere"
   | "newZedHere"
   | "swap"
+  | "toggleCompact"
   | "toggleHidden"
   | "commandPalette"
   | "openSettings"
@@ -148,8 +149,8 @@ export const actions: Record<ActionId, Action> = {
     run: () => {
       const s = panels();
       const target = s.otherSide(s.activeSide);
-      // Never focus a pane that is showing the Quick View preview.
-      if (s.quickViewSide === target) return;
+      // Never focus a pane that is hidden or showing the Quick View preview.
+      if (s.compact || s.quickViewSide === target) return;
       s.setActiveSide(target);
     },
   },
@@ -471,6 +472,7 @@ export const actions: Record<ActionId, Action> = {
   newZedHere: { run: () => openHere("zed") },
 
   swap: { run: () => panels().swapPanels() },
+  toggleCompact: { run: () => panels().toggleCompact() },
 
   toggleHidden: {
     run: () => {

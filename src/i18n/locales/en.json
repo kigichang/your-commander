@@ -21,6 +21,7 @@
     "refresh": "Refresh",
     "settings": "Settings…",
     "fkeys": "F-keys without fn",
+    "compact": "Compact",
     "search": "Search",
     "searchHint": "Filter this folder · Enter: Find in subfolders · Esc: clear",
     "network": "Connect to server"
@@ -319,6 +320,7 @@
     "newVscodeHere": "New VSCode Here",
     "newZedHere": "New Zed Here",
     "swap": "Swap panels",
+    "toggleCompact": "Compact mode (hide right pane)",
     "toggleHidden": "Show/hide hidden files",
     "commandPalette": "Command palette",
     "openSettings": "Settings",

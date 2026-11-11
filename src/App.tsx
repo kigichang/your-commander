@@ -1,3 +1,4 @@
+import clsx from "clsx";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useRef } from "react";
@@ -7,6 +8,7 @@ import { FKeyBar } from "./components/FKeyBar";
 import { OpsUI } from "./components/OpsUI";
 import { Panel } from "./components/Panel";
 import { Toolbar } from "./components/Toolbar";
+import * as ipc from "./ipc/commands";
 import { actions } from "./keymap/actions";
 import { useKeyboard } from "./keymap/useKeyboard";
 import { dragRegion } from "./lib/platform";
@@ -22,6 +24,7 @@ export default function App() {
   useKeyboard();
   const panesRef = useRef<HTMLElement>(null);
   const splitRatio = useSettings((s) => s.config?.split_ratio ?? 0.5);
+  const compact = usePanels((s) => s.compact);
 
   // Drag writes the CSS var directly (no re-render per mousemove); the
   // ratio is persisted once on mouseup.
@@ -49,6 +52,15 @@ export default function App() {
     panesRef.current?.style.setProperty("--split", "0.5");
     useSettings.getState().save({ split_ratio: 0.5 });
   };
+
+  // Compact mode narrows the window to its minimum width; leaving it (F9,
+  // or Quick View bringing the right pane back) restores the old width.
+  const compactSeen = useRef(false);
+  useEffect(() => {
+    if (!compact && !compactSeen.current) return;
+    compactSeen.current = true;
+    void ipc.setCompactWindow(compact).catch(() => {});
+  }, [compact]);
 
   // Suppress the webview's browser context menu (Reload/Inspect…); text
   // inputs keep theirs for paste and spelling.
@@ -116,7 +128,7 @@ export default function App() {
         <Toolbar />
       </header>
       <main
-        className="panes"
+        className={clsx("panes", compact && "compact")}
         ref={panesRef}
         style={{ "--split": splitRatio } as React.CSSProperties}
       >

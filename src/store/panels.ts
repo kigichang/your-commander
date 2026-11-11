@@ -97,6 +97,9 @@ interface PanelsStore {
   quickViewSide: Side | null;
   /** Quick View shows a hex dump instead of the usual preview. */
   quickViewHex: boolean;
+  /** Compact mode: the right pane is hidden and the left one fills the
+   *  window. Session-only; opening Quick View turns it off. */
+  compact: boolean;
 
   init: () => Promise<void>;
   activeTab: (side: Side) => TabState;
@@ -144,6 +147,8 @@ interface PanelsStore {
   toggleQuickView: () => void;
   /** Opens Quick View in hex mode, or flips hex mode when it is open. */
   toggleQuickViewHex: () => void;
+  /** Hide/show the right pane. Hiding moves focus left and closes Quick View. */
+  toggleCompact: () => void;
   /** Close an SFTP connection and send every tab that used it back home. */
   disconnectSftp: (connId: number) => void;
 }
@@ -239,6 +244,7 @@ export const usePanels = create<PanelsStore>((set, get) => ({
   activeSide: 0,
   quickViewSide: null,
   quickViewHex: false,
+  compact: false,
 
   init: async () => {
     const settings = useSettings.getState();
@@ -718,18 +724,29 @@ export const usePanels = create<PanelsStore>((set, get) => ({
     if (idx >= 0) get().setCursor(side, idx);
   },
 
+  // Opening Quick View leaves compact mode: focus is on the left there, so
+  // the preview lands in the hidden right pane, which comes back.
   toggleQuickView: () => {
-    set((s) => ({
-      quickViewSide: s.quickViewSide === null ? s.otherSide(s.activeSide) : null,
-      quickViewHex: false,
-    }));
+    set((s) =>
+      s.quickViewSide === null
+        ? { quickViewSide: s.otherSide(s.activeSide), quickViewHex: false, compact: false }
+        : { quickViewSide: null, quickViewHex: false },
+    );
   },
 
   toggleQuickViewHex: () => {
     set((s) =>
       s.quickViewSide === null
-        ? { quickViewSide: s.otherSide(s.activeSide), quickViewHex: true }
+        ? { quickViewSide: s.otherSide(s.activeSide), quickViewHex: true, compact: false }
         : { quickViewHex: !s.quickViewHex },
+    );
+  },
+
+  toggleCompact: () => {
+    set((s) =>
+      s.compact
+        ? { compact: false }
+        : { compact: true, activeSide: 0, quickViewSide: null, quickViewHex: false },
     );
   },
 

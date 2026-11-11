@@ -64,6 +64,49 @@ pub async fn new_window(app: tauri::AppHandle) -> Result<(), String> {
     open_new_window(&app)
 }
 
+/// Compact mode (one pane): shrink the window to the minimum width,
+/// remembering the width it had; leaving compact mode gives it back. A
+/// fullscreen window is left alone; a maximized one is unmaximized first.
+#[tauri::command]
+pub fn set_compact_window(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    compact: bool,
+) -> Result<(), String> {
+    use tauri::LogicalSize;
+    let label = window.label().to_string();
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let size = window
+        .inner_size()
+        .map_err(|e| e.to_string())?
+        .to_logical::<f64>(scale);
+    if compact {
+        if window.is_fullscreen().unwrap_or(false) {
+            return Ok(());
+        }
+        if window.is_maximized().unwrap_or(false) {
+            window.unmaximize().map_err(|e| e.to_string())?;
+        }
+        if size.width <= MIN_WIDTH {
+            return Ok(());
+        }
+        state.compact_widths.lock().unwrap().insert(label, size.width);
+        window
+            .set_size(LogicalSize::new(MIN_WIDTH, size.height))
+            .map_err(|e| e.to_string())
+    } else {
+        let Some(width) = state.compact_widths.lock().unwrap().remove(&label) else {
+            return Ok(());
+        };
+        if window.is_fullscreen().unwrap_or(false) || size.width >= width {
+            return Ok(());
+        }
+        window
+            .set_size(LogicalSize::new(width, size.height))
+            .map_err(|e| e.to_string())
+    }
+}
+
 /// Quit by closing every window: each one's CloseRequested handler still
 /// runs (window size saved, fn-keys released), then the app exits.
 #[tauri::command]

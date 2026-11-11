@@ -21,6 +21,7 @@
     "refresh": "重新整理",
     "settings": "設定…",
     "fkeys": "F 鍵免按 fn",
+    "compact": "精簡",
     "search": "搜尋",
     "searchHint": "篩選此資料夾 · Enter：搜尋子資料夾 · Esc：清除",
     "network": "連線到伺服器"
@@ -319,6 +320,7 @@
     "newVscodeHere": "在此開新 VSCode",
     "newZedHere": "在此開新 Zed",
     "swap": "左右互換",
+    "toggleCompact": "精簡模式（隱藏右側面板）",
     "toggleHidden": "顯示／隱藏隱藏檔",
     "commandPalette": "指令面板",
     "openSettings": "設定",
