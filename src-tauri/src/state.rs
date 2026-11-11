@@ -71,6 +71,9 @@ pub struct AppState {
     pub plantuml_cache: Mutex<Lru<u64, Arc<String>, 64>>,
     /// LibreOffice conversions for Office previews (cache and gate).
     pub office: Arc<crate::commands::office::OfficeState>,
+    /// Per window label: the width (logical) it had before compact mode
+    /// shrank it, restored on leaving compact mode and saved on close.
+    pub compact_widths: Mutex<HashMap<String, f64>>,
 }
 
 impl AppState {

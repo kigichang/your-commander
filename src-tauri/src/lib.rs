@@ -158,8 +158,15 @@ pub fn run() {
                 if let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
                     let logical = size.to_logical::<f32>(scale);
                     let config_state = app.state::<AppState>();
+                    // Closed in compact mode: keep the full width for next time.
+                    let width = config_state
+                        .compact_widths
+                        .lock()
+                        .unwrap()
+                        .remove(window.label())
+                        .map_or(logical.width, |w| (w as f32).max(logical.width));
                     let mut config = config_state.config.lock().unwrap();
-                    config.window_size = Some((logical.width, logical.height));
+                    config.window_size = Some((width, logical.height));
                     config.save();
                 }
                 // Drop this window's directory watchers — off the main
@@ -194,6 +201,7 @@ pub fn run() {
             commands::fs::batch_rename,
             commands::fs::stat_paths,
             commands::system::new_window,
+            commands::system::set_compact_window,
             commands::system::quit_app,
             commands::system::volumes,
             commands::system::home_dir,

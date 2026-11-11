@@ -304,6 +304,15 @@ svg.li {
 .panes > .panel:last-child {
   flex-grow: calc(1 - var(--split));
 }
+/* Compact mode (F9): the right pane is hidden, not unmounted, so its
+   scroll position survives. */
+.panes.compact > .split,
+.panes.compact > .panel:last-child {
+  display: none;
+}
+.panes.compact > .panel:first-child {
+  flex-grow: 1;
+}
 /* Draggable divider between the panels; double-click resets to 50/50. */
 .split {
   flex: none;

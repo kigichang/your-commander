@@ -152,6 +152,7 @@ function MoreMenu() {
   const keymap = useKeymap((s) => s.map);
   const fkeysOn = useSettings(selectFkeysWithoutFn);
   const fkeysAvailable = useSettings((s) => s.fkeysAvailable);
+  const compact = usePanels((s) => s.compact);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -184,6 +185,7 @@ function MoreMenu() {
       { id: "syncFolders", label: t("action.syncFolders") },
     ],
     [
+      { id: "toggleCompact", label: t("toolbar.compact"), checked: compact },
       {
         label: t("toolbar.fkeys"),
         checked: fkeysOn && fkeysAvailable,
