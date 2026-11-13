@@ -23,6 +23,7 @@ import { Icon } from "./icons";
 
 /** Designed sizes at font scale 1; the font-size setting scales them. */
 const ROW_HEIGHT = 26;
+const HEADER_HEIGHT = 28;
 /** Icon view tiles: narrowest tile width (the row stretches them to fill)
  *  and height: a fixed part (48 px icon, gap, padding) plus two lines of
  *  name, which grow with the font. */
@@ -104,6 +105,7 @@ export function FileTable({
     return () => ro.disconnect();
   }, []);
   const rowHeight = useScaled(ROW_HEIGHT);
+  const headerHeight = useScaled(HEADER_HEIGHT);
   const tileHeight = TILE_FIXED_HEIGHT + useScaled(TILE_TEXT_HEIGHT);
   const tileMinWidth = useScaled(TILE_MIN_WIDTH);
   const gridCols = iconView ? Math.max(1, Math.floor(width / tileMinWidth)) : 1;
@@ -151,7 +153,10 @@ export function FileTable({
       style={{ "--grid-cols": cols } as React.CSSProperties}
     >
       {!brief && (
-        <div className="thead" style={{ gridTemplateColumns: "var(--grid-cols)" }}>
+        <div
+          className="thead"
+          style={{ gridTemplateColumns: "var(--grid-cols)", height: headerHeight }}
+        >
           {COLUMNS.map((c) => (
             <div key={c.key} className="th">
               {c.col && <ColResize side={side} col={c.col} />}
@@ -171,6 +176,7 @@ export function FileTable({
       {(parentPath(tab.path) || tab.location.kind === "archive") && (
         <div
           className="row parent"
+          style={{ height: rowHeight }}
           title=".."
           onDoubleClick={() => {
             usePanels.getState().setActiveSide(side);
