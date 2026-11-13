@@ -708,7 +708,6 @@ svg.li {
   position: static;
   grid-template-columns: 1fr;
   flex: none;
-  height: calc(24px * var(--font-scale));
   color: var(--text-muted);
   border-bottom: 1px solid var(--color-divider);
 }
