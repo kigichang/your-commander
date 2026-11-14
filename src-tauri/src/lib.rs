@@ -208,6 +208,7 @@ pub fn run() {
             commands::system::trash_dir,
             commands::system::desktop_dir,
             commands::system::open_path,
+            commands::system::open_url,
             commands::system::open_in,
             commands::system::open_with,
             commands::system::apps_for_path,
