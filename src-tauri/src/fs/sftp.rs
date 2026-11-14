@@ -440,6 +440,13 @@ impl SftpConnection {
         })
     }
 
+    /// Is there a symlink at `path` itself (lstat; dangling ones included)?
+    pub fn is_symlink(&self, path: &Path) -> bool {
+        runtime()
+            .block_on(self.session.symlink_metadata(rp(path)))
+            .is_ok_and(|m| m.is_symlink())
+    }
+
     /// Where a remote symlink points (verbatim, possibly relative).
     pub fn read_link(&self, path: &Path) -> Result<String, String> {
         runtime().block_on(async {
