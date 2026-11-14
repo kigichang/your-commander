@@ -3,7 +3,7 @@
 //! thread a bounded time and the process a bounded amount of memory.
 
 use std::io::Read;
-use std::process::{Child, Output};
+use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -31,6 +31,9 @@ pub(crate) fn wait_bounded(
     max_output: u64,
 ) -> Result<Output, String> {
     let timed_out = || format!("Timed out after {}s", timeout.as_secs_f32().ceil() as u64);
+    // As wait_with_output does: a child reading stdin to EOF would
+    // otherwise wait for it until the deadline.
+    drop(child.stdin.take());
     let stdout = drain(child.stdout.take(), max_output);
     let stderr = drain(child.stderr.take(), max_output);
     let deadline = Instant::now() + timeout;
@@ -61,9 +64,26 @@ pub(crate) fn wait_bounded(
     })
 }
 
+/// `Command::output` under `wait_bounded`'s limits, for a child that may
+/// never finish (a dead network mount, a stalled server, a crafted file).
+/// It gets no stdin.
+pub(crate) fn output_bounded(
+    cmd: &mut Command,
+    timeout: Duration,
+    max_output: u64,
+) -> Result<Output, String> {
+    let child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    wait_bounded(child, timeout, max_output)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::wait_bounded;
+    use super::{output_bounded, wait_bounded};
     use std::process::{Child, Command, Stdio};
     use std::time::{Duration, Instant};
 
@@ -111,5 +131,37 @@ mod tests {
         let flood = sh("yes | head -c 2000000");
         let err = wait_bounded(flood, Duration::from_secs(10), 1024).unwrap_err();
         assert!(err.contains("exceeds"), "{err}");
+    }
+
+    #[test]
+    fn stdin_is_closed_so_a_reader_finishes() {
+        let child = Command::new("/bin/cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let out = wait_bounded(child, Duration::from_secs(5), 1024).unwrap();
+        assert!(out.status.success());
+    }
+
+    #[test]
+    fn output_bounded_runs_and_times_out() {
+        let out = output_bounded(
+            Command::new("/bin/sh").args(["-c", "echo hi"]),
+            Duration::from_secs(5),
+            1024,
+        )
+        .unwrap();
+        assert_eq!(out.stdout, b"hi\n");
+        let t = Instant::now();
+        let err = output_bounded(
+            Command::new("/bin/sh").args(["-c", "exec sleep 30"]),
+            Duration::from_millis(300),
+            1024,
+        )
+        .unwrap_err();
+        assert!(err.contains("Timed out"), "{err}");
+        assert!(t.elapsed() < Duration::from_secs(5));
     }
 }

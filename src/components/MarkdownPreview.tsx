@@ -172,7 +172,7 @@ export function MarkdownPreview({ text }: { text: string }) {
     if (!anchor) return;
     e.preventDefault();
     const href = anchor.getAttribute("href") ?? "";
-    if (/^https?:\/\//i.test(href)) void ipc.openPath(href);
+    if (/^https?:\/\//i.test(href)) void ipc.openUrl(href);
   };
   // Links and images are not drag sources: a drop is the other way a URL
   // could reach a navigation. Selected text still drags.

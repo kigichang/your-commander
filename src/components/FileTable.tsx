@@ -12,7 +12,7 @@ import { iconGridCols } from "../lib/iconGrid";
 import { parentPath, sameLocation } from "../lib/path";
 import { isMac, isModKey } from "../lib/platform";
 import { targetEntries, visibleEntries } from "../lib/selectors";
-import { openPath, startDrag } from "../ipc/commands";
+import { openUrl, startDrag } from "../ipc/commands";
 import { actions } from "../keymap/actions";
 import type { ColKey, ColWidths, Side, SortKey, TabState, ViewMode } from "../store/panels";
 import { usePanels } from "../store/panels";
@@ -216,7 +216,7 @@ export function FileTable({
                   <button
                     className="btn"
                     onClick={() =>
-                      void openPath(
+                      void openUrl(
                         "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
                       )
                     }

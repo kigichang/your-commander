@@ -34,6 +34,8 @@ export const homeDir = () => invoke<string>("home_dir");
 export const trashDir = () => invoke<string>("trash_dir");
 export const desktopDir = () => invoke<string>("desktop_dir");
 export const openPath = (path: string) => invoke<void>("open_path", { path });
+/** A web link (or, on macOS, a System Settings pane) in the system's handler. */
+export const openUrl = (url: string) => invoke<void>("open_url", { url });
 export const revealInFinder = (path: string) =>
   invoke<void>("reveal_in_finder", { path });
 export const fileTags = (path: string) =>

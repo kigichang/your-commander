@@ -87,7 +87,9 @@ fn find_java(override_path: &str) -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
     if !override_path.trim().is_empty() {
         let p = PathBuf::from(override_path.trim());
-        return p.is_file().then_some(p);
+        // Only an absolute path: a relative one would resolve against
+        // whatever the app's working directory happens to be.
+        return (p.is_absolute() && p.is_file()).then_some(p);
     }
     // JAVA_HOME, when the environment carries one.
     if let Some(home) = std::env::var_os("JAVA_HOME") {

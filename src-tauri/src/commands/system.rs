@@ -172,12 +172,12 @@ pub async fn video_tools() -> VideoTools {
 /// Source duration in seconds, parsed from ffmpeg's `-i` banner (the call
 /// exits non-zero without an output file; "Duration:" is on stderr).
 fn probe_duration(ffmpeg: &std::path::Path, src: &std::path::Path) -> Option<f64> {
-    let out = std::process::Command::new(ffmpeg)
-        .arg("-hide_banner")
-        .arg("-i")
-        .arg(src)
-        .output()
-        .ok()?;
+    let out = crate::proc::output_bounded(
+        std::process::Command::new(ffmpeg).arg("-hide_banner").arg("-i").arg(src),
+        platform::PROBE_TIMEOUT,
+        platform::PROBE_OUTPUT_MAX,
+    )
+    .ok()?;
     let text = String::from_utf8_lossy(&out.stderr);
     let rest = &text[text.find("Duration: ")? + 10..];
     let stamp = rest.split(',').next()?.trim();
@@ -350,6 +350,9 @@ pub async fn finish_repair(
 /// the rest alphabetical. Empty on any failure.
 #[tauri::command]
 pub async fn apps_for_path(path: PathBuf) -> Vec<OpenApp> {
+    if require_absolute(&path).is_err() {
+        return vec![];
+    }
     tauri::async_runtime::spawn_blocking(move || platform::apps_for(&path))
         .await
         .unwrap_or_default()
@@ -369,6 +372,7 @@ pub async fn open_with(app: String, paths: Vec<PathBuf>) -> Result<(), String> {
 /// only, capped so a huge mark set can't flood the screen with windows).
 #[tauri::command]
 pub async fn get_info(paths: Vec<PathBuf>) -> Result<(), String> {
+    paths.iter().try_for_each(|p| require_absolute(p))?;
     blocking(move || platform::get_info(&paths)).await
 }
 
@@ -387,15 +391,42 @@ pub async fn open_path(path: PathBuf) -> Result<(), String> {
     blocking(move || open::that(&path).map_err(|e| e.to_string())).await
 }
 
+/// Is `url` one the app may hand to the system to open? Web pages, and on
+/// macOS a System Settings pane (the Full Disk Access shortcut). Nothing
+/// that would run or open a local file: those go through `open_path`.
+fn is_openable_url(url: &str) -> bool {
+    let Ok(parsed) = tauri::Url::parse(url) else {
+        return false;
+    };
+    match parsed.scheme() {
+        "http" | "https" => parsed.host().is_some(),
+        "x-apple.systempreferences" => cfg!(target_os = "macos"),
+        _ => false,
+    }
+}
+
+/// Open a web link in the default browser (or a System Settings pane).
+#[tauri::command]
+pub async fn open_url(url: String) -> Result<(), String> {
+    if !is_openable_url(&url) {
+        return Err(format!("{url}: not a link the app opens"));
+    }
+    blocking(move || open::that(&url).map_err(|e| e.to_string())).await
+}
+
 /// Select the file in the system file manager (Finder, Nautilus, …).
 #[tauri::command]
 pub async fn reveal_in_finder(path: PathBuf) -> Result<(), String> {
+    require_absolute(&path)?;
     blocking(move || platform::reveal(&path)).await
 }
 
 /// File tags (Finder tags on macOS; best effort, empty elsewhere).
 #[tauri::command]
 pub async fn file_tags(path: PathBuf) -> Vec<String> {
+    if require_absolute(&path).is_err() {
+        return vec![];
+    }
     tauri::async_runtime::spawn_blocking(move || platform::file_tags(&path))
         .await
         .unwrap_or_default()
@@ -404,6 +435,30 @@ pub async fn file_tags(path: PathBuf) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_web_links_and_settings_panes_open_as_urls() {
+        assert!(is_openable_url("https://example.com/a?b#c"));
+        assert!(is_openable_url("HTTP://example.com"));
+        assert_eq!(
+            is_openable_url(
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+            ),
+            cfg!(target_os = "macos")
+        );
+        for bad in [
+            "file:///Applications/Calculator.app",
+            "/Applications/Calculator.app",
+            "relative/path",
+            "https://",
+            "javascript:alert(1)",
+            "smb://server/share",
+            "ssh://host",
+            "",
+        ] {
+            assert!(!is_openable_url(bad), "{bad}");
+        }
+    }
 
     #[test]
     fn progress_runs_survive_a_child_flooding_stderr() {
