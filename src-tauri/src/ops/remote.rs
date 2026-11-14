@@ -124,6 +124,20 @@ fn upload_item(
         return Ok(true);
     }
     if src.is_dir() && !src.is_symlink() {
+        // exists() follows links: a remote link to a folder would read as
+        // one, and the upload would land wherever it points. Only a real
+        // folder is merged into; a link is a conflict, as for local copies.
+        let mut dest = dest.to_path_buf();
+        if conn.is_symlink(&dest) {
+            match ctx.ask_conflict(src, &dest) {
+                ConflictChoice::Overwrite => conn.remove_recursive(&dest)?,
+                ConflictChoice::Skip => return Ok(false),
+                ConflictChoice::KeepBoth => dest = remote_keep_both(conn, &dest),
+                ConflictChoice::CancelOp => return Err(cancelled_err()),
+                _ => return Ok(false),
+            }
+        }
+        let dest = dest.as_path();
         match conn.exists(dest) {
             Some(true) => {}
             Some(false) => {

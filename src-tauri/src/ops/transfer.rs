@@ -133,9 +133,14 @@ fn transfer_file(
 /// folder only once it is empty, so whatever was skipped or masked out stays
 /// where it was. Returns whether all of `src` arrived.
 fn copy_dir(ctx: &mut OpCtx, src: &Path, dest: &Path, remove_source: bool) -> Result<bool, String> {
-    // exists() follows links: a dangling one would raise no conflict, and
-    // create_dir_all below would then fail on the name it holds.
-    if (dest.exists() || dest.is_symlink()) && !dest.is_dir() {
+    // Only a real folder is merged into. A link is a conflict even when it
+    // leads to a folder: merging would write wherever it points — outside
+    // the destination, say, through a link copied a moment ago under this
+    // name in another case on a case-insensitive disk. (exists() follows
+    // links, so a dangling one is caught by is_symlink().) Overwrite takes
+    // away the link itself, never what it points at.
+    let real_dir = dest.is_dir() && !dest.is_symlink();
+    if (dest.exists() || dest.is_symlink()) && !real_dir {
         match ctx.ask_conflict(src, dest) {
             ConflictChoice::Overwrite => {
                 std::fs::remove_file(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
@@ -728,14 +733,14 @@ mod tests {
         assert_eq!(std::fs::read(link.join("a.txt")).unwrap(), b"new");
         assert!(!target.exists(), "nothing was created at the link's target");
 
-        // A link to a real folder is still a folder to merge into.
+        // A link to a real folder is a conflict too, never merged through.
         let real = work.join("real");
         std::fs::create_dir_all(&real).unwrap();
         let _ = std::fs::remove_dir_all(&dest);
         std::fs::create_dir_all(&dest).unwrap();
         std::os::unix::fs::symlink(&real, &link).unwrap();
-        copy(ConflictChoice::CancelOp).unwrap();
-        assert_eq!(std::fs::read(real.join("a.txt")).unwrap(), b"new");
+        assert_eq!(copy(ConflictChoice::CancelOp).unwrap_err(), cancelled_err());
+        assert!(!real.join("a.txt").exists(), "nothing written through the link");
         let _ = std::fs::remove_dir_all(&work);
     }
 
@@ -961,5 +966,52 @@ mod tests {
         assert!(dir.join("b.txt").is_symlink(), "the link is still there");
         assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"a");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A link already at a folder's destination is a conflict, never merged
+    /// through: nothing lands in the folder it points at, wherever the
+    /// link sits in the tree.
+    #[test]
+    fn folder_copy_never_merges_through_a_link() {
+        let src_root = tmp("lnk_src");
+        let dest_root = tmp("lnk_dest");
+        let outside = tmp("lnk_outside");
+        let proj = src_root.join("proj");
+        std::fs::create_dir_all(proj.join("sub")).unwrap();
+        std::fs::write(proj.join("top.txt"), b"top").unwrap();
+        std::fs::write(proj.join("sub/a.txt"), b"a").unwrap();
+
+        // At the top, and one level down inside a real folder.
+        let top_link = dest_root.join("proj");
+        std::os::unix::fs::symlink(&outside, &top_link).unwrap();
+        let skipped = copy_op(
+            &mut OpCtx::for_test(ConflictChoice::Skip),
+            vec![proj.clone()],
+            dest_root.clone(),
+            false,
+        );
+        assert!(skipped.is_ok());
+        assert!(top_link.is_symlink(), "skip leaves the link alone");
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+
+        std::fs::remove_file(&top_link).unwrap();
+        std::fs::create_dir(&top_link).unwrap();
+        std::os::unix::fs::symlink(&outside, top_link.join("sub")).unwrap();
+        copy_op(
+            &mut OpCtx::for_test(ConflictChoice::Overwrite),
+            vec![proj.clone()],
+            dest_root.clone(),
+            false,
+        )
+        .unwrap();
+        let sub = top_link.join("sub");
+        assert!(sub.is_dir() && !sub.is_symlink(), "overwrite puts a real folder in");
+        assert_eq!(std::fs::read(sub.join("a.txt")).unwrap(), b"a");
+        assert_eq!(std::fs::read(top_link.join("top.txt")).unwrap(), b"top");
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0, "nothing written through");
+
+        for d in [&src_root, &dest_root, &outside] {
+            let _ = std::fs::remove_dir_all(d);
+        }
     }
 }
