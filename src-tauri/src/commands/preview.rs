@@ -1,9 +1,9 @@
 use crate::fs::archive_fs;
 use crate::state::{AppState, Location, Resolved};
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use super::{blocking, require_absolute};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 use tauri::ipc::Response;
 
 pub use crate::platform::MediaInfo;
@@ -113,4 +113,58 @@ pub(crate) fn read_whole(
         ));
     }
     Ok(buf)
+}
+
+/// Opens `dir` and everything under it to the asset protocol, whose static
+/// scope is empty: the HTML preview loads the files next to the page it
+/// shows (images, stylesheets, fonts), and the rest of the disk stays out
+/// of reach of asset:// URLs. Grants last for the session.
+#[tauri::command]
+pub async fn allow_asset_dir(app: AppHandle, dir: PathBuf) -> Result<(), String> {
+    let real = blocking(move || asset_dir(&dir)).await?;
+    app.asset_protocol_scope()
+        .allow_directory(&real, true)
+        .map_err(|e| e.to_string())
+}
+
+/// The directory as the asset protocol matches it. Requests are resolved
+/// (symlinks, /tmp → /private/tmp) before the scope check, so only the
+/// canonical form ever matches. The root is refused: granting it would
+/// undo the empty scope.
+fn asset_dir(dir: &Path) -> Result<PathBuf, String> {
+    require_absolute(dir)?;
+    let real = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    if !real.is_dir() {
+        return Err(format!("{}: not a directory", dir.display()));
+    }
+    if real.parent().is_none() {
+        return Err("refusing to open the filesystem root to asset://".into());
+    }
+    Ok(real)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::asset_dir;
+    use std::path::Path;
+
+    #[test]
+    fn asset_dir_is_canonical() {
+        let tmp = std::env::temp_dir();
+        assert_eq!(asset_dir(&tmp).unwrap(), std::fs::canonicalize(&tmp).unwrap());
+        let dotted = tmp.join(".");
+        assert_eq!(asset_dir(&dotted).unwrap(), std::fs::canonicalize(&tmp).unwrap());
+    }
+
+    #[test]
+    fn asset_dir_refuses_root_files_and_relative_paths() {
+        assert!(asset_dir(Path::new("/")).is_err());
+        assert!(asset_dir(Path::new("/usr/..")).is_err());
+        assert!(asset_dir(Path::new("relative/dir")).is_err());
+        assert!(asset_dir(Path::new("/nonexistent/asset_dir")).is_err());
+        let file = std::env::temp_dir().join("asset_dir_test_file.html");
+        std::fs::write(&file, "x").unwrap();
+        assert!(asset_dir(&file).is_err());
+        let _ = std::fs::remove_file(&file);
+    }
 }

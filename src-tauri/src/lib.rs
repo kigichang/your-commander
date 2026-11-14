@@ -218,6 +218,7 @@ pub fn run() {
             commands::system::reveal_in_finder,
             commands::system::file_tags,
             commands::preview::read_preview,
+            commands::preview::allow_asset_dir,
             commands::preview::cloud_placeholder,
             commands::preview::cloud_download,
             commands::office::office_sheets,
@@ -302,6 +303,18 @@ mod tests {
         // With a dev server, only its own origin joins the list.
         assert!(!super::is_app_url(&url("http://localhost:9999/"), Some(&dev)));
         assert!(!super::is_app_url(&url("https://localhost:1420/"), Some(&dev)));
+    }
+
+    /// asset:// reaches no file until the HTML preview opens its folder
+    /// (`allow_asset_dir`), on every platform.
+    #[test]
+    fn asset_scope_starts_empty() {
+        for target in [Target::MacOS, Target::Linux] {
+            let (config, _) =
+                read_from(target, std::path::Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+            let scope = &config["app"]["security"]["assetProtocol"]["scope"];
+            assert_eq!(scope, &serde_json::json!([]), "{target:?}");
+        }
     }
 
     /// The CSP as Tauri builds it for `target` (base config merged with

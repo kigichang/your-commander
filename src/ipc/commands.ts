@@ -211,6 +211,8 @@ export const appsForPath = (path: string) =>
 export const getInfo = (paths: string[]) => invoke<void>("get_info", { paths });
 export const mediaInfo = (path: string) =>
   invoke<import("./types").MediaInfo>("media_info", { path });
+/** Lets asset:// serve files under `dir` (HTML preview resources). */
+export const allowAssetDir = (dir: string) => invoke<void>("allow_asset_dir", { dir });
 /** Localhost URL streaming the file with Range support (Linux media). */
 export const mediaUrl = (path: string) => invoke<string>("media_url", { path });
 export const videoTools = () =>

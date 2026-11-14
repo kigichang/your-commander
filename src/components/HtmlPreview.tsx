@@ -1,5 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import * as ipc from "../ipc/commands";
 
 /** asset:// URL of a local folder, ending in "/", that relative links
  *  resolve against and that the preview's CSP is scoped to. Only the
@@ -65,8 +66,33 @@ function withHead(html: string, base: string | null): string {
  *  scripts, forms, popups or same-origin access — the page can't reach the
  *  app or its IPC. Its CSP confines resource loads to `baseDir` (relative
  *  images, stylesheets and fonts next to the file) plus data: URLs; with
- *  no folder nothing external loads at all. */
+ *  no folder nothing external loads at all. The asset protocol's scope
+ *  starts empty, so the folder is opened to it before the frame mounts;
+ *  if that fails the page renders without its folder. */
 export function HtmlPreview({ html, baseDir }: { html: string; baseDir: string | null }) {
-  const doc = useMemo(() => withHead(html, baseDir ? assetBase(baseDir) : null), [html, baseDir]);
+  // Outcome of opening a folder to asset://, keyed by the folder so a
+  // stale answer for the previous file never applies to this one.
+  const [grant, setGrant] = useState<{ dir: string; ok: boolean } | null>(null);
+  useEffect(() => {
+    if (!baseDir) return;
+    let stale = false;
+    ipc.allowAssetDir(baseDir).then(
+      () => !stale && setGrant({ dir: baseDir, ok: true }),
+      () => !stale && setGrant({ dir: baseDir, ok: false }),
+    );
+    return () => {
+      stale = true;
+    };
+  }, [baseDir]);
+  // undefined: still asking; null: no folder to load from.
+  const base = !baseDir
+    ? null
+    : grant?.dir !== baseDir
+      ? undefined
+      : grant.ok
+        ? assetBase(baseDir)
+        : null;
+  const doc = useMemo(() => (base === undefined ? null : withHead(html, base)), [html, base]);
+  if (doc === null) return <div className="qv-html" />;
   return <iframe className="qv-html" sandbox="" srcDoc={doc} title="HTML preview" />;
 }
