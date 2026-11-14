@@ -179,18 +179,6 @@ pub async fn office_tools(soffice_path: String) -> Result<OfficeTools, String> {
     .await
 }
 
-/// `file://` URL of a local directory, each path piece percent-encoded
-/// (soffice reads -env:UserInstallation as a URL; a home folder with a
-/// space or "#" in it must not break it).
-fn file_url(dir: &Path) -> String {
-    let pieces: Vec<String> = dir
-        .to_string_lossy()
-        .split('/')
-        .map(|p| urlencoding::encode(p).into_owned())
-        .collect();
-    format!("file://{}", pieces.join("/"))
-}
-
 /// Arguments for one headless conversion of `input` into `outdir`.
 fn convert_args(profile: &Path, outdir: &Path, input: &Path) -> Vec<std::ffi::OsString> {
     let mut args: Vec<std::ffi::OsString> = [
@@ -203,7 +191,7 @@ fn convert_args(profile: &Path, outdir: &Path, input: &Path) -> Vec<std::ffi::Os
     .iter()
     .map(Into::into)
     .collect();
-    args.push(format!("-env:UserInstallation={}", file_url(profile)).into());
+    args.push(format!("-env:UserInstallation={}", crate::platform::file_uri(profile)).into());
     args.push("--convert-to".into());
     args.push("pdf".into());
     args.push("--outdir".into());
