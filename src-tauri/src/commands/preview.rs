@@ -133,31 +133,54 @@ pub async fn allow_asset_dir(app: AppHandle, dir: PathBuf) -> Result<(), String>
 
 /// The directory as the asset protocol matches it. Requests are resolved
 /// (symlinks, /tmp → /private/tmp) before the scope check, so only the
-/// canonical form ever matches. The root is refused: granting it would
-/// undo the empty scope.
+/// canonical form ever matches.
 fn asset_dir(dir: &Path) -> Result<PathBuf, String> {
+    let home = dirs::home_dir().and_then(|h| std::fs::canonicalize(h).ok());
+    asset_dir_with_home(dir, home.as_deref())
+}
+
+/// `asset_dir` with the home folder given. A grant is recursive, so some
+/// folders are refused outright: the root and top-level folders (/Users,
+/// /Volumes: every account or every mounted disk), and the home folder or
+/// anything above it (~/.ssh, ~/Library and the rest would come along). A
+/// page there renders without its neighbouring files.
+fn asset_dir_with_home(dir: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
     require_absolute(dir)?;
     let real = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     if !real.is_dir() {
         return Err(format!("{}: not a directory", dir.display()));
     }
-    if real.parent().is_none() {
-        return Err("refusing to open the filesystem root to asset://".into());
+    let refuse = || Err(format!("{}: too broad to open to asset://", real.display()));
+    if real.parent().is_none_or(|p| p.parent().is_none()) {
+        return refuse();
+    }
+    if home.is_some_and(|h| h.starts_with(&real)) {
+        return refuse();
     }
     Ok(real)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::asset_dir;
-    use std::path::Path;
+    use super::{asset_dir, asset_dir_with_home};
+    use std::path::{Path, PathBuf};
+
+    /// A fresh folder two levels or more below the root on every platform
+    /// (Linux's temp dir, /tmp, is itself top-level).
+    fn work(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("yc_asset_{}", std::process::id()))
+            .join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::canonicalize(dir).unwrap()
+    }
 
     #[test]
     fn asset_dir_is_canonical() {
-        let tmp = std::env::temp_dir();
-        assert_eq!(asset_dir(&tmp).unwrap(), std::fs::canonicalize(&tmp).unwrap());
-        let dotted = tmp.join(".");
-        assert_eq!(asset_dir(&dotted).unwrap(), std::fs::canonicalize(&tmp).unwrap());
+        let dir = work("canon");
+        assert_eq!(asset_dir_with_home(&dir, None).unwrap(), dir);
+        assert_eq!(asset_dir_with_home(&dir.join("."), None).unwrap(), dir);
     }
 
     #[test]
@@ -166,9 +189,23 @@ mod tests {
         assert!(asset_dir(Path::new("/usr/..")).is_err());
         assert!(asset_dir(Path::new("relative/dir")).is_err());
         assert!(asset_dir(Path::new("/nonexistent/asset_dir")).is_err());
-        let file = std::env::temp_dir().join("asset_dir_test_file.html");
+        let file = work("file").join("page.html");
         std::fs::write(&file, "x").unwrap();
         assert!(asset_dir(&file).is_err());
-        let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn asset_dir_refuses_top_level_folders_and_home_and_above() {
+        assert!(asset_dir_with_home(Path::new("/usr"), None).is_err());
+        let home = work("home");
+        let docs = home.join("Documents");
+        std::fs::create_dir_all(&docs).unwrap();
+        assert!(asset_dir_with_home(&home, Some(&home)).is_err(), "home itself");
+        assert!(asset_dir_with_home(home.parent().unwrap(), Some(&home)).is_err(), "above home");
+        assert_eq!(asset_dir_with_home(&docs, Some(&home)).unwrap(), docs, "inside home");
+        // The real home folder, through the public entry point.
+        if let Some(real_home) = dirs::home_dir() {
+            assert!(asset_dir(&real_home).is_err());
+        }
     }
 }
