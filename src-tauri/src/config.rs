@@ -81,8 +81,6 @@ pub struct Config {
     pub favorites: Vec<Favorite>,
     /// Remember open tabs across launches; off = both panes start at HOME.
     pub save_tabs: bool,
-    pub left_path: Option<PathBuf>,
-    pub right_path: Option<PathBuf>,
     pub left_view: Option<String>,
     pub right_view: Option<String>,
     /// Restored local tab paths and the active tab per side.
@@ -148,8 +146,6 @@ impl Default for Config {
             fkeys_without_fn: true,
             favorites: Vec::new(),
             save_tabs: true,
-            left_path: None,
-            right_path: None,
             left_view: None,
             right_view: None,
             left_tabs: Vec::new(),

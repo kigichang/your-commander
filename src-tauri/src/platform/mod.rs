@@ -6,6 +6,18 @@
 
 use std::path::PathBuf;
 
+/// file:// URI with each path segment percent-encoded: spaces, "#", "%" and
+/// CJK names stay valid (soffice's -env:UserInstallation, GTK drags), and
+/// quotes are escaped too, so it can sit in a GVariant literal.
+pub(crate) fn file_uri(path: &std::path::Path) -> String {
+    let encoded: Vec<String> = path
+        .to_string_lossy()
+        .split('/')
+        .map(|seg| urlencoding::encode(seg).into_owned())
+        .collect();
+    format!("file://{}", encoded.join("/"))
+}
+
 #[derive(serde::Serialize)]
 pub struct OpenApp {
     pub name: String,
@@ -90,3 +102,14 @@ pub use macos::*;
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::*;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn file_uris_are_escaped() {
+        assert_eq!(
+            super::file_uri(std::path::Path::new("/home/kigi/My Files/a'b#c.txt")),
+            "file:///home/kigi/My%20Files/a%27b%23c.txt"
+        );
+    }
+}

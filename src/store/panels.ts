@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import * as ipc from "../ipc/commands";
 import type { Config, FsEntry, Location } from "../ipc/types";
-import { baseName, parentPath } from "../lib/path";
+import { baseName, parentPath, sameLocation } from "../lib/path";
 import { visibleEntries } from "../lib/selectors";
 import { selectShowHidden, useSettings } from "./settings";
 
@@ -40,11 +40,6 @@ export interface HistEntry {
 }
 
 const HISTORY_MAX = 50;
-
-const sameLocation = (a: Location, b: Location) =>
-  a.kind === b.kind &&
-  (a.kind !== "sftp" || a.connId === (b as typeof a).connId) &&
-  (a.kind !== "archive" || a.archive === (b as typeof a).archive);
 
 const histOf = (t: TabState): HistEntry => ({
   location: t.location,
@@ -228,8 +223,6 @@ function persistPanels(extra: Partial<Config> = {}) {
           right_tabs: right.tabs,
           left_active: left.active,
           right_active: right.active,
-          ...(left.path ? { left_path: left.path } : {}),
-          ...(right.path ? { right_path: right.path } : {}),
         }
       : {}),
     ...extra,
@@ -252,13 +245,12 @@ export const usePanels = create<PanelsStore>((set, get) => ({
     const config = settings.config;
     const restore = (
       paths: string[] | undefined,
-      fallback: string | null | undefined,
       active: number | undefined,
       view: string | null | undefined,
       sort: string | null | undefined,
       cols: number[] | undefined,
     ): PanelState => {
-      const tabPaths = paths?.length ? paths : [fallback ?? home];
+      const tabPaths = paths?.length ? paths : [home];
       const [sortKey, dir] = (sort ?? "name:asc").split(":");
       const tabs = tabPaths.map((p) => ({
         ...newTab({ kind: "local" }, p),
@@ -289,7 +281,6 @@ export const usePanels = create<PanelsStore>((set, get) => ({
       panels: [
         restore(
           saveTabs ? config?.left_tabs : undefined,
-          saveTabs ? config?.left_path : null,
           saveTabs ? config?.left_active : 0,
           config?.left_view,
           config?.left_sort,
@@ -297,7 +288,6 @@ export const usePanels = create<PanelsStore>((set, get) => ({
         ),
         restore(
           saveTabs ? config?.right_tabs : undefined,
-          saveTabs ? config?.right_path : null,
           saveTabs ? config?.right_active : 0,
           config?.right_view,
           config?.right_sort,

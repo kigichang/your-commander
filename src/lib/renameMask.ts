@@ -88,7 +88,7 @@ export function previewRenames(
 
     let problem: string | null = null;
     if (badRegex) problem = "rename.badRegex";
-    else if (!full || full === "." || full.includes("/")) problem = "rename.badName";
+    else if (!full || full === "." || full === ".." || full.includes("/")) problem = "rename.badName";
     else if (seen.has(full)) problem = "rename.duplicate";
     else if (full !== entry.name && existingNames.has(full)) problem = "rename.taken";
     seen.set(full, i);

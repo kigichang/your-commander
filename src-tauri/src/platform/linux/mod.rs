@@ -3,7 +3,7 @@
 //! file manager, ffprobe for media metadata, libx264 for the repair encode,
 //! the freedesktop icon theme for file icons.
 
-use super::{MediaInfo, OpenApp, find_cli};
+use super::{MediaInfo, OpenApp, file_uri, find_cli};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -95,16 +95,6 @@ fn home_trash_files(xdg_data_home: Option<std::ffi::OsString>, home: &Path) -> P
         .join("Trash/files")
 }
 
-/// file:// URI with each path segment percent-encoded (quotes too, so the
-/// result is safe to embed in a GVariant literal).
-pub(crate) fn file_uri(path: &Path) -> String {
-    let s = path.to_string_lossy();
-    let encoded: Vec<String> = s
-        .split('/')
-        .map(|seg| urlencoding::encode(seg).into_owned())
-        .collect();
-    format!("file://{}", encoded.join("/"))
-}
 
 /// "New … Here" in the blank-space context menu: open a terminal or editor
 /// in `dir`. `tool` is "terminal", "vscode", or "zed".
@@ -592,14 +582,6 @@ Recommended applications:
         assert_eq!(info.height, Some(1080));
         let empty = parse_ffprobe("not json");
         assert_eq!(empty.duration, None);
-    }
-
-    #[test]
-    fn file_uris_are_escaped() {
-        assert_eq!(
-            file_uri(Path::new("/home/kigi/My Files/a'b.txt")),
-            "file:///home/kigi/My%20Files/a%27b.txt"
-        );
     }
 
     #[test]

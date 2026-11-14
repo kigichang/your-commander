@@ -394,7 +394,7 @@ pub fn rename_in_two_phases(
 /// its folder: not empty, not `.`/`..`, no `/` (which would reach another
 /// folder) and no NUL.
 pub fn check_name(name: &str) -> Result<(), String> {
-    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\0']) {
+    if !super::safe_path::is_listing_name(name) {
         return Err(format!("Invalid name: \"{name}\""));
     }
     Ok(())

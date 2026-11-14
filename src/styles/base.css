@@ -832,8 +832,6 @@ svg.li {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-}
-.tile .name {
   padding: 1px 5px;
   border-radius: var(--radius-sm);
 }
