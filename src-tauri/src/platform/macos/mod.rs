@@ -342,11 +342,11 @@ pub fn file_tags(path: &Path) -> Vec<String> {
 /// the Spotlight importer directly, so it works on unindexed volumes too
 /// (`mdls` only reads the index). Missing attributes come back as None.
 pub fn media_info(path: &Path) -> Result<MediaInfo, String> {
-    let out = std::process::Command::new("/usr/bin/mdimport")
-        .args(["-t", "-d2"])
-        .arg(path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let out = crate::proc::output_bounded(
+        std::process::Command::new("/usr/bin/mdimport").args(["-t", "-d2"]).arg(path),
+        super::PROBE_TIMEOUT,
+        super::PROBE_OUTPUT_MAX,
+    )?;
     // The attribute dump goes to stderr on some macOS versions.
     let text = format!(
         "{}\n{}",

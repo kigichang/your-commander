@@ -19,19 +19,23 @@ pub async fn media_info(path: PathBuf) -> Result<MediaInfo, String> {
 /// One decoded frame as JPEG, for the static fallback when the webview's
 /// decoder can't render a video (opt-in setting). A few seconds in to skip
 /// black lead-ins; 0 when the file is shorter than that.
+/// One JPEG frame; an 8K one at -q:v 4 stays far below this.
+const POSTER_MAX: u64 = 64 * 1024 * 1024;
+
 #[tauri::command]
 pub async fn video_poster(path: PathBuf) -> Result<Response, String> {
     require_absolute(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
         let ffmpeg = crate::platform::find_ffmpeg().ok_or("ffmpeg not found")?;
         for seek in ["5", "0"] {
-            let out = std::process::Command::new(&ffmpeg)
-                .args(["-v", "error", "-ss", seek, "-i"])
-                .arg(&path)
-                .args(["-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-q:v", "4", "pipe:1"])
-                .stdin(std::process::Stdio::null())
-                .output()
-                .map_err(|e| e.to_string())?;
+            let out = crate::proc::output_bounded(
+                std::process::Command::new(&ffmpeg)
+                    .args(["-v", "error", "-ss", seek, "-i"])
+                    .arg(&path)
+                    .args(["-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-q:v", "4", "pipe:1"]),
+                crate::platform::PROBE_TIMEOUT,
+                POSTER_MAX,
+            )?;
             if out.status.success() && !out.stdout.is_empty() {
                 return Ok(out.stdout);
             }

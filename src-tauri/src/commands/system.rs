@@ -172,12 +172,12 @@ pub async fn video_tools() -> VideoTools {
 /// Source duration in seconds, parsed from ffmpeg's `-i` banner (the call
 /// exits non-zero without an output file; "Duration:" is on stderr).
 fn probe_duration(ffmpeg: &std::path::Path, src: &std::path::Path) -> Option<f64> {
-    let out = std::process::Command::new(ffmpeg)
-        .arg("-hide_banner")
-        .arg("-i")
-        .arg(src)
-        .output()
-        .ok()?;
+    let out = crate::proc::output_bounded(
+        std::process::Command::new(ffmpeg).arg("-hide_banner").arg("-i").arg(src),
+        platform::PROBE_TIMEOUT,
+        platform::PROBE_OUTPUT_MAX,
+    )
+    .ok()?;
     let text = String::from_utf8_lossy(&out.stderr);
     let rest = &text[text.find("Duration: ")? + 10..];
     let stamp = rest.split(',').next()?.trim();

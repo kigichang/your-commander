@@ -405,11 +405,13 @@ pub fn media_info(path: &Path) -> Result<MediaInfo, String> {
     else {
         return Ok(MediaInfo::default());
     };
-    let out = Command::new(ffprobe)
-        .args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams"])
-        .arg(path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let out = crate::proc::output_bounded(
+        Command::new(ffprobe)
+            .args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams"])
+            .arg(path),
+        super::PROBE_TIMEOUT,
+        super::PROBE_OUTPUT_MAX,
+    )?;
     Ok(parse_ffprobe(&String::from_utf8_lossy(&out.stdout)))
 }
 

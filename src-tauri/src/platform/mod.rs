@@ -14,6 +14,13 @@ pub struct OpenApp {
     pub default: bool,
 }
 
+/// How long a media probe (ffmpeg, ffprobe, mdimport) may take. Quick View
+/// probes whatever is under the cursor: a file on a dead network mount, or
+/// one crafted to stall the decoder, must not hold a worker for good.
+pub(crate) const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// What a probe may print (an ffprobe JSON dump, mdimport's attribute list).
+pub(crate) const PROBE_OUTPUT_MAX: u64 = 8 * 1024 * 1024;
+
 #[derive(serde::Serialize, Default)]
 pub struct MediaInfo {
     pub duration: Option<f64>,

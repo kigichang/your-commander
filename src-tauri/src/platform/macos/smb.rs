@@ -3,6 +3,11 @@ use std::process::Command;
 
 /// More than any share listing a server could honestly send.
 const OUTPUT_MAX: u64 = 4 * 1024 * 1024;
+/// Mounting waits on the server; one that never answers must not hold the
+/// worker (and the Connect dialog) for good.
+const MOUNT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// Listing shares, with or without a password.
+const LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Where is `//server/share` mounted, if at all? Parses `mount` output lines
 /// like `//user@server/share on /Volumes/share (smbfs, ...)`.
@@ -80,7 +85,7 @@ pub fn mount(
         let stdin = child.stdin.as_mut().ok_or("osascript: no stdin")?;
         stdin.write_all(script.as_bytes()).map_err(|e| e.to_string())?;
     }
-    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    let output = crate::proc::wait_bounded(child, MOUNT_TIMEOUT, OUTPUT_MAX)?;
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -117,15 +122,15 @@ pub fn list_shares(server: &str, username: &str, password: &str) -> Result<Vec<S
 
     let output = if password.is_empty() {
         // Never try to prompt on a tty we don't have (guest/empty password).
-        Command::new("/usr/bin/smbutil")
-            .args(["view", "-N"])
-            .arg(&url)
-            .output()
-            .map_err(|e| e.to_string())?
+        crate::proc::output_bounded(
+            Command::new("/usr/bin/smbutil").args(["view", "-N"]).arg(&url),
+            LIST_TIMEOUT,
+            OUTPUT_MAX,
+        )?
     } else {
         let mut cmd = Command::new("/usr/bin/smbutil");
         cmd.arg("view").arg(&url);
-        run_with_password_prompt(cmd, password, std::time::Duration::from_secs(30))?
+        run_with_password_prompt(cmd, password, LIST_TIMEOUT)?
     };
     if !output.status.success() {
         let mut err = String::from_utf8_lossy(&output.stderr).trim().to_string();
