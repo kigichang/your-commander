@@ -20,6 +20,10 @@ const CHUNK: usize = 256 * 1024;
 /// costs a full RTT per link on a slow connection.
 const STAT_CONCURRENCY: usize = 16;
 
+/// The deepest remote folder `list` reads, counted in path components.
+/// Real trees stay far below; a server inventing endless nesting does not.
+const MAX_LIST_DEPTH: usize = 128;
+
 fn runtime() -> &'static tokio::runtime::Runtime {
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RT.get_or_init(|| tokio::runtime::Runtime::new().expect("tokio runtime"))
@@ -384,6 +388,17 @@ fn rp(path: &Path) -> String {
 impl SftpConnection {
     pub fn list(&self, path: &Path) -> std::io::Result<Vec<FsEntry>> {
         use futures::stream::{self, StreamExt};
+        // Every recursive walk of a remote tree (copy, size scan, delete,
+        // compare, search) lists through here, one level per call. A
+        // hostile server can answer each listing with one more folder
+        // forever; capping the depth stops that walk with an error before
+        // the recursion overflows the thread's stack and aborts the app.
+        if path.components().count() > MAX_LIST_DEPTH {
+            return Err(std::io::Error::other(format!(
+                "{}: folders nested more than {MAX_LIST_DEPTH} levels deep",
+                path.display()
+            )));
+        }
         runtime().block_on(async {
             let dir = self
                 .session

@@ -89,10 +89,16 @@ export function SyncDialog({ d }: { d: Extract<Dialog, { type: "sync" }> }) {
     return { ltr, rtl, eq, ne, total: ltr + rtl };
   }, [rows, actions]);
 
-  const cycle = (rel: string) =>
+  // Only a side that has the file can be copied from: a row missing on
+  // one side cycles between the other direction and skip.
+  const cycle = (row: SyncRow) =>
     setActions((m) => {
+      let a = m.get(row.rel) ?? "skip";
+      do {
+        a = CYCLE[a];
+      } while ((a === "ltr" && !row.left) || (a === "rtl" && !row.right));
       const next = new Map(m);
-      next.set(rel, CYCLE[m.get(rel) ?? "skip"]);
+      next.set(row.rel, a);
       return next;
     });
 
@@ -181,7 +187,7 @@ export function SyncDialog({ d }: { d: Extract<Dialog, { type: "sync" }> }) {
                   <button
                     className={clsx("op", action)}
                     title="→ / ← / ·"
-                    onClick={() => cycle(row.rel)}
+                    onClick={() => cycle(row)}
                   >
                     <Icon of={GLYPH[action]} size={14} />
                   </button>

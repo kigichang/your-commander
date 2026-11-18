@@ -7,7 +7,7 @@ import type { FsEntry } from "../ipc/types";
 import { useClipboard } from "../store/clipboard";
 import { useFileDrop } from "../store/fileDrop";
 import { useScaled } from "../lib/fontScale";
-import { formatDate, humanSize } from "../lib/format";
+import { displayName, formatDate, humanSize } from "../lib/format";
 import { iconGridCols } from "../lib/iconGrid";
 import { parentPath, sameLocation } from "../lib/path";
 import { isMac, isModKey } from "../lib/platform";
@@ -444,7 +444,7 @@ const Row = memo(function Row({
     >
       <span className="name">
         <FileIcon isDir={entry.isDir} ext={entry.ext} path={entry.path} />
-        <span className="label">{entry.name}</span>
+        <span className="label">{displayName(entry.name)}</span>
         {entry.isCloud && <CloudBadge />}
       </span>
       {!brief && <span className="ext">{entry.ext}</span>}
@@ -489,7 +489,7 @@ const Tile = memo(function Tile({
     <div
       className={clsx("tile", stateClasses(entry, isCursor, isMarked, hasMarks, isDropTarget, clipKind))}
       data-dir-path={entry.isDir ? entry.path : undefined}
-      title={entry.name}
+      title={displayName(entry.name)}
       style={{
         top: top + TILE_GAP / 2,
         left: `calc(${(col * 100) / cols}% + ${TILE_GAP / 2}px)`,
@@ -503,7 +503,7 @@ const Tile = memo(function Tile({
       <FileIcon isDir={entry.isDir} ext={entry.ext} path={entry.path} large />
       <span className="name">
         {entry.isCloud && <CloudBadge />}
-        {entry.name}
+        {displayName(entry.name)}
       </span>
     </div>
   );

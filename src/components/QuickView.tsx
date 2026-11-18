@@ -1,4 +1,3 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { CloudDownload, Folder, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -505,9 +504,7 @@ export function QuickView() {
                 revoked = url;
                 setPreview({ kind: "audio", url, data: buf });
               } else {
-                const url = isMac
-                  ? convertFileSrc(entry.path, "stream")
-                  : await ipc.mediaUrl(entry.path);
+                const url = await ipc.streamUrl(entry.path);
                 if (stale) return;
                 setPreview({ kind: "audio", url, data: null });
               }
@@ -520,20 +517,10 @@ export function QuickView() {
               const url = URL.createObjectURL(new Blob([buf], { type: mime }));
               revoked = url;
               setPreview({ kind: "video", url, isStale });
-            } else if (isMac) {
-              // Local disks and network mounts alike stream through
-              // stream:// (range requests, nothing read into memory).
+            } else {
               // Formats the webview can't decode fall back to "none" via
               // onError.
-              setPreview({
-                kind: "video",
-                url: convertFileSrc(entry.path, "stream"),
-                isStale,
-              });
-            } else {
-              // WebKitGTK won't range through custom schemes; a localhost
-              // HTTP server stands in for stream:// there.
-              const url = await ipc.mediaUrl(entry.path);
+              const url = await ipc.streamUrl(entry.path);
               if (stale) return;
               setPreview({ kind: "video", url, isStale });
             }

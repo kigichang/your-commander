@@ -61,10 +61,11 @@ fn zip_epoch_ms(t: zip::DateTime) -> u64 {
     )
 }
 
-/// Visit every entry: `(inner_path, is_dir, size, modified_ms)`.
+/// Visit every entry: `(inner_path, is_dir, size, modified_ms)`. An error
+/// from `visit` ends the scan and is returned.
 fn for_each_entry(
     archive: &Path,
-    mut visit: impl FnMut(&str, bool, u64, Option<u64>),
+    mut visit: impl FnMut(&str, bool, u64, Option<u64>) -> Result<(), String>,
 ) -> Result<(), String> {
     let err = |e: &dyn std::fmt::Display| format!("{}: {e}", archive.display());
     let kind = kind_of(archive)?;
@@ -82,7 +83,7 @@ fn for_each_entry(
                     continue;
                 }
                 let modified = entry.last_modified().map(zip_epoch_ms);
-                visit(&name, entry.is_dir(), entry.size(), modified);
+                visit(&name, entry.is_dir(), entry.size(), modified)?;
             }
         }
         Kind::Tar | Kind::TarGz => {
@@ -105,7 +106,7 @@ fn for_each_entry(
                     header.entry_type().is_dir(),
                     header.size().unwrap_or(0),
                     modified,
-                );
+                )?;
             }
         }
     }
@@ -126,6 +127,12 @@ type IndexKey = (PathBuf, u64, Option<SystemTime>);
 
 /// Archives larger than this are listed without being cached.
 const INDEX_MAX_ENTRIES: usize = 500_000;
+/// Archives past either limit are not browsed at all. A .tar.gz names its
+/// entries only as it decompresses, so a few megabytes of gzip can expand
+/// into millions of headers (or huge PAX path names), each kept in the
+/// index: without a limit, entering such a file exhausts memory.
+const BROWSE_MAX_ENTRIES: usize = 2_000_000;
+const BROWSE_MAX_NAME_BYTES: usize = 256 * 1024 * 1024;
 
 fn index_cache() -> &'static Mutex<Lru<IndexKey, Arc<Vec<Item>>, 4>> {
     static CACHE: OnceLock<Mutex<Lru<IndexKey, Arc<Vec<Item>>, 4>>> = OnceLock::new();
@@ -141,19 +148,34 @@ fn index(archive: &Path) -> Result<Arc<Vec<Item>>, String> {
     if let Some(hit) = index_cache().lock().unwrap().get(&key) {
         return Ok(hit.clone());
     }
+    let items = Arc::new(scan(archive, BROWSE_MAX_ENTRIES, BROWSE_MAX_NAME_BYTES)?);
+    if items.len() <= INDEX_MAX_ENTRIES {
+        index_cache().lock().unwrap().insert(key, items.clone());
+    }
+    Ok(items)
+}
+
+/// Every entry of `archive`, or an error once there are more than
+/// `max_entries` of them or their names add up past `max_name_bytes`.
+fn scan(archive: &Path, max_entries: usize, max_name_bytes: usize) -> Result<Vec<Item>, String> {
     let mut items = Vec::new();
+    let mut name_bytes = 0usize;
     for_each_entry(archive, |name, is_dir, size, modified| {
+        name_bytes += name.len();
+        if items.len() >= max_entries || name_bytes > max_name_bytes {
+            return Err(format!(
+                "{}: too many entries to browse; extract it instead",
+                archive.display()
+            ));
+        }
         items.push(Item {
             name: name.to_string(),
             is_dir,
             size,
             modified,
         });
+        Ok(())
     })?;
-    let items = Arc::new(items);
-    if items.len() <= INDEX_MAX_ENTRIES {
-        index_cache().lock().unwrap().insert(key, items.clone());
-    }
     Ok(items)
 }
 
@@ -552,6 +574,18 @@ mod tests {
         let n = extract_entries(&mut ctx, &zip_path, vec!["sub".into()], &out).unwrap();
         assert_eq!(n, 1);
         assert_eq!(std::fs::read(out.join("sub/inner.txt")).unwrap(), b"inner");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_stops_past_its_limits() {
+        let dir = std::env::temp_dir().join(format!("yc_arfs_cap_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip_path = make_zip(&dir); // sub, root.txt, sub/inner.txt
+        assert_eq!(scan(&zip_path, 3, 1024).unwrap().len(), 3);
+        assert!(scan(&zip_path, 2, 1024).is_err());
+        assert!(scan(&zip_path, 3, 10).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

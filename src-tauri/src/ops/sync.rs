@@ -208,6 +208,25 @@ fn real_local_dest(base: &Path, dest: &Path) -> Result<PathBuf, String> {
     Ok(create_dir_inside(&root, parent)?.join(name))
 }
 
+/// Where the local source `src` really is, refused unless that is under
+/// `base`. Compare skips links, so a row can name a file only the other
+/// side has; turned around to copy from this side, its path could run
+/// through a link here (`docs -> ~/.ssh`) and send what lies outside the
+/// folder.
+fn real_local_src(base: &Path, src: &Path) -> Result<PathBuf, String> {
+    let root = base
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", base.display()))?;
+    let real = src
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", src.display()))?;
+    if real.starts_with(&root) {
+        Ok(real)
+    } else {
+        Err(format!("{}: path escapes the source folder", src.display()))
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn sync_op(
     ctx: &mut OpCtx,
@@ -260,10 +279,12 @@ pub fn sync_op(
         ctx.report(&item.rel);
         match (src_conn, dest_conn) {
             (None, None) => {
+                let src = real_local_src(src_base, &src)?;
                 let dest = real_local_dest(dest_base, &dest)?;
                 transfer::copy_file(ctx, &src, &dest)?;
             }
             (None, Some(conn)) => {
+                let src = real_local_src(src_base, &src)?;
                 ensure_remote_parents(conn, &mut remote_dirs, dest_base, &item.rel)?;
                 conn.upload_file(ctx, &src, &dest)?;
             }
@@ -415,6 +436,36 @@ mod tests {
         let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
         sync_op(&mut ctx, None, left.clone(), None, right.clone(), vec![item()]).unwrap();
         assert_eq!(std::fs::read(right.join("real/f.txt")).unwrap(), b"x");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn sync_does_not_read_through_a_source_link_leaving_the_folder() {
+        let work = tmp("source_link");
+        let (left, right, outside) = (work.join("l"), work.join("r"), work.join("outside"));
+        std::fs::create_dir_all(&left).unwrap();
+        std::fs::create_dir_all(right.join("docs")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret"), b"s").unwrap();
+        std::fs::write(right.join("docs/secret"), b"r").unwrap();
+        std::os::unix::fs::symlink(&outside, left.join("docs")).unwrap();
+
+        // A right-only row, turned around to copy left to right.
+        let item = || SyncItem { rel: "docs/secret".into(), direction: Direction::Ltr, size: None };
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        let err = sync_op(&mut ctx, None, left.clone(), None, right.clone(), vec![item()])
+            .unwrap_err();
+        assert!(err.contains("escapes"), "{err}");
+        assert_eq!(std::fs::read(right.join("docs/secret")).unwrap(), b"r");
+
+        // A link that stays inside the folder still works.
+        std::fs::remove_file(left.join("docs")).unwrap();
+        std::fs::create_dir_all(left.join("real")).unwrap();
+        std::fs::write(left.join("real/secret"), b"l").unwrap();
+        std::os::unix::fs::symlink("real", left.join("docs")).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        sync_op(&mut ctx, None, left.clone(), None, right.clone(), vec![item()]).unwrap();
+        assert_eq!(std::fs::read(right.join("docs/secret")).unwrap(), b"l");
         let _ = std::fs::remove_dir_all(&work);
     }
 
