@@ -22,6 +22,9 @@ fn remote_total_bytes(
     paths: &[(PathBuf, bool, bool)],
 ) -> u64 {
     fn walk_dir(ctx: &OpCtx, conn: &SftpConnection, dir: &Path) -> u64 {
+        if ctx.cancelled() {
+            return 0;
+        }
         conn.list(dir)
             .map(|entries| {
                 entries
