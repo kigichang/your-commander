@@ -16,7 +16,7 @@ import { usePanels } from "./panels";
 
 type DoneEvent = Extract<OpEvent, { type: "done" }>;
 
-export interface Job {
+interface Job {
   key: number;
   label: string;
   /** "photos +2 → web-app" — what is moving where. */
@@ -37,7 +37,7 @@ export interface Job {
   done?: (e: DoneEvent) => void;
 }
 
-export interface PendingConflict {
+interface PendingConflict {
   opId: number;
   src: string;
   dest: string;

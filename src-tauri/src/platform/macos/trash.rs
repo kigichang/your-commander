@@ -21,8 +21,10 @@ impl<'a> Reader<'a> {
     fn utf16(&self, at: usize, chars: usize) -> Option<String> {
         let raw = self.bytes(at, chars.checked_mul(2)?)?;
         let units: Vec<u16> = raw
-            .chunks_exact(2)
-            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_be_bytes(*c))
             .collect();
         String::from_utf16(&units).ok()
     }
@@ -53,9 +55,12 @@ fn record(r: &Reader, at: usize) -> Option<(String, [u8; 4], Option<String>, usi
     Some((name, code, text, o))
 }
 
+/// Trash name → (ptbL, ptbN).
+type PutBackRecords = HashMap<String, (Option<String>, Option<String>)>;
+
 /// Trash name → (ptbL, ptbN) for every record in a .DS_Store. None when
 /// the file isn't one or is damaged.
-fn put_back_records(data: &[u8]) -> Option<HashMap<String, (Option<String>, Option<String>)>> {
+fn put_back_records(data: &[u8]) -> Option<PutBackRecords> {
     let r = Reader { d: data };
     if r.bytes(4, 4)? != b"Bud1" {
         return None;

@@ -256,7 +256,7 @@
     "plantumlJarNote": "Rendered locally via java — nothing leaves the machine.",
     "office": "Office documents",
     "officeFound": "LibreOffice: {{path}}",
-    "officeMissing": "LibreOffice not found. .docx, .xlsx and .pptx still preview; .xls shows as a plain table, and .doc / .ppt need LibreOffice.",
+    "officeMissing": "LibreOffice not found. .docx, .xlsx and .pptx still preview; .doc, .xls and .ppt need LibreOffice.",
     "officeSofficePath": "soffice binary",
     "officeSofficeAuto": "auto-detect (LibreOffice.app / PATH)",
     "officeUseLo": "Use LibreOffice for .docx / .xlsx / .pptx too (closer to the original layout, slower)",

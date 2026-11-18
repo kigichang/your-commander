@@ -33,7 +33,7 @@ pub enum IfExists {
     Ask,
     Skip,
     /// Overwrite only when the source is newer; needs both mtimes, so it
-    /// falls back to asking when either side cannot be stat'ed (remote).
+    /// falls back to asking when one is not known (a remote side).
     ReplaceOlder,
     /// Keep both under a " 2"-style name.
     Rename,
@@ -177,7 +177,25 @@ impl OpCtx {
     }
 
     /// Ask the UI what to do about an existing destination. Blocks the worker.
+    /// Both paths are local files.
     pub fn ask_conflict(&mut self, src: &Path, dest: &Path) -> ConflictChoice {
+        self.ask_conflict_with(src, dest, || {
+            let (s, d) = (std::fs::metadata(src).ok()?, std::fs::metadata(dest).ok()?);
+            Some(s.modified().ok()? > d.modified().ok()?)
+        })
+    }
+
+    /// [`ask_conflict`](Self::ask_conflict) for a source or destination that
+    /// is not a local file (a remote path, an archive entry), which must not
+    /// be stat'ed here: the same path may name some unrelated local file.
+    /// `src_newer` answers "replace older" — `None` when the caller cannot
+    /// tell, and the user is asked instead.
+    pub fn ask_conflict_with(
+        &mut self,
+        src: &Path,
+        dest: &Path,
+        src_newer: impl FnOnce() -> Option<bool>,
+    ) -> ConflictChoice {
         match self.policy {
             Some(ConflictChoice::OverwriteAll) => return ConflictChoice::Overwrite,
             Some(ConflictChoice::SkipAll) => return ConflictChoice::Skip,
@@ -187,16 +205,14 @@ impl OpCtx {
             IfExists::Skip => return ConflictChoice::Skip,
             IfExists::Rename => return ConflictChoice::KeepBoth,
             IfExists::ReplaceOlder => {
-                if let (Ok(s), Ok(d)) = (std::fs::metadata(src), std::fs::metadata(dest))
-                    && let (Ok(sm), Ok(dm)) = (s.modified(), d.modified())
-                {
-                    return if sm > dm {
+                if let Some(newer) = src_newer() {
+                    return if newer {
                         ConflictChoice::Overwrite
                     } else {
                         ConflictChoice::Skip
                     };
                 }
-                // Can't compare (remote side): fall through to asking.
+                // Can't compare: fall through to asking.
             }
             IfExists::Ask => {}
         }
@@ -316,6 +332,29 @@ mod tests {
     }
 
     use super::*;
+
+    /// A remote path must not be compared through a local file that happens
+    /// to have the same path: with no answer, "replace older" asks.
+    #[test]
+    fn replace_older_asks_when_times_are_unknown() {
+        let dir = std::env::temp_dir().join(format!("yc_q_older_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (old, new) = (dir.join("old"), dir.join("new"));
+        std::fs::write(&old, b"o").unwrap();
+        std::fs::write(&new, b"n").unwrap();
+        let earlier = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options().write(true).open(&old).unwrap().set_modified(earlier).unwrap();
+
+        // The canned answer is "keep both": only asking produces it.
+        let mut ctx = OpCtx::for_test(ConflictChoice::KeepBoth);
+        ctx.set_options(CopyOptions { if_exists: IfExists::ReplaceOlder, ..Default::default() });
+        assert_eq!(ctx.ask_conflict(&new, &old), ConflictChoice::Overwrite);
+        assert_eq!(ctx.ask_conflict(&old, &new), ConflictChoice::Skip);
+        assert_eq!(ctx.ask_conflict_with(&new, &old, || None), ConflictChoice::KeepBoth);
+        assert_eq!(ctx.ask_conflict_with(&new, &old, || Some(false)), ConflictChoice::Skip);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn mask_globs() {

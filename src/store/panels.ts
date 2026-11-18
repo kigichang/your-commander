@@ -33,7 +33,7 @@ export interface TabState {
 }
 
 /** A place a tab has been, for Back/Forward. */
-export interface HistEntry {
+interface HistEntry {
   location: Location;
   path: string;
   remoteLabel: string | null;
@@ -54,7 +54,7 @@ const DEFAULT_COLS: ColWidths = { ext: 64, size: 84, date: 118 };
 const COL_MIN = 36;
 const COL_MAX = 280;
 
-export interface PanelState {
+interface PanelState {
   tabs: TabState[];
   active: number;
   viewMode: ViewMode;

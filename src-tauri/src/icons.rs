@@ -138,10 +138,13 @@ mod imp {
 }
 
 /// Splits an optional "#<px>" size suffix off an icon key; the default is
-/// 32 px (16 pt on a retina display, the list rows' size).
+/// 32 px (16 pt on a retina display, the list rows' size). Only a size an
+/// icon is ever drawn at counts as one: a key can be a file's extension,
+/// and a file named `a.x#20000` must not get a 1.6 GB bitmap rendered.
 pub(crate) fn split_size(key: &str) -> (&str, u16) {
     key.rsplit_once('#')
         .and_then(|(k, px)| px.parse().ok().map(|px| (k, px)))
+        .filter(|(_, px)| (16..=512).contains(px))
         .unwrap_or((key, 32))
 }
 
@@ -220,6 +223,11 @@ mod tests {
         assert_eq!(split_size("folder#128"), ("folder", 128));
         assert_eq!(split_size("path:/Applications/A.app#128"), ("path:/Applications/A.app", 128));
         assert_eq!(split_size("path:/x/#y.app"), ("path:/x/#y.app", 32));
+        // A file extension that looks like a size request.
+        assert_eq!(split_size("x#20000"), ("x#20000", 32));
+        assert_eq!(split_size("x#65535"), ("x#65535", 32));
+        assert_eq!(split_size("x#0"), ("x#0", 32));
+        assert_eq!(split_size("x#512"), ("x", 512));
     }
 
     /// Icons come back as a PNG of exactly the requested pixel size, fast

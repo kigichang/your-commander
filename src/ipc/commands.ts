@@ -123,7 +123,7 @@ export const syncCompare = (
 
 export const sshHosts = () => invoke<SshConfigHost[]>("ssh_hosts");
 
-export interface SftpParams {
+interface SftpParams {
   host: string;
   port: number;
   username: string;
@@ -139,7 +139,7 @@ export interface SftpParams {
 }
 
 /** Rejection value of sftp_connect / sftp_test. */
-export type ConnectError =
+type ConnectError =
   | { kind: "unknownHostKey"; keyType: string; fingerprint: string }
   | { kind: "hostKeyChanged"; keyType: string; fingerprint: string }
   | { kind: "other"; message: string };

@@ -256,7 +256,7 @@
     "plantumlJarNote": "由本機 java 渲染——內容不會離開這台電腦。",
     "office": "Office 文件",
     "officeFound": "LibreOffice：{{path}}",
-    "officeMissing": "找不到 LibreOffice。.docx、.xlsx、.pptx 仍可預覽；.xls 以純表格顯示；.doc／.ppt 需要 LibreOffice。",
+    "officeMissing": "找不到 LibreOffice。.docx、.xlsx、.pptx 仍可預覽；.doc／.xls／.ppt 需要 LibreOffice。",
     "officeSofficePath": "soffice 執行檔",
     "officeSofficeAuto": "自動偵測（LibreOffice.app／PATH）",
     "officeUseLo": ".docx／.xlsx／.pptx 也使用 LibreOffice（更接近原始版面，較慢）",

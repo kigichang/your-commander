@@ -315,6 +315,7 @@ pub fn extract_op(
 
         ctx.report(&name);
         let detail = Rc::new(RefCell::new(name.clone()));
+        let quarantine = Quarantine::of(archive);
         let result = match kind {
             Extractable::Zip => extract_zip(ctx, archive, &target, base, len),
             Extractable::SevenZ => extract_7z(ctx, archive, &target, base, len),
@@ -355,6 +356,9 @@ pub fn extract_op(
                 Ok(())
             })(),
         };
+        // `target` is this archive's own fresh folder. Flagged whether or
+        // not extraction got to the end: what was written stays behind.
+        quarantine.mark_tree(&target);
         // A cancel inside a decoder surfaces as an I/O error; report it as
         // the cancel it was.
         if ctx.cancelled() {
@@ -448,6 +452,55 @@ pub(crate) fn apply_mode(path: &Path, mode: Option<u32>) {
     if let Some(mode) = mode {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o777));
+    }
+}
+
+/// The macOS quarantine flag of an archive (set by the browser or mail
+/// client that downloaded it), handed on to whatever is taken out of it, as
+/// Archive Utility does. Without it an extracted app or script would skip
+/// the Gatekeeper check the download itself was subject to. Best effort,
+/// and nothing at all where the archive carries no flag (always on Linux).
+pub(crate) struct Quarantine(Option<Vec<u8>>);
+
+impl Quarantine {
+    const ATTR: &str = "com.apple.quarantine";
+
+    pub fn of(archive: &Path) -> Self {
+        Self(xattr::get(archive, Self::ATTR).ok().flatten())
+    }
+
+    fn mark(&self, path: &Path) {
+        if let Some(value) = &self.0 {
+            let _ = xattr::set(path, Self::ATTR, value);
+        }
+    }
+
+    /// Flag `path` and everything under it. Links are left alone: setting
+    /// the attribute would follow them.
+    pub fn mark_tree(&self, path: &Path) {
+        let Ok(meta) = path.symlink_metadata() else {
+            return;
+        };
+        if self.0.is_none() || meta.is_symlink() {
+            return;
+        }
+        self.mark(path);
+        if meta.is_dir() {
+            for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
+                self.mark_tree(&entry.path());
+            }
+        }
+    }
+
+    /// Flag `path` and the folders leading to it below `root` (an app is a
+    /// folder, and its flag is the one that counts).
+    pub fn mark_below(&self, root: &Path, path: &Path) {
+        if self.0.is_none() {
+            return;
+        }
+        for p in path.ancestors().take_while(|p| *p != root && p.starts_with(root)) {
+            self.mark(p);
+        }
     }
 }
 
