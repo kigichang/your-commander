@@ -1,4 +1,5 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { isMac } from "../lib/platform";
 import type {
   Config,
   ConflictChoice,
@@ -216,7 +217,12 @@ export const mediaInfo = (path: string) =>
 /** Lets asset:// serve files under `dir` (HTML preview resources). */
 export const allowAssetDir = (dir: string) => invoke<void>("allow_asset_dir", { dir });
 /** Localhost URL streaming the file with Range support (Linux media). */
-export const mediaUrl = (path: string) => invoke<string>("media_url", { path });
+const mediaUrl = (path: string) => invoke<string>("media_url", { path });
+/** A URL the media elements can range-request `path` through: stream://
+ *  on macOS; on Linux, where WebKitGTK won't range through custom schemes,
+ *  the localhost media server. Nothing is read into memory either way. */
+export const streamUrl = async (path: string) =>
+  isMac ? convertFileSrc(path, "stream") : mediaUrl(path);
 export const videoTools = () =>
   invoke<{ player: string | null; ffmpeg: boolean }>("video_tools");
 export const repairVideo = (path: string, onProgress: (fraction: number) => void) => {
