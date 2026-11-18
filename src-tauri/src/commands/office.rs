@@ -1,6 +1,6 @@
 //! Office documents in Quick View. Spreadsheets are read here with calamine
-//! (xlsx/xlsm/xlsb/ods, and legacy xls) and sent to the frontend as a grid
-//! of display strings. LibreOffice, when installed, converts any Office file
+//! (xlsx/xlsm/xlsb/ods) and sent to the frontend as a grid of display
+//! strings. LibreOffice, when installed, converts any Office file
 //! to PDF for the existing PDF viewer: always for .doc/.ppt/.xls, and for
 //! the modern formats too when the user opts in. .docx and .pptx otherwise
 //! render in the frontend.
@@ -9,7 +9,7 @@ use super::preview::read_whole;
 use super::{blocking, require_absolute};
 use crate::lru::Lru;
 use crate::state::{AppState, Location, Resolved};
-use calamine::{Data, Reader};
+use calamine::{Data, DataRef, Reader, Sheets, XlsxError};
 use serde::Serialize;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -125,22 +125,125 @@ fn sheet_from_range(name: String, range: &calamine::Range<Data>) -> Sheet {
     Sheet { name, rows, total_rows, total_cols, first_row, first_col, error: None }
 }
 
+/// The capped grid of a sheet whose cells arrive one at a time, in any
+/// order. calamine's own range is a dense grid of the whole used area, and
+/// a file of a few hundred bytes can claim the area A1:XFD1048576. Only the
+/// cells that can end up in the capped grid are kept here; the area is just
+/// measured.
+#[derive(Default)]
+struct Window {
+    cells: std::collections::HashMap<(u32, u32), String>,
+    /// (first, last) used position, once there is a cell.
+    bounds: Option<((u32, u32), (u32, u32))>,
+}
+
+impl Window {
+    fn shows(first: (u32, u32), (row, col): (u32, u32)) -> bool {
+        ((row - first.0) as usize) < SHEET_ROWS_MAX && ((col - first.1) as usize) < SHEET_COLS_MAX
+    }
+
+    fn add(&mut self, pos: (u32, u32), value: &DataRef) {
+        if matches!(value, DataRef::Empty) {
+            return;
+        }
+        let (first, last) = self.bounds.unwrap_or((pos, pos));
+        let first = (first.0.min(pos.0), first.1.min(pos.1));
+        let last = (last.0.max(pos.0), last.1.max(pos.1));
+        self.bounds = Some((first, last));
+        // The top-left corner only ever moves up and left, so a cell
+        // outside the shown part now stays outside it.
+        if !Self::shows(first, pos) {
+            return;
+        }
+        self.cells.insert(pos, cell_text(&value.clone().into()));
+        if self.cells.len() > 2 * SHEET_ROWS_MAX * SHEET_COLS_MAX {
+            self.cells.retain(|&pos, _| Self::shows(first, pos));
+        }
+    }
+
+    fn into_sheet(self, name: String) -> Sheet {
+        let Some((first, last)) = self.bounds else {
+            return sheet_from_range(name, &calamine::Range::empty());
+        };
+        let total_rows = (last.0 - first.0) as usize + 1;
+        let total_cols = (last.1 - first.1) as usize + 1;
+        let mut rows =
+            vec![vec![String::new(); total_cols.min(SHEET_COLS_MAX)]; total_rows.min(SHEET_ROWS_MAX)];
+        for (pos, text) in self.cells {
+            if Self::shows(first, pos) {
+                rows[(pos.0 - first.0) as usize][(pos.1 - first.1) as usize] = text;
+            }
+        }
+        Sheet {
+            name,
+            rows,
+            total_rows,
+            total_cols,
+            first_row: first.0,
+            first_col: first.1,
+            error: None,
+        }
+    }
+}
+
+/// One sheet as a capped grid. xlsx and xlsb are streamed through a
+/// [`Window`]; ods has no cell reader in calamine and comes as its range,
+/// bounded by calamine's own cell limit.
+fn read_sheet<RS: std::io::Read + std::io::Seek>(
+    book: &mut Sheets<RS>,
+    name: String,
+) -> Result<Sheet, String> {
+    let mut window = Window::default();
+    match book {
+        Sheets::Xlsx(xlsx) => match xlsx.worksheet_cells_reader(&name) {
+            Ok(mut cells) => {
+                while let Some(cell) = cells.next_cell().map_err(|e| e.to_string())? {
+                    window.add(cell.get_position(), cell.get_value());
+                }
+            }
+            // A chart sheet: listed, with nothing to show.
+            Err(XlsxError::NotAWorksheet(_)) => {}
+            Err(e) => return Err(e.to_string()),
+        },
+        Sheets::Xlsb(xlsb) => {
+            let mut cells = xlsb.worksheet_cells_reader(&name).map_err(|e| e.to_string())?;
+            while let Some(cell) = cells.next_cell().map_err(|e| e.to_string())? {
+                window.add(cell.get_position(), cell.get_value());
+            }
+        }
+        _ => {
+            let range = book.worksheet_range(&name).map_err(|e| e.to_string())?;
+            return Ok(sheet_from_range(name, &range));
+        }
+    }
+    Ok(window.into_sheet(name))
+}
+
+/// How an OLE2 compound file starts: the legacy binary formats.
+const OLE2_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+
 fn read_workbook(bytes: Vec<u8>) -> Result<Workbook, String> {
+    // calamine reads a whole .xls into dense grids while opening it, with
+    // no way to cap them, and goes by content: the file's name is no guard.
+    // Legacy workbooks are LibreOffice's to convert.
+    if bytes.starts_with(&OLE2_MAGIC) {
+        return Err("Legacy .xls workbooks need LibreOffice".to_string());
+    }
     let mut book = calamine::open_workbook_auto_from_rs(std::io::Cursor::new(bytes))
         .map_err(|e| format!("Not a readable spreadsheet: {e}"))?;
     let names = book.sheet_names().to_owned();
     let sheets = names
         .into_iter()
-        .map(|name| match book.worksheet_range(&name) {
-            Ok(range) => sheet_from_range(name, &range),
-            Err(e) => Sheet {
+        .map(|name| match read_sheet(&mut book, name.clone()) {
+            Ok(sheet) => sheet,
+            Err(error) => Sheet {
                 name,
                 rows: Vec::new(),
                 total_rows: 0,
                 total_cols: 0,
                 first_row: 0,
                 first_col: 0,
-                error: Some(e.to_string()),
+                error: Some(error),
             },
         })
         .collect();
@@ -369,9 +472,93 @@ mod tests {
         assert_eq!(sheet.rows[0][0], "top-left");
     }
 
+    /// A workbook with one sheet holding `sheet_data` (the inside of
+    /// `<sheetData>`).
+    fn xlsx(sheet_data: &str) -> Vec<u8> {
+        use std::io::Write;
+        const NS: &str = "http://schemas.openxmlformats.org";
+        let parts = [
+            (
+                "[Content_Types].xml",
+                format!(
+                    r#"<Types xmlns="{NS}/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>"#
+                ),
+            ),
+            (
+                "_rels/.rels",
+                format!(
+                    r#"<Relationships xmlns="{NS}/package/2006/relationships"><Relationship Id="rId1" Type="{NS}/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#
+                ),
+            ),
+            (
+                "xl/workbook.xml",
+                format!(
+                    r#"<workbook xmlns="{NS}/spreadsheetml/2006/main" xmlns:r="{NS}/officeDocument/2006/relationships"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>"#
+                ),
+            ),
+            (
+                "xl/_rels/workbook.xml.rels",
+                format!(
+                    r#"<Relationships xmlns="{NS}/package/2006/relationships"><Relationship Id="rId1" Type="{NS}/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#
+                ),
+            ),
+            (
+                "xl/worksheets/sheet1.xml",
+                format!(
+                    r#"<worksheet xmlns="{NS}/spreadsheetml/2006/main"><sheetData>{sheet_data}</sheetData></worksheet>"#
+                ),
+            ),
+        ];
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, xml) in parts {
+            zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(xml.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap().into_inner()
+    }
+
+    /// Two cells at opposite corners of the biggest sheet there is: a dense
+    /// grid of that area would be 17 billion cells.
+    #[test]
+    fn a_sheet_claiming_a_huge_area_costs_only_its_shown_part() {
+        let book = read_workbook(xlsx(
+            r#"<row r="1048576"><c r="XFD1048576"><v>9</v></c></row><row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row>"#,
+        ))
+        .unwrap();
+        let sheet = &book.sheets[0];
+        assert_eq!(sheet.error, None);
+        assert_eq!((sheet.total_rows, sheet.total_cols), (1_048_576, 16_384));
+        assert_eq!((sheet.first_row, sheet.first_col), (0, 0));
+        assert_eq!(sheet.rows.len(), SHEET_ROWS_MAX);
+        assert!(sheet.rows.iter().all(|r| r.len() == SHEET_COLS_MAX));
+        assert_eq!(sheet.rows[0][..3], ["1", "2", ""]);
+    }
+
+    /// Same grid as calamine's range gives: it starts at the first used
+    /// cell, wherever in the file that cell comes.
+    #[test]
+    fn streamed_sheets_keep_their_origin() {
+        let book = read_workbook(xlsx(
+            r#"<row r="5"><c r="D5"><v>4</v></c></row><row r="3"><c r="C3"><v>3</v></c><c r="E3"><v>5</v></c></row>"#,
+        ))
+        .unwrap();
+        let sheet = &book.sheets[0];
+        assert_eq!((sheet.first_row, sheet.first_col), (2, 2));
+        assert_eq!((sheet.total_rows, sheet.total_cols), (3, 3));
+        assert_eq!(sheet.rows, [["3", "", "5"], ["", "", ""], ["", "4", ""]]);
+
+        let empty = read_workbook(xlsx("")).unwrap();
+        assert!(empty.sheets[0].rows.is_empty());
+        assert_eq!(empty.sheets[0].total_rows, 0);
+    }
+
     #[test]
     fn not_a_spreadsheet_is_an_error() {
         assert!(read_workbook(b"hello".to_vec()).is_err());
+        // An .xls, whatever it is named: refused before calamine opens it.
+        let mut xls = OLE2_MAGIC.to_vec();
+        xls.resize(4096, 0);
+        assert!(read_workbook(xls).is_err_and(|e| e.contains("LibreOffice")));
     }
 
     #[test]

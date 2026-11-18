@@ -4,8 +4,8 @@
 //! no leading slash ("" is the archive root).
 
 use crate::fs::provider::FsEntry;
-use crate::ops::archive::{apply_mode, classify, Extractable, Meter};
-use crate::ops::queue::{cancelled_err, OpCtx};
+use crate::ops::archive::{apply_mode, classify, Extractable, Quarantine};
+use crate::ops::queue::{cancelled_err, keep_both_path, ConflictChoice, OpCtx};
 use crate::ops::safe_path::{create_dir_inside, replace_file_nofollow};
 use crate::lru::Lru;
 use std::cell::RefCell;
@@ -50,6 +50,17 @@ fn civil_epoch_ms(y: i64, m: u64, d: u64, h: u64, min: u64, s: u64) -> u64 {
     ((days as u64 * 86_400) + h * 3600 + min * 60 + s) * 1000
 }
 
+fn zip_epoch_ms(t: zip::DateTime) -> u64 {
+    civil_epoch_ms(
+        t.year() as i64,
+        t.month() as u64,
+        t.day() as u64,
+        t.hour() as u64,
+        t.minute() as u64,
+        t.second() as u64,
+    )
+}
+
 /// Visit every entry: `(inner_path, is_dir, size, modified_ms)`.
 fn for_each_entry(
     archive: &Path,
@@ -70,16 +81,7 @@ fn for_each_entry(
                 if name.is_empty() {
                     continue;
                 }
-                let modified = entry.last_modified().map(|t| {
-                    civil_epoch_ms(
-                        t.year() as i64,
-                        t.month() as u64,
-                        t.day() as u64,
-                        t.hour() as u64,
-                        t.minute() as u64,
-                        t.second() as u64,
-                    )
-                });
+                let modified = entry.last_modified().map(zip_epoch_ms);
                 visit(&name, entry.is_dir(), entry.size(), modified);
             }
         }
@@ -276,6 +278,58 @@ fn real_out(root: &Path, out: &Path) -> Result<PathBuf, String> {
     Ok(create_dir_inside(root, parent)?.join(name))
 }
 
+/// Where to write entry `name` when `out` may already be taken: `out`
+/// itself, a free name beside it, or `None` to leave what is there. Asks
+/// like any other copy; `modified_ms` is the entry's time, for "replace
+/// older".
+fn settle_existing(
+    ctx: &mut OpCtx,
+    name: &str,
+    out: PathBuf,
+    modified_ms: Option<u64>,
+) -> Result<Option<PathBuf>, String> {
+    // exists() follows links: a dangling one still takes the name.
+    if !(out.exists() || out.is_symlink()) {
+        return Ok(Some(out));
+    }
+    let newer = || {
+        let there = out.metadata().ok()?.modified().ok()?;
+        let there = there.duration_since(SystemTime::UNIX_EPOCH).ok()?;
+        Some(u128::from(modified_ms?) > there.as_millis())
+    };
+    match ctx.ask_conflict_with(Path::new(name), &out, newer) {
+        ConflictChoice::Overwrite => Ok(Some(out)),
+        ConflictChoice::KeepBoth => Ok(Some(keep_both_path(&out))),
+        ConflictChoice::CancelOp => Err(cancelled_err()),
+        _ => Ok(None),
+    }
+}
+
+/// The tar branch's progress and cancel point, fed from inside the decoder
+/// like `ops::archive::Meter`. It shares the context instead of holding it:
+/// between two reads the entry loop needs it to ask about a conflict.
+struct TarMeter<'a, 'b> {
+    inner: std::fs::File,
+    ctx: &'a RefCell<&'b mut OpCtx>,
+    read: u64,
+    len: u64,
+    detail: Rc<RefCell<String>>,
+}
+
+impl Read for TarMeter<'_, '_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let mut ctx = self.ctx.borrow_mut();
+        if ctx.cancelled() {
+            return Err(std::io::Error::other(cancelled_err()));
+        }
+        let n = self.inner.read(buf)?;
+        self.read += n as u64;
+        ctx.done_bytes = self.read.min(self.len);
+        ctx.report(&self.detail.borrow());
+        Ok(n)
+    }
+}
+
 /// Extract the selected inner paths (files or folders) into `dest_dir`,
 /// each rooted at its own name — F5 out of an archive.
 pub fn extract_entries(
@@ -311,6 +365,7 @@ pub fn extract_entries(
     let err = |e: &dyn std::fmt::Display| format!("{}: {e}", archive.display());
     let mut count = 0usize;
     let kind = kind_of(archive)?;
+    let quarantine = Quarantine::of(archive);
     // Folders are made and files written only where the real (link-resolved)
     // path is still under this root: the destination may already hold a link
     // to somewhere else, and the archive picks the names that walk into it.
@@ -345,7 +400,7 @@ pub fn extract_entries(
                 let Some(out) = out_path(&name) else { continue };
                 ctx.report(&name);
                 if entry.is_dir() {
-                    create_dir_inside(&root, &out)?;
+                    quarantine.mark_below(&root, &create_dir_inside(&root, &out)?);
                     continue;
                 }
                 // Like the tar branch: a link is not copied out at all. Its data
@@ -354,9 +409,15 @@ pub fn extract_entries(
                     continue;
                 }
                 let out = real_out(&root, &out)?;
-                // Overwrites (this copy-out never asks), but replaces a link
-                // at `out` rather than writing to wherever it points.
+                let modified = entry.last_modified().map(zip_epoch_ms);
+                let Some(out) = settle_existing(ctx, &name, out, modified)? else {
+                    ctx.done_bytes += entry.size();
+                    continue;
+                };
+                // An overwrite replaces a link at `out` rather than writing
+                // to wherever it points.
                 let mut writer = replace_file_nofollow(&out)?;
+                quarantine.mark_below(&root, &out);
                 let mode = entry.unix_mode();
                 let mut buf = vec![0u8; CHUNK];
                 loop {
@@ -383,13 +444,12 @@ pub fn extract_entries(
             let len = file.metadata().map(|m| m.len()).unwrap_or(0);
             ctx.total_bytes = len;
             let detail = Rc::new(RefCell::new(String::new()));
-            let meter = Meter {
+            let shared = RefCell::new(&mut *ctx);
+            let meter = TarMeter {
                 inner: file,
-                ctx: &mut *ctx,
-                base: 0,
-                len,
+                ctx: &shared,
                 read: 0,
-                total: len,
+                len,
                 detail: detail.clone(),
             };
             let reader: Box<dyn Read> = match kind {
@@ -406,19 +466,26 @@ pub fn extract_entries(
                         .trim_matches('/')
                         .to_string();
                     let Some(out) = out_path(&name) else { continue };
-                    *detail.borrow_mut() = name;
+                    *detail.borrow_mut() = name.clone();
                     let mut entry = entry;
                     if entry.header().entry_type().is_dir() {
-                        create_dir_inside(&root, &out)?;
+                        quarantine.mark_below(&root, &create_dir_inside(&root, &out)?);
                         continue;
                     }
                     if !entry.header().entry_type().is_file() {
                         continue;
                     }
                     let out = real_out(&root, &out)?;
-                    // Overwrites (this copy-out never asks), but replaces a link
-                    // at `out` rather than writing to wherever it points.
+                    let modified = entry.header().mtime().ok().map(|s| s * 1000);
+                    let Some(out) =
+                        settle_existing(&mut shared.borrow_mut(), &name, out, modified)?
+                    else {
+                        continue;
+                    };
+                    // An overwrite replaces a link at `out` rather than
+                    // writing to wherever it points.
                     let mut writer = replace_file_nofollow(&out)?;
+                    quarantine.mark_below(&root, &out);
                     std::io::copy(&mut entry, &mut writer).map_err(|e| e.to_string())?;
                     apply_mode(&out, entry.header().mode().ok());
                     count += 1;
@@ -609,7 +676,8 @@ mod tests {
             let out = dir.join(format!("out{n}"));
             std::fs::create_dir_all(&out).unwrap();
             std::os::unix::fs::symlink(&victim, out.join("root.txt")).unwrap();
-            let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+            // The link takes the name: a conflict, answered with "overwrite".
+            let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
             extract_entries(&mut ctx, &archive, vec!["root.txt".into()], &out).unwrap();
             assert_eq!(std::fs::read(&victim).unwrap(), b"keep", "{}", archive.display());
             let written = out.join("root.txt");
@@ -716,6 +784,102 @@ mod tests {
         let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
         extract_entries(&mut ctx, &zip_path, vec!["sub".into()], &out).unwrap();
         assert_eq!(std::fs::read(out.join("real/inner.txt")).unwrap(), b"inner");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// F5 out of an archive onto files that are already there is a conflict
+    /// like any other copy: asked about, and bound by the dialog's setting.
+    #[test]
+    fn copy_out_asks_before_replacing() {
+        use crate::ops::queue::{CopyOptions, IfExists};
+        let dir = std::env::temp_dir().join(format!("yc_arfs_conf_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip_path = make_zip(&dir);
+        let tar_path = dir.join("t.tar");
+        {
+            let mut tar = tar::Builder::new(std::fs::File::create(&tar_path).unwrap());
+            let mut header = tar::Header::new_gnu();
+            header.set_size(4);
+            header.set_mode(0o644);
+            header.set_mtime(1_000_000_000);
+            tar.append_data(&mut header, "root.txt", &b"root"[..]).unwrap();
+            tar.finish().unwrap();
+        }
+        let wanted = || vec!["root.txt".to_string()];
+        for archive in [&zip_path, &tar_path] {
+            let out = dir.join(format!("out_{}", archive.extension().unwrap().to_string_lossy()));
+            std::fs::create_dir_all(&out).unwrap();
+            let mine = out.join("root.txt");
+            let read = |p: &Path| std::fs::read(p).unwrap();
+            std::fs::write(&mine, b"mine").unwrap();
+
+            let mut ctx = OpCtx::for_test(ConflictChoice::Skip);
+            assert_eq!(extract_entries(&mut ctx, archive, wanted(), &out).unwrap(), 0);
+            assert_eq!(read(&mine), b"mine", "skip keeps the file");
+
+            // The dialog said skip: not even asked (the answer would overwrite).
+            let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+            ctx.set_options(CopyOptions { if_exists: IfExists::Skip, ..Default::default() });
+            assert_eq!(extract_entries(&mut ctx, archive, wanted(), &out).unwrap(), 0);
+            assert_eq!(read(&mine), b"mine");
+
+            // The entry is older than the file just written.
+            let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+            ctx.set_options(CopyOptions { if_exists: IfExists::ReplaceOlder, ..Default::default() });
+            assert_eq!(extract_entries(&mut ctx, archive, wanted(), &out).unwrap(), 0);
+            assert_eq!(read(&mine), b"mine");
+
+            let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+            let err = extract_entries(&mut ctx, archive, wanted(), &out).unwrap_err();
+            assert_eq!(err, cancelled_err());
+            assert_eq!(read(&mine), b"mine");
+
+            let mut ctx = OpCtx::for_test(ConflictChoice::KeepBoth);
+            assert_eq!(extract_entries(&mut ctx, archive, wanted(), &out).unwrap(), 1);
+            assert_eq!(read(&mine), b"mine");
+            assert_eq!(read(&out.join("root 2.txt")), b"root");
+
+            let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+            assert_eq!(extract_entries(&mut ctx, archive, wanted(), &out).unwrap(), 1);
+            assert_eq!(read(&mine), b"root");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What comes out of a downloaded archive is as untrusted as the
+    /// download: the quarantine flag goes with it, onto folders too.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn quarantine_follows_the_contents() {
+        const ATTR: &str = "com.apple.quarantine";
+        let flag = b"0081;00000000;Test;".to_vec();
+        let dir = std::env::temp_dir().join(format!("yc_arfs_q_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip_path = make_zip(&dir);
+        let get = |p: PathBuf| xattr::get(p, ATTR).unwrap();
+
+        let plain = dir.join("plain");
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        extract_entries(&mut ctx, &zip_path, vec!["sub".into()], &plain).unwrap();
+        assert_eq!(get(plain.join("sub/inner.txt")), None);
+
+        xattr::set(&zip_path, ATTR, &flag).unwrap();
+        let out = dir.join("out");
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        extract_entries(&mut ctx, &zip_path, vec!["sub".into()], &out).unwrap();
+        assert_eq!(get(out.join("sub/inner.txt")), Some(flag.clone()));
+        assert_eq!(get(out.join("sub")), Some(flag.clone()));
+        assert_eq!(get(out.clone()), None, "the destination itself is the user's");
+
+        let all = dir.join("all");
+        std::fs::create_dir_all(&all).unwrap();
+        let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+        crate::ops::archive::extract_op(&mut ctx, vec![zip_path], all.clone()).unwrap();
+        assert_eq!(get(all.join("t")), Some(flag.clone()));
+        assert_eq!(get(all.join("t/sub/inner.txt")), Some(flag.clone()));
+        assert_eq!(get(all.join("t/root.txt")), Some(flag));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

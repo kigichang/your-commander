@@ -61,8 +61,7 @@ function formatDuration(secs: number): string {
 }
 const MD_EXTS = new Set(["md", "markdown"]);
 // Office: Word/PowerPoint render in the frontend, workbooks are read by the
-// backend; the legacy binary formats need LibreOffice (xls aside, which the
-// backend reads too).
+// backend; the legacy binary formats need LibreOffice.
 const DOCX_EXTS = new Set(["docx", "docm", "dotx"]);
 const PPTX_EXTS = new Set(["pptx", "pptm", "ppsx", "potx"]);
 const SHEET_EXTS = new Set(["xlsx", "xlsm", "xlsb", "ods"]);
@@ -578,7 +577,7 @@ export function QuickView() {
             } catch (e) {
               if (stale) return;
               // A modern file still has the built-in view to fall back on.
-              if (legacy && ext !== "xls") {
+              if (legacy) {
                 setPreview({
                   kind: "office-note",
                   text: t("quickview.officeError", { error: String(e) }),
@@ -587,9 +586,9 @@ export function QuickView() {
               }
             }
           }
-          if (ext === "doc" || ext === "ppt") {
+          if (legacy) {
             setPreview({ kind: "office-note", text: t("quickview.officeNeedsLo") });
-          } else if (SHEET_EXTS.has(ext) || ext === "xls") {
+          } else if (SHEET_EXTS.has(ext)) {
             const book = await ipc.officeSheets(tab.location, entry.path);
             if (stale) return;
             setPreview({ kind: "sheet", book });

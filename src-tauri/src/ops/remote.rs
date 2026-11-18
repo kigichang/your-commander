@@ -108,8 +108,15 @@ fn upload_item(
         let target = std::fs::read_link(src).map_err(|e| format!("{}: {e}", src.display()))?;
         let mut dest = dest.to_path_buf();
         if conn.exists(&dest).is_some() {
-            match ctx.ask_conflict(src, &dest) {
-                ConflictChoice::Overwrite => conn.remove_recursive(&dest)?,
+            match ctx.ask_conflict_with(src, &dest, || None) {
+                // A link replaces a file or another link, never a whole
+                // folder: "overwrite all" was not an answer to deleting one.
+                ConflictChoice::Overwrite => {
+                    if conn.exists(&dest) == Some(true) && !conn.is_symlink(&dest) {
+                        return Err(format!("\"{}\" already exists", dest.to_string_lossy()));
+                    }
+                    conn.remove_recursive(&dest)?
+                }
                 ConflictChoice::Skip => return Ok(false),
                 ConflictChoice::KeepBoth => dest = remote_keep_both(conn, &dest),
                 ConflictChoice::CancelOp => return Err(cancelled_err()),
@@ -129,7 +136,7 @@ fn upload_item(
         // folder is merged into; a link is a conflict, as for local copies.
         let mut dest = dest.to_path_buf();
         if conn.is_symlink(&dest) {
-            match ctx.ask_conflict(src, &dest) {
+            match ctx.ask_conflict_with(src, &dest, || None) {
                 ConflictChoice::Overwrite => conn.remove_recursive(&dest)?,
                 ConflictChoice::Skip => return Ok(false),
                 ConflictChoice::KeepBoth => dest = remote_keep_both(conn, &dest),
@@ -165,7 +172,7 @@ fn upload_item(
         }
         let mut dest = dest.to_path_buf();
         if conn.exists(&dest).is_some() {
-            match ctx.ask_conflict(src, &dest) {
+            match ctx.ask_conflict_with(src, &dest, || None) {
                 ConflictChoice::Overwrite => {}
                 ConflictChoice::Skip => {
                     ctx.done_bytes += src.metadata().map(|m| m.len()).unwrap_or(0);
@@ -247,8 +254,15 @@ fn download_item(
         let target = conn.read_link(src)?;
         let mut dest = dest.to_path_buf();
         if dest.exists() || dest.is_symlink() {
-            match ctx.ask_conflict(src, &dest) {
-                ConflictChoice::Overwrite => remove_nofollow(&dest)?,
+            match ctx.ask_conflict_with(src, &dest, || None) {
+                // As for uploads: the server says this name is a link, and
+                // that must not delete a local folder tree.
+                ConflictChoice::Overwrite => {
+                    if dest.is_dir() && !dest.is_symlink() {
+                        return Err(format!("\"{}\" already exists", dest.display()));
+                    }
+                    remove_nofollow(&dest)?
+                }
                 ConflictChoice::Skip => return Ok(false),
                 ConflictChoice::KeepBoth => dest = super::queue::keep_both_path(&dest),
                 ConflictChoice::CancelOp => return Err(cancelled_err()),
@@ -300,7 +314,7 @@ fn download_item(
         let mut dest = dest.to_path_buf();
         // exists() follows links: a dangling one still takes the name.
         if dest.exists() || dest.is_symlink() {
-            match ctx.ask_conflict(src, &dest) {
+            match ctx.ask_conflict_with(src, &dest, || None) {
                 ConflictChoice::Overwrite => {}
                 ConflictChoice::Skip => return Ok(false),
                 ConflictChoice::KeepBoth => dest = super::queue::keep_both_path(&dest),

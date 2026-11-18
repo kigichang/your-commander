@@ -2,7 +2,9 @@ use super::provider::FsEntry;
 use crate::ops::queue::{cancelled_err, OpCtx};
 use crate::ops::safe_path::is_listing_name;
 use russh::client;
-use russh::keys::known_hosts::{check_known_hosts_path, learn_known_hosts_path};
+use russh::keys::known_hosts::{
+    check_known_hosts_path, known_host_keys_path, learn_known_hosts_path,
+};
 use russh::keys::{load_secret_key, HashAlg, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::OpenFlags;
@@ -53,8 +55,9 @@ pub enum ConnectError {
     /// Not in ~/.ssh/known_hosts and `trust_host_key` was off.
     #[serde(rename_all = "camelCase")]
     UnknownHostKey { key_type: String, fingerprint: String },
-    /// known_hosts has a different key of the same type for this host —
-    /// a reinstalled server or a man in the middle. Never auto-accepted.
+    /// known_hosts has a different key for this host, of the same type or
+    /// another — a reinstalled server or a man in the middle. Never
+    /// auto-accepted.
     #[serde(rename_all = "camelCase")]
     HostKeyChanged { key_type: String, fingerprint: String },
     Other { message: String },
@@ -107,6 +110,19 @@ fn judge_host_key(
     let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
     match check_known_hosts_path(host, port, key, known_hosts) {
         Ok(true) => Ok(()),
+        // russh only calls a key changed when the recorded one has the same
+        // type. A host recorded under another type is not a new host either:
+        // offering an unrecorded type is how a man in the middle would get
+        // the harmless-looking first-connection prompt.
+        Ok(false)
+            if known_host_keys_path(host, port, known_hosts)
+                .is_ok_and(|recorded| !recorded.is_empty()) =>
+        {
+            Err(ConnectError::HostKeyChanged {
+                key_type,
+                fingerprint,
+            })
+        }
         Ok(false) if trusted == Some(fingerprint.as_str()) => {
             // russh would create a missing ~/.ssh with default permissions;
             // make it private, as ssh does.
@@ -870,6 +886,29 @@ mod tests {
         }
         // Nothing was appended.
         assert_eq!(std::fs::read_to_string(&kh).unwrap().lines().count(), 3);
+    }
+
+    /// The host is recorded with an ed25519 key and answers with an ECDSA
+    /// one: not a first connection, whatever the user confirmed.
+    #[test]
+    fn key_of_another_type_is_a_change_not_a_new_host() {
+        const KEY_ECDSA: &str = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBCvIqfjDi+ZSv/AqYzto0BwlHixAAazbWeDHvMweppfq3vbqyCeouI9IW+2uyblHaaAeZdF95k4C8RwpmFQwauE=";
+        let kh = tmp("othertype").join("known_hosts");
+        std::fs::write(&kh, format!("box {KEY_A}\n")).unwrap();
+        for trust in [None, Some(fingerprint_of(KEY_ECDSA))] {
+            match judge_host_key(&kh, "box", 22, &key(KEY_ECDSA), trust.as_deref()).unwrap_err() {
+                ConnectError::HostKeyChanged { key_type, .. } => {
+                    assert_eq!(key_type, "ecdsa-sha2-nistp256")
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(std::fs::read_to_string(&kh).unwrap().lines().count(), 1);
+        // A host with no entry at all is still just unknown.
+        assert!(matches!(
+            judge_host_key(&kh, "elsewhere", 22, &key(KEY_ECDSA), None).unwrap_err(),
+            ConnectError::UnknownHostKey { .. }
+        ));
     }
 
     /// Against a real sshd: `YC_TEST_SSHD_PORT` (on 127.0.0.1) and
