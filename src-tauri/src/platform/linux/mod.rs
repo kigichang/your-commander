@@ -12,10 +12,7 @@ pub mod smb;
 /// The home trash's files/ folder (freedesktop Trash spec). Created when
 /// missing — a fresh account has none until something is trashed.
 pub fn trash_dir() -> Result<PathBuf, String> {
-    let dir = home_trash_files(
-        std::env::var_os("XDG_DATA_HOME"),
-        &crate::fs::local::home_dir(),
-    );
+    let dir = data_home().join("Trash/files");
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     Ok(dir)
 }
@@ -84,15 +81,19 @@ pub fn trash_after_empty() {
     let _ = std::fs::remove_file(trash.join("directorysizes"));
 }
 
-/// $XDG_DATA_HOME/Trash/files, ~/.local/share/Trash/files when it is unset
-/// or empty — the same rule the `trash` crate uses when it moves files
-/// there, so the button opens exactly where F8 puts things.
-fn home_trash_files(xdg_data_home: Option<std::ffi::OsString>, home: &Path) -> PathBuf {
+/// The user's data folder: $XDG_DATA_HOME, ~/.local/share when it is unset
+/// or empty (XDG Base Directory spec). The `trash` crate applies the same
+/// rule when it moves files to `<data>/Trash/files`, so the Trash button
+/// opens exactly where F8 puts things.
+fn data_home() -> PathBuf {
+    data_home_from(std::env::var_os("XDG_DATA_HOME"), &crate::fs::local::home_dir())
+}
+
+fn data_home_from(xdg_data_home: Option<std::ffi::OsString>, home: &Path) -> PathBuf {
     xdg_data_home
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".local/share"))
-        .join("Trash/files")
 }
 
 
@@ -253,12 +254,7 @@ pub(crate) fn parse_gio_mime(text: &str) -> (Option<String>, Vec<String>) {
 
 /// Directories .desktop files live in, user first (matching GIO precedence).
 fn applications_dirs() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(data) = std::env::var_os("XDG_DATA_HOME") {
-        dirs.push(PathBuf::from(data).join("applications"));
-    } else if let Some(home) = dirs::home_dir() {
-        dirs.push(home.join(".local/share/applications"));
-    }
+    let mut dirs = vec![data_home().join("applications")];
     let data_dirs = std::env::var("XDG_DATA_DIRS")
         .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_string());
     for d in data_dirs.split(':').filter(|d| !d.is_empty()) {
@@ -514,20 +510,14 @@ mod tests {
     }
 
     #[test]
-    fn home_trash_files_follows_xdg_data_home() {
+    fn data_home_follows_xdg_data_home() {
         let home = Path::new("/home/u");
+        assert_eq!(data_home_from(None, home), PathBuf::from("/home/u/.local/share"));
         assert_eq!(
-            home_trash_files(None, home),
-            PathBuf::from("/home/u/.local/share/Trash/files")
+            data_home_from(Some("".into()), home),
+            PathBuf::from("/home/u/.local/share")
         );
-        assert_eq!(
-            home_trash_files(Some("".into()), home),
-            PathBuf::from("/home/u/.local/share/Trash/files")
-        );
-        assert_eq!(
-            home_trash_files(Some("/data".into()), home),
-            PathBuf::from("/data/Trash/files")
-        );
+        assert_eq!(data_home_from(Some("/data".into()), home), PathBuf::from("/data"));
     }
 
     #[test]
