@@ -265,10 +265,10 @@ pub fn run() {
 
     app.run(|app, event| {
         // Whatever path the process leaves by, give the fn mode back.
-        if let tauri::RunEvent::Exit = event {
-            if let Some(fk) = &app.state::<FnKeysState>().0 {
-                fk.release();
-            }
+        if let tauri::RunEvent::Exit = event
+            && let Some(fk) = &app.state::<FnKeysState>().0
+        {
+            fk.release();
         }
     });
 }

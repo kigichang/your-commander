@@ -63,12 +63,12 @@ export function isJson(text: string): boolean {
   }
 }
 
-export type JsonTokKind = "key" | "str" | "num" | "lit" | "b0" | "b1" | "b2" | "plain";
-export interface JsonTok {
+type JsonTokKind = "key" | "str" | "num" | "lit" | "b0" | "b1" | "b2" | "plain";
+interface JsonTok {
   kind: JsonTokKind;
   text: string;
 }
-export interface JsonLine {
+interface JsonLine {
   /** Indent levels at the start of the line (one per `indent`). */
   level: number;
   toks: JsonTok[];

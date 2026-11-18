@@ -277,7 +277,7 @@ mod linux_volumes {
             if !listed_mount_point(&mp) || !listed_fstype(fstype) {
                 continue;
             }
-            if out.iter().any(|(_, p, _)| *p == PathBuf::from(&mp)) {
+            if out.iter().any(|(_, p, _)| p.as_path() == std::path::Path::new(&mp)) {
                 continue;
             }
             let is_system = mp == "/";

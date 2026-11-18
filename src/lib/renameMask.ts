@@ -47,7 +47,7 @@ function expand(mask: string, stem: string, ext: string, counter: number, date: 
   });
 }
 
-export interface RenamePreview {
+interface RenamePreview {
   entry: FsEntry;
   newName: string;
   /** i18n key when the row is invalid, null when fine. */

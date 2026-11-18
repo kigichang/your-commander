@@ -249,9 +249,6 @@ input:focus {
   background: none;
   color: var(--text-muted);
 }
-.tbtn.accent {
-  color: var(--color-accent);
-}
 /* Toggle button while switched on (e.g. Quick View "Pretty"). */
 .tbtn.on {
   color: var(--color-accent);

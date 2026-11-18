@@ -52,7 +52,7 @@ export interface SshConfigHost {
 }
 
 /** Persisted config: snake_case to stay compatible with the old TOML file. */
-export interface Favorite {
+interface Favorite {
   name: string;
   path: string;
 }
@@ -184,7 +184,7 @@ export interface SourceItem {
   isSymlink: boolean;
 }
 
-export interface SyncSideInfo {
+interface SyncSideInfo {
   size: number;
   modified: number | null;
 }

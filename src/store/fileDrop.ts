@@ -9,7 +9,7 @@ import { usePanels } from "./panels";
 /** Where files dragged in from another app (Finder, the desktop, or this
  *  app's own drag-out) would land: a panel's current folder, or the
  *  folder row under the pointer. */
-export interface DropTarget {
+interface DropTarget {
   side: Side;
   dir: string;
   /** Set when the pointer is over a folder row (highlights that row). */
