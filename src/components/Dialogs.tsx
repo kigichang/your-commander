@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { ConflictChoice, IfExists } from "../ipc/types";
+import { displayName } from "../lib/format";
 import { alreadyIn, baseName, joinPath } from "../lib/path";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
@@ -60,7 +61,7 @@ function ItemList({ names }: { names: string[] }) {
   return (
     <div className="list">
       {shown.map((n) => (
-        <div key={n}>{n}</div>
+        <div key={n}>{displayName(n)}</div>
       ))}
       {names.length > shown.length && (
         <div>{t("dialog.andMore", { count: names.length - shown.length })}</div>

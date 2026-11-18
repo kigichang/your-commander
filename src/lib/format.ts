@@ -24,3 +24,13 @@ export function formatDate(epochMs: number | null): string {
   if (!epochMs) return "--";
   return dateFmt.format(new Date(epochMs));
 }
+
+/** Bidi embedding, override and isolate controls (U+202A–202E,
+ *  U+2066–2069). A name holding one can display reversed, so
+ *  "report‮fdp.command" would read as "reportdnammoc.pdf". */
+const BIDI_CONTROLS = /[‪-‮⁦-⁩]/g;
+
+/** A file name as the UI shows it: bidi controls appear as U+FFFD, so the
+ *  name shown is the one that runs. Plain right-to-left names (Arabic,
+ *  Hebrew) need no controls and are left alone. */
+export const displayName = (name: string) => name.replace(BIDI_CONTROLS, "�");
