@@ -461,6 +461,8 @@ pub fn extract_entries(
                 }
             }
             ctx.total_bytes = total;
+            // One buffer for the whole selection, not one per file.
+            let mut buf = vec![0u8; CHUNK];
             for i in 0..zip.len() {
                 if ctx.cancelled() {
                     return Err(cancelled_err());
@@ -490,7 +492,6 @@ pub fn extract_entries(
                 let mut writer = replace_file_nofollow(&out)?;
                 quarantine.mark_below(&root, &out);
                 let mode = entry.unix_mode();
-                let mut buf = vec![0u8; CHUNK];
                 loop {
                     if ctx.cancelled() {
                         return Err(cancelled_err());

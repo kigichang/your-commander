@@ -176,6 +176,8 @@ fn write_zip(
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
+    // One buffer for the whole archive, not one per file.
+    let mut buf = vec![0u8; CHUNK];
 
     for (rel, path, is_dir) in tree {
         if ctx.cancelled() {
@@ -198,7 +200,6 @@ fn write_zip(
             .map_err(|e| e.to_string())?;
         let mut reader =
             std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let mut buf = vec![0u8; CHUNK];
         loop {
             if ctx.cancelled() {
                 return Err(cancelled_err());
