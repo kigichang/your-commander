@@ -23,8 +23,7 @@ const CHUNK: usize = 1024 * 1024;
 pub enum FindEvent {
     Found { entry: FsEntry },
     Scanning { dir: String },
-    #[serde(rename_all = "camelCase")]
-    Done { count: usize, error: Option<String> },
+    Done,
 }
 
 #[derive(serde::Deserialize)]
@@ -45,7 +44,6 @@ struct Search {
     mask: Vec<Vec<u8>>,
     needle: Vec<u8>,
     params: FindParams,
-    count: usize,
     last_scan: Instant,
     /// Content-search buffer, allocated once per search, not per file.
     buf: Vec<u8>,
@@ -178,7 +176,6 @@ impl Search {
             if !self.needle.is_empty() && !self.contains_text(&entry) {
                 continue;
             }
-            self.count += 1;
             let _ = self.channel.send(FindEvent::Found { entry });
         }
     }
@@ -210,15 +207,11 @@ pub fn start_find(
                 .to_ascii_lowercase()
                 .into_bytes(),
             params,
-            count: 0,
             last_scan: Instant::now(),
             buf: Vec::new(),
         };
         search.walk(&dir);
-        let _ = search.channel.send(FindEvent::Done {
-            count: search.count,
-            error: None,
-        });
+        let _ = search.channel.send(FindEvent::Done);
         app.state::<AppState>().finish_find(id);
     });
     Ok(id)
@@ -249,7 +242,6 @@ mod tests {
                 min_size: None,
                 max_size: None,
             },
-            count: 0,
             last_scan: Instant::now(),
             buf: Vec::new(),
         }

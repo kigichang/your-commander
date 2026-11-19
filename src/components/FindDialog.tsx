@@ -129,7 +129,6 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
             flush();
             setRunning(false);
             setScanning("");
-            if (event.error) useOps.getState().toast(event.error, "error");
           }
         },
       );
