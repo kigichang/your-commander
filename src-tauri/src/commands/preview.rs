@@ -30,7 +30,9 @@ pub async fn video_poster(path: PathBuf) -> Result<Response, String> {
         for seek in ["5", "0"] {
             let out = crate::proc::output_bounded(
                 std::process::Command::new(&ffmpeg)
-                    .args(["-v", "error", "-ss", seek, "-i"])
+                    .args(["-v", "error"])
+                    .args(crate::platform::FFMPEG_LOCAL_INPUT)
+                    .args(["-ss", seek, "-i"])
                     .arg(&path)
                     .args(["-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-q:v", "4", "pipe:1"]),
                 crate::platform::PROBE_TIMEOUT,
@@ -214,7 +216,7 @@ mod tests {
 
     #[test]
     fn asset_dir_refuses_private_folders_of_the_home() {
-        let home = work("home");
+        let home = work("private");
         for dir in [".ssh", ".config/app", "Library/Keychains", "Documents/site"] {
             std::fs::create_dir_all(home.join(dir)).unwrap();
         }

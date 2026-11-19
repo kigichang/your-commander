@@ -173,7 +173,11 @@ pub async fn video_tools() -> VideoTools {
 /// exits non-zero without an output file; "Duration:" is on stderr).
 fn probe_duration(ffmpeg: &std::path::Path, src: &std::path::Path) -> Option<f64> {
     let out = crate::proc::output_bounded(
-        std::process::Command::new(ffmpeg).arg("-hide_banner").arg("-i").arg(src),
+        std::process::Command::new(ffmpeg)
+            .arg("-hide_banner")
+            .args(platform::FFMPEG_LOCAL_INPUT)
+            .arg("-i")
+            .arg(src),
         platform::PROBE_TIMEOUT,
         platform::PROBE_OUTPUT_MAX,
     )
@@ -210,15 +214,19 @@ pub async fn repair_video(
     let src = path.clone();
     let out_path = tmp.clone();
     blocking(move || {
+        let total = probe_duration(&ffmpeg, &src);
         // The name is predictable, and ffmpeg -y writes through a link: one
         // left here (a folder that came from elsewhere) would have its target
         // overwritten. A file of ours from an interrupted run is fine.
+        // Checked right before ffmpeg starts, not ahead of the probe, which
+        // can take half a minute.
         remove_if_link(&out_path)?;
-        let total = probe_duration(&ffmpeg, &src);
         let mut command = std::process::Command::new(ffmpeg);
         command
             .arg("-hide_banner")
-            .args(["-v", "error", "-y", "-progress", "pipe:1", "-nostats", "-i"])
+            .args(["-v", "error", "-y", "-progress", "pipe:1", "-nostats"])
+            .args(platform::FFMPEG_LOCAL_INPUT)
+            .arg("-i")
             .arg(&src)
             .args(platform::encode_args())
             .args(["-vf", "setsar=1"])
@@ -252,6 +260,9 @@ pub async fn repair_video(
     .await
 }
 
+/// How much of a child's stderr `run_with_progress` keeps.
+const STDERR_KEEP: u64 = 64 * 1024;
+
 /// Run `command`, handing each stdout line to `on_line` as it arrives, and
 /// return its exit status and stderr. stderr drains on its own thread:
 /// read after stdout instead, a chatty child (ffmpeg logging an error per
@@ -269,8 +280,12 @@ fn run_with_progress(
         .spawn()?;
     let mut stderr = child.stderr.take().expect("piped stderr");
     let drain = std::thread::spawn(move || {
+        // Keep the start of the log (the error message), then go on
+        // reading and dropping: a broken file can log without end, and a
+        // full pipe would stall the child.
         let mut buf = Vec::new();
-        let _ = stderr.read_to_end(&mut buf);
+        let _ = stderr.by_ref().take(STDERR_KEEP).read_to_end(&mut buf);
+        let _ = std::io::copy(&mut stderr, &mut std::io::sink());
         buf
     });
     if let Some(stdout) = child.stdout.take() {
@@ -299,6 +314,7 @@ pub async fn finish_repair(
     // Only ever the work file repair_video made for this very original:
     // this renames over `original` or deletes `tmp`, so neither may be an
     // arbitrary pair of paths.
+    require_absolute(&original)?;
     if tmp != repair_work_file(&original)? {
         return Err(format!("{}: not the repair file for this video", tmp.display()));
     }
@@ -503,7 +519,8 @@ mod tests {
         let (result, lines) = rx
             .recv_timeout(std::time::Duration::from_secs(20))
             .expect("deadlocked on a full stderr pipe");
-        assert_eq!(result.unwrap(), (Some(3), 1 << 20));
+        // All of it was read (the child got to exit); only the start is kept.
+        assert_eq!(result.unwrap(), (Some(3), STDERR_KEEP as usize));
         // A non-UTF-8 line does not end the progress stream.
         assert_eq!(lines.first().map(String::as_str), Some("out_time_us=1"));
         assert_eq!(lines.last().map(String::as_str), Some("out_time_us=3"));

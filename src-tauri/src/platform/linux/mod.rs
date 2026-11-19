@@ -399,6 +399,7 @@ pub fn media_info(path: &Path) -> Result<MediaInfo, String> {
     let out = crate::proc::output_bounded(
         Command::new(ffprobe)
             .args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams"])
+            .args(super::FFMPEG_LOCAL_INPUT)
             .arg(path),
         super::PROBE_TIMEOUT,
         super::PROBE_OUTPUT_MAX,

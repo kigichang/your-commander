@@ -18,6 +18,12 @@ pub(crate) fn file_uri(path: &std::path::Path) -> String {
     format!("file://{}", encoded.join("/"))
 }
 
+/// Input options for every ffmpeg/ffprobe run on a file the user merely
+/// pointed at: the file may be a playlist or a container that names other
+/// inputs, and without this ffmpeg would fetch URLs or read other local
+/// formats on its behalf. Goes before `-i`.
+pub(crate) const FFMPEG_LOCAL_INPUT: [&str; 2] = ["-protocol_whitelist", "file"];
+
 #[derive(serde::Serialize)]
 pub struct OpenApp {
     pub name: String,
