@@ -63,7 +63,6 @@
   --color-neutral-900: #26272a;
 
   --font-body: "Inter", system-ui, sans-serif;
-  --font-heading: "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   /* Multiplier on every font size; Settings → Appearance sets it. */
   --font-scale: 1;

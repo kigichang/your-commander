@@ -38,7 +38,6 @@ function applyFonts(c: Pick<Config, "font_family" | "font_mono" | "font_scale">)
   const body = c.font_family ? `${quoted(c.font_family)}, ` : "";
   const mono = c.font_mono ? `${quoted(c.font_mono)}, ` : "";
   root.setProperty("--font-body", `${body}"Inter", system-ui, sans-serif`);
-  root.setProperty("--font-heading", `${body}"Inter", system-ui, sans-serif`);
   root.setProperty(
     "--font-mono",
     `${mono}"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace`,
