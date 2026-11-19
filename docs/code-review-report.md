@@ -16,7 +16,7 @@
 
 **驗證狀態**
 
-- `cargo test`：**177 passed / 2 ignored**（原 158；新增 19 個回歸測試）。`cargo clippy --all-targets`：0 warnings。`npx tsc -b` 與 `npm run build`：通過。
+- `cargo test`：**182 passed / 2 ignored**（原 158；含複查後為 FIX-1～FIX-3 補上的回歸測試）。`cargo clippy --all-targets`：0 warnings。`npx tsc -b` 與 `npm run build`：通過。
 - **未驗證的部分**：
   - 修正是在 macOS 上完成的，`#[cfg(target_os = "linux")]` 的程式碼（`platform/linux/*`、`media_server` 的正式路徑、`lib.rs` 的 Linux 分支）**沒有經過編譯**，只做了人工檢查。合併前請在 Linux 上跑一次 `cargo test`。
   - 沒有啟動 App 做人工操作測試。下列變更請實際操作確認：HTML 預覽載入同資料夾圖片／CSS（CSP 新增 `base-uri`）、影片／音訊預覽（`stream://` 改為 token）、連線對話框（已儲存密碼改由後端讀取）、Mermaid 圖表外觀。
@@ -42,12 +42,12 @@
 | 編號 | 判定 | Commit | 修正方式 | 未採納／備註 |
 | :--- | :--- | :--- | :--- | :--- |
 | SEC-M1 | 屬實 | `59e97b3` | 報告列出的所有位置皆改用 `displayName()`；過濾範圍加入 U+200E、U+200F、U+061C 與 C0／C1 控制字元。 | — |
-| SEC-M2 | 部分屬實 | `bf073f2` | CSP 加入 `object-src 'none'`、`form-action 'none'`、`base-uri`（僅 asset 協定）；`allow_asset_dir` 拒絕家目錄下的隱藏資料夾與 `~/Library`。 | `base-uri` 不能設 `'none'`：沙箱中的 HTML 預覽會繼承 App 的 CSP，並需要 `<base>` 指向檔案所在資料夾。授權仍維持整個 session（Tauri 的 scope 無法撤銷）。Linux 的 `http://127.0.0.1:*` 保留：media server 的 port 是執行時才決定的。 |
+| SEC-M2 | 部分屬實 | `bf073f2` | CSP 加入 `object-src 'none'`、`form-action 'none'`、`base-uri`（僅 asset 協定）；`allow_asset_dir` 拒絕家目錄下的隱藏資料夾與 `~/Library`（雲端硬碟資料夾除外，見 FIX-3）。 | `base-uri` 不能設 `'none'`：沙箱中的 HTML 預覽會繼承 App 的 CSP，並需要 `<base>` 指向檔案所在資料夾。授權仍維持整個 session（Tauri 的 scope 無法撤銷）。Linux 的 `http://127.0.0.1:*` 保留：media server 的 port 是執行時才決定的。複查發現 `~/Library` 整個被拒絕會影響雲端資料夾，見下方 FIX-3。 |
 | SEC-M3 | 屬實 | `ac5c87b` | wildcard 改為線性 glob 比對；計數器寬度上限 32；JSON 縮排上限 64 層、格式化輸出超過 2 MiB 就改顯示原文；PDF canvas 單邊上限 8192 px；根節點加上 `ErrorBoundary`。 | 批次改名的 regex 是使用者自己輸入、作用在自己的檔名上，維持原樣。 |
 | SEC-M4 | 屬實 | `b1fd210` | 所有 ffmpeg／ffprobe 呼叫加上 `-protocol_whitelist file`（已用本機 ffmpeg 實測四種呼叫形式）；symlink 檢查移到編碼開始前一刻；stderr 只保留前 64 KiB、其餘讀掉丟棄；`finish_repair` 檢查絕對路徑。 | 轉檔不設逾時（長影片本來就久）；暫存檔名不變（`finish_repair` 靠它辨識）。 |
 | SEC-M5 | 屬實 | `e18f5bc` | 子程序以獨立 process group 啟動，逾時時整組 kill；暫存資料夾改用隨機名稱；沒有 cache 目錄時直接失敗而不退回共用的 /tmp；`office_to_pdf` 只接受 Quick View 的 Office 副檔名。 | 未預置 `registrymodifications.xcu`：這裡沒有 LibreOffice 可以驗證設定鍵值。 |
 | SEC-M6 | 屬實 | `efffc06` | 驗證 `Host` 必須是 `127.0.0.1:<port>`（否則 403）；加上 `nosniff`；只開一般檔案；移除重複的 `Connection: close`。（`url_for` 的絕對路徑檢查已隨 SEC-H3 的共用註冊表修正。） | 不設寫入逾時：播放器暫停時本來就會停止讀取，連線數上限已經限制了閒置連線。 |
-| SEC-M7 | 屬實 | `973fb06` | `extract_tar` 略過 FIFO、裝置節點與 hard link；壓縮檔以 `create_new` 建立一次後交給各 writer，失敗時只刪除自己建立的檔案；`.tar.gz` 呼叫 `finish()` 並回報錯誤；`.gz` 失敗會清除半成品。 | — |
+| SEC-M7 | 屬實 | `973fb06` | `extract_tar` 略過 FIFO 與裝置節點（hard link 已改回正常解出，見 FIX-2）；壓縮檔以 `create_new` 建立一次後交給各 writer，失敗時只刪除自己建立的檔案；`.tar.gz` 呼叫 `finish()` 並回報錯誤；`.gz` 失敗會清除半成品。 | 複查發現的兩個問題已修正，見下方 FIX-1、FIX-2。 |
 | SEC-M8 | 部分屬實 | `5ac336d` | macOS：`ptbN` 必須是單一檔名、`ptbL` 不得含 `..` 或 NUL；`.DS_Store` 必須是 32 MiB 以內的一般檔案。Linux：`Path=` 含 `..` 則拒絕。`restore_one` 要求有檔名。 | B-tree 位移已有邊界檢查的 reader，64-bit 上不會溢位（此點不成立）。「檢查存在後 rename」的極短競態保留：要關閉需要 `renamex_np`／`renameat2`。 |
 | SEC-M9 | 屬實 | `3b43420` | 暫存檔名加入行程內遞增的批次編號；本機 `mkdir`／`rename`／`batch_rename` 要求絕對路徑；批次項目必須有檔名。 | — |
 | SEC-M10 | 部分屬實 | `0ce26e4` | 整個連線流程（撥號、金鑰交換、驗證、開 SFTP channel）加上 60 秒逾時；keepalive 每 30 秒、3 次無回應即斷線；host 不得為空或含空白／控制字元；金鑰檔必須是絕對路徑；`download_item` 把同名的 symlink 視為衝突，並使用 `create_dir_inside` 回傳的路徑。 | 「SFTP 請求沒有逾時」不成立：russh-sftp 預設每個請求 10 秒逾時。 |
@@ -82,6 +82,55 @@
 | C 建置產物 | — | — | 僅為說明，無需修改。 |
 
 另有一個後續 commit `e1d3ed9`（為 SEC-H6 新增的函式回傳型別取別名，消除 clippy 警告）。
+
+### 修正複查：待修正項目（2026-11-19）
+
+對 branch `review-fixes-3` 的修正逐項對照 diff 複查，並重跑 `cargo test`（177 passed / 2 ignored）、`cargo clippy --all-targets`（0 warnings）、`npx tsc -b`（通過）。其餘修正與上表描述相符；以下三項是修正本身引入的問題，**合併前必須修正，且每一項都必須附上回歸測試**（測試要在修正前失敗、修正後通過）。
+
+| 編號 | 嚴重度 | 來源 commit | 狀態 |
+| :--- | :--- | :--- | :--- |
+| FIX-1 | 高（迴歸，已實測） | `973fb06`（SEC-M7） | **已修正**：`c51ff26` |
+| FIX-2 | 中（行為退化） | `973fb06`（SEC-M7） | **已修正**：`da12e74` |
+| FIX-3 | 中（功能退化） | `bf073f2`（SEC-M2） | **已修正**：`4c087bf` |
+
+三項皆已修正並附回歸測試；每個測試都先在修正前執行、確認失敗，修正後通過。修正後 `cargo test` 182 passed / 2 ignored，`cargo clippy --all-targets` 0 warnings。各項的「修正結果」見下。
+
+#### [FIX-1] 壓縮目的地位於來源資料夾內時，壓縮檔把自己包進去並無限成長
+- **位置**：`src-tauri/src/ops/archive.rs` 的 `compress_op`（`create_new_file(&dest)` 在 `collect_tree(&sources)` 之前）
+- **問題說明**：SEC-M7 的修正改為先獨佔建立壓縮檔，再收集來源清單。目的地若在來源資料夾內，剛建立的空壓縮檔會被收進清單，寫入時一邊讀自己一邊寫自己。修正前是先收集清單才建檔，沒有這個問題。zip、tar、tar.gz 共用同一份清單，全部受影響。
+- **觸發方式**：左面板選取資料夾 `proj`，右面板停在 `proj/sub`，壓縮到對側，目的地即為 `proj/sub/proj.zip`。
+- **實測**：來源只有一個 4 MiB 的不可壓縮檔案，壓縮處理到 64 MiB 仍未結束，靠測試的取消保護才停下。實際使用時會寫到磁碟滿或使用者取消為止。
+- **要求的修正**：把 `collect_tree` 移回 `create_new_file` 之前（獨佔建檔的效果不受影響）；清單收集失敗時不應留下空的目的檔。
+- **要求的回歸測試**：來源資料夾含一個數 MiB 的不可壓縮檔案與子資料夾，目的地設在該子資料夾內；以 `OpCtx::recording(Some(上限))` 作為失控保護。斷言壓縮成功、已處理位元組數不超過來源總量、壓縮檔內沒有目的檔自己的條目。zip 與 tar.gz 各測一次。
+- **修正結果**（`c51ff26`）：
+  - `collect_tree` 移回 `create_new_file` 之前，獨佔建檔不變；清單收集失敗時直接回傳錯誤，此時目的檔尚未建立。
+  - 回歸測試 `zip_written_inside_its_source_does_not_pack_itself`、`tar_gz_written_inside_its_source_does_not_pack_itself`：4 MiB 不可壓縮來源、目的地在其子資料夾內，以 `OpCtx::recording(Some(64 MiB))` 作失控保護；斷言成功、已處理位元組數不超過來源大小、壓縮檔內沒有自己的條目。另加 `a_source_that_cannot_be_listed_leaves_no_archive_behind`。
+  - 修正前的失敗確認只做了 zip（結果：已處理位元組數超過來源大小，壓縮檔把自己讀了進去）。tar.gz 沒有在修正前執行：它在單一條目內不回報進度，取消保護無法介入，可能讓測試停不下來；tar.gz 與 zip 共用同一段修正後的流程，修正後兩個測試皆通過。
+
+#### [FIX-2] tar 內的 hard link 被靜默略過，解壓結果少檔案卻回報成功
+- **位置**：`src-tauri/src/ops/archive.rs` 的 `extract_tar`（略過清單中的 `tar::EntryType::Link`）
+- **問題說明**：SEC-M7 的修正把 hard link 與 FIFO、裝置節點一起 `continue` 掉。含 hard link 的壓縮檔解壓後會缺少那些檔案，而操作仍回報成功。原報告只建議「顯式檢查」hard link，不是丟棄。
+- **要求的修正**：從略過清單移除 `Link`（FIFO、字元／區塊裝置維持略過），讓指向目的地內部的 hard link 正常解出；指向目的地之外的 hard link 必須被拒絕或回報錯誤，不得靜默略過。
+- **要求的回歸測試**：
+  - 壓縮檔含一般檔案與指向它的 hard link：解壓後兩個名稱都存在且內容相同。
+  - 壓縮檔含指向目的地之外（例如 `/etc/hosts`、`../outside`）的 hard link：解壓回報錯誤或拒絕該條目，目的地之外沒有被建立或連結任何東西。此測試同時用來確認 tar crate（0.4.46）的 `unpack_in` 是否自行擋下外部目標；若沒有，需在 `extract_tar` 內補上檢查。
+  - 既有的 `tar_special_entries_are_not_created` 需跟著調整（它目前斷言 hard link 不會被建立）。
+- **修正結果**（`da12e74`）：
+  - 從略過清單移除 `Link`；FIFO、字元／區塊裝置維持略過。
+  - 對 tar crate 的確認：只移除略過、不加任何檢查時，外部目標的測試就已通過，也就是 tar 0.4.46 的 `unpack_in` 會自行拒絕指向目的地之外的 hard link。`extract_tar` 仍另外加了明確檢查（連結目標必須是目的地內已存在的檔案，否則整個解壓回報錯誤），不依賴 crate 的內部行為。
+  - 回歸測試 `tar_hard_links_inside_the_archive_are_extracted`：一般檔案加上指向它的 hard link，解壓後兩個名稱都存在且內容相同。
+  - 回歸測試 `tar_hard_links_leaving_the_destination_are_refused`：目標為 `/etc/hosts`、`../../outside`、目的地外的絕對路徑，三者皆回報錯誤、連結未被建立，外部檔案的 link count 維持 1。
+  - 兩個測試在修正前都失敗（前者少了 `b.txt`，後者「沒有錯誤就解壓完成」）。`tar_special_entries_are_not_created` 改為只涵蓋 FIFO。
+
+#### [FIX-3] 雲端資料夾內的 HTML 預覽載不到同資料夾的圖片與 CSS
+- **位置**：`src-tauri/src/commands/preview.rs` 的 `asset_dir_with_home`（拒絕家目錄下所有隱藏資料夾與整個 `~/Library`）
+- **問題說明**：macOS 的 iCloud Drive 實際位於 `~/Library/Mobile Documents`，Dropbox、OneDrive、Google Drive 位於 `~/Library/CloudStorage`（`~/Dropbox` 等只是指過去的 symlink）。路徑經 `canonicalize` 後都落在 `~/Library` 之下而被拒絕，這些資料夾內的 HTML 預覽仍會顯示，但失去同資料夾的資源。原報告只建議拒絕 `Library/Keychains` 等敏感子目錄。
+- **要求的修正**：放行 `~/Library/Mobile Documents` 與 `~/Library/CloudStorage` 之下的資料夾（這兩個資料夾本身仍不授權，避免一次授權所有雲端內容），`~/Library` 其餘部分與隱藏資料夾維持拒絕。
+- **要求的回歸測試**：擴充 `asset_dir_refuses_private_folders_of_the_home`：`Library/Mobile Documents/com~apple~CloudDocs/site` 與 `Library/CloudStorage/Dropbox/site` 允許；`Library/Mobile Documents`、`Library/CloudStorage` 本身，以及 `Library/Keychains`、`Library/Application Support/x`、`.ssh` 仍拒絕。
+- **修正結果**（`4c087bf`）：
+  - 判斷抽成 `private_in_home`：`~/Library/Mobile Documents` 與 `~/Library/CloudStorage` **之下**的資料夾放行（例如 `com~apple~CloudDocs`、`CloudStorage/Dropbox` 及其子資料夾）；這兩個資料夾本身、`~/Library` 及其餘子目錄、家目錄下的隱藏資料夾維持拒絕。
+  - 回歸測試：`asset_dir_refuses_private_folders_of_the_home` 依要求擴充，另外也斷言 `~/Library` 本身被拒絕；修正前執行失敗（`Library/Mobile Documents/com~apple~CloudDocs/site` 被拒絕），修正後通過。
+  - 測試以暫存目錄模擬家目錄，沒有對真實的 iCloud／Dropbox 資料夾做操作測試。
 
 ---
 
