@@ -432,26 +432,33 @@ pub async fn open_path(path: PathBuf) -> Result<(), String> {
     blocking(move || open::that(&path).map_err(|e| e.to_string())).await
 }
 
-/// Is `url` one the app may hand to the system to open? Web pages, and on
-/// macOS a System Settings pane (the Full Disk Access shortcut). Nothing
-/// that would run or open a local file: those go through `open_path`.
-fn is_openable_url(url: &str) -> bool {
-    let Ok(parsed) = tauri::Url::parse(url) else {
-        return false;
-    };
-    match parsed.scheme() {
+/// `url` as the app may hand it to the system to open, or None. Web
+/// pages, and on macOS a System Settings pane (the Full Disk Access
+/// shortcut). Nothing that would run or open a local file: those go
+/// through `open_path`. What comes back is the parsed URL written out
+/// again: the text that was checked, not the text that was sent (which
+/// may carry whitespace or control characters the parser dropped).
+fn openable_url(url: &str) -> Option<String> {
+    let parsed = tauri::Url::parse(url).ok()?;
+    let ok = match parsed.scheme() {
         "http" | "https" => parsed.host().is_some(),
         "x-apple.systempreferences" => cfg!(target_os = "macos"),
         _ => false,
-    }
+    };
+    ok.then(|| parsed.to_string())
+}
+
+#[cfg(test)]
+fn is_openable_url(url: &str) -> bool {
+    openable_url(url).is_some()
 }
 
 /// Open a web link in the default browser (or a System Settings pane).
 #[tauri::command]
 pub async fn open_url(url: String) -> Result<(), String> {
-    if !is_openable_url(&url) {
+    let Some(url) = openable_url(&url) else {
         return Err(format!("{url}: not a link the app opens"));
-    }
+    };
     blocking(move || open::that(&url).map_err(|e| e.to_string())).await
 }
 
