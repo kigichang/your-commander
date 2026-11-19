@@ -6,7 +6,7 @@ use super::{blocking, require_absolute};
 use tauri::{AppHandle, Manager, State};
 use tauri::ipc::Response;
 
-pub use crate::platform::MediaInfo;
+use crate::platform::MediaInfo;
 
 /// Video metadata for Quick View, local files only. Missing attributes
 /// come back as None.

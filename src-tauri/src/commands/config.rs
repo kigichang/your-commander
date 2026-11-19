@@ -7,10 +7,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Event every window hears after the config changes: the changed fields
 /// only, and which window changed them (that window already has them).
-pub const CONFIG_PATCHED: &str = "config-patched";
+const CONFIG_PATCHED: &str = "config-patched";
 
 #[derive(Clone, serde::Serialize)]
-pub struct ConfigPatched {
+struct ConfigPatched {
     pub source: String,
     pub patch: Map<String, Value>,
 }
@@ -22,7 +22,7 @@ pub fn get_config(state: State<'_, AppState>) -> Config {
 
 /// `config` with the top-level fields in `patch` replaced. Fails, leaving
 /// nothing changed, if the result is not a valid config.
-pub fn merge_patch(config: &Config, patch: &Map<String, Value>) -> Result<Config, String> {
+fn merge_patch(config: &Config, patch: &Map<String, Value>) -> Result<Config, String> {
     let mut value = serde_json::to_value(config).map_err(|e| e.to_string())?;
     let fields = value.as_object_mut().ok_or("config is not an object")?;
     for (key, v) in patch {

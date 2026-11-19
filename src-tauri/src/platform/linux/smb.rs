@@ -29,7 +29,7 @@ pub fn gvfs_dir() -> PathBuf {
 
 /// `smb-share:server=nas,share=media[,user=kigi]` → (server, share), both
 /// %XX-decoded. Anything else (sftp:…, mtp:…) is None.
-pub fn parse_smb_dir(name: &str) -> Option<(String, String)> {
+fn parse_smb_dir(name: &str) -> Option<(String, String)> {
     let rest = name.strip_prefix("smb-share:")?;
     let mut server = None;
     let mut share = None;
@@ -55,7 +55,7 @@ pub fn display_name(dir: &str) -> Option<String> {
 }
 
 /// Where is `//server/share` mounted, if at all?
-pub fn find_mount(server: &str, share: &str) -> Option<PathBuf> {
+fn find_mount(server: &str, share: &str) -> Option<PathBuf> {
     let server = server.to_lowercase();
     let share = share.to_lowercase();
     for entry in std::fs::read_dir(gvfs_dir()).ok()?.flatten() {

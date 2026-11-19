@@ -66,7 +66,7 @@ export type ActionId =
 
 type Modded = { mark?: boolean };
 
-export interface Action {
+interface Action {
   run: (mods?: Modded) => void;
   /** When false, the key is left to the browser (not consumed). */
   enabled?: () => boolean;

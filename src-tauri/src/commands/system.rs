@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use super::{blocking, require_absolute};
 use tauri::Manager;
 
-pub use crate::platform::OpenApp;
+use crate::platform::OpenApp;
 
 /// Smallest window the layout fits (tauri.conf.json's minWidth/minHeight
 /// say the same for the first window).

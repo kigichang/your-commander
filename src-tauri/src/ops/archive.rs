@@ -20,7 +20,7 @@ pub enum ArchiveFormat {
 }
 
 /// macOS noise that must never end up inside an archive.
-pub fn excluded(name: &str) -> bool {
+fn excluded(name: &str) -> bool {
     name == ".DS_Store" || name.starts_with("._")
 }
 

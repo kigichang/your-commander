@@ -223,7 +223,7 @@ pub fn apps_for(path: &Path) -> Vec<OpenApp> {
 
 /// Parse `gio mime <type>` output: the default handler plus the registered
 /// and recommended lists, deduplicated in order.
-pub(crate) fn parse_gio_mime(text: &str) -> (Option<String>, Vec<String>) {
+fn parse_gio_mime(text: &str) -> (Option<String>, Vec<String>) {
     let mut default_id = None;
     let mut ids: Vec<String> = Vec::new();
     let mut in_list = false;
@@ -283,7 +283,7 @@ fn find_desktop_file(id: &str) -> Option<PathBuf> {
 
 /// Name= from a .desktop file's [Desktop Entry] section, preferring the
 /// current locale ("zh_TW" tries Name[zh_TW], Name[zh], then Name).
-pub(crate) fn desktop_entry_name(content: &str) -> Option<String> {
+fn desktop_entry_name(content: &str) -> Option<String> {
     let locale = std::env::var("LC_MESSAGES")
         .or_else(|_| std::env::var("LANG"))
         .unwrap_or_default();
@@ -410,7 +410,7 @@ pub fn media_info(path: &Path) -> Result<MediaInfo, String> {
     Ok(parse_ffprobe(&String::from_utf8_lossy(&out.stdout)))
 }
 
-pub(crate) fn parse_ffprobe(json: &str) -> MediaInfo {
+fn parse_ffprobe(json: &str) -> MediaInfo {
     let v: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
     let duration = v["format"]["duration"]
         .as_str()
@@ -428,7 +428,7 @@ pub(crate) fn parse_ffprobe(json: &str) -> MediaInfo {
 
 /// Icon-theme names to try for a file-list key ("folder", "generic", or a
 /// lower-cased extension), most specific first.
-pub(crate) fn icon_names(key: &str) -> Vec<String> {
+fn icon_names(key: &str) -> Vec<String> {
     match key {
         "folder" => vec!["folder".to_string()],
         "generic" | "" => vec!["text-x-generic".to_string()],

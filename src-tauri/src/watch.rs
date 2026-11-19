@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// Watchers are per window and per panel side, so several main windows can
 /// watch independently.
-pub fn watch_key(window_label: &str, watch_id: u32) -> String {
+fn watch_key(window_label: &str, watch_id: u32) -> String {
     format!("{window_label}:{watch_id}")
 }
 

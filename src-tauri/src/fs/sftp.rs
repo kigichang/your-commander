@@ -60,7 +60,7 @@ pub enum SshAuth {
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ConnectError {
-    /// Not in ~/.ssh/known_hosts and `trust_host_key` was off.
+    /// Not in ~/.ssh/known_hosts, and no `trusted_fingerprint` matched.
     #[serde(rename_all = "camelCase")]
     UnknownHostKey { key_type: String, fingerprint: String },
     /// known_hosts has a different key for this host, of the same type or
@@ -241,7 +241,7 @@ pub(crate) fn connect_confirming_key(
 }
 
 /// `connect` against a given known_hosts file.
-pub(crate) fn connect_checked(
+fn connect_checked(
     known_hosts: &Path,
     host: &str,
     port: u16,

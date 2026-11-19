@@ -234,7 +234,7 @@ impl OpCtx {
 /// Sink used by unit tests: swallows progress, answers conflicts with a
 /// canned choice.
 #[cfg(test)]
-pub struct TestSink(pub ConflictChoice);
+struct TestSink(ConflictChoice);
 
 #[cfg(test)]
 impl OpSink for TestSink {

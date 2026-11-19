@@ -103,7 +103,7 @@ fn server() -> Result<&'static MediaServer, String> {
 }
 
 /// http://127.0.0.1:<port>/<token> serving `path`, registering it first.
-pub fn url_for(path: &Path) -> Result<String, String> {
+fn url_for(path: &Path) -> Result<String, String> {
     let server = server()?;
     let token = server.tokens.register(path)?;
     Ok(format!("http://127.0.0.1:{}/{token}", server.port))

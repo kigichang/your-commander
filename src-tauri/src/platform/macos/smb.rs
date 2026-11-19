@@ -11,7 +11,7 @@ const LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Where is `//server/share` mounted, if at all? Parses `mount` output lines
 /// like `//user@server/share on /Volumes/share (smbfs, ...)`.
-pub fn find_mount(server: &str, share: &str) -> Option<PathBuf> {
+fn find_mount(server: &str, share: &str) -> Option<PathBuf> {
     let output = Command::new("/sbin/mount").output().ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let server_lower = server.to_lowercase();
