@@ -8,7 +8,7 @@ use crate::state::AppState;
 use tauri::{AppHandle, Manager, State};
 
 #[cfg(target_os = "macos")]
-use core_foundation::base::{CFTypeRef, TCFType};
+use core_foundation::base::{CFType, CFTypeRef, TCFType};
 #[cfg(target_os = "macos")]
 use core_foundation::number::CFNumber;
 #[cfg(target_os = "macos")]
@@ -120,8 +120,10 @@ impl FnKeys {
         if kr != 0 || value.is_null() {
             return None;
         }
-        let number = unsafe { CFNumber::wrap_under_create_rule(value as _) };
-        number.to_i64()
+        // Owned from here (released on drop), and a number only if it says
+        // it is one: the parameter comes back as "some CF object".
+        let value = unsafe { CFType::wrap_under_create_rule(value) };
+        value.downcast_into::<CFNumber>()?.to_i64()
     }
 
     fn set(&self, mode: i64) {
