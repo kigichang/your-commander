@@ -47,10 +47,15 @@ const SUFFIXES: [(&str, Extractable); 6] = [
 /// The archive kind and the name with its suffix stripped, or None when the
 /// name is not a known archive.
 pub fn classify(name: &str) -> Option<(Extractable, &str)> {
-    let lower = name.to_lowercase();
+    // Compared as ASCII on the name's own bytes: lowercasing the whole
+    // name can change its length, and the stem is cut by suffix length.
+    let bytes = name.as_bytes();
     SUFFIXES
         .iter()
-        .find(|(suffix, _)| lower.ends_with(suffix))
+        .find(|(suffix, _)| {
+            bytes.len() >= suffix.len()
+                && bytes[bytes.len() - suffix.len()..].eq_ignore_ascii_case(suffix.as_bytes())
+        })
         .map(|(suffix, kind)| (*kind, &name[..name.len() - suffix.len()]))
 }
 
@@ -310,8 +315,13 @@ pub fn extract_op(
         let Some((kind, stem)) = classify(&name) else {
             return Err(format!("Unknown archive format: {name}"));
         };
+        // An archive named just ".zip", "..zip" or "...zip" leaves no
+        // usable folder name ("", "." and ".." all name the destination or
+        // its parent, not something in it).
+        let stem = if super::safe_path::is_listing_name(stem) { stem } else { "archive" };
         let mut target = dest_dir.join(stem);
-        if target.exists() {
+        // lstat: a dangling link takes the name too.
+        if target.symlink_metadata().is_ok() {
             target = keep_both_path(&target);
         }
 
@@ -679,6 +689,33 @@ mod tests {
         assert_eq!(mode(&file), 0o555);
         assert_eq!(xattr::get(&file, Quarantine::ATTR).unwrap(), Some(flag.clone()));
         assert_eq!(xattr::get(&closed, Quarantine::ATTR).unwrap(), Some(flag));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn archive_with_no_stem_extracts_inside_the_destination() {
+        let dir = tmp("no_stem");
+        let src = dir.join("src");
+        let dest = dir.join("dest");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(src.join("a.txt"), "a").unwrap();
+        for name in [".zip", "..zip", "...zip"] {
+            let archive = dir.join(name);
+            compress_op(&mut test_ctx(), vec![src.join("a.txt")], archive.clone(), ArchiveFormat::Zip)
+                .unwrap();
+            extract_op(&mut test_ctx(), vec![archive], dest.clone()).unwrap();
+        }
+        // Everything landed under dest; nothing beside it.
+        let beside: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| !n.ends_with("zip") && n != "src" && n != "dest")
+            .collect();
+        assert!(beside.is_empty(), "{beside:?}");
+        assert!(dest.join("archive/a.txt").is_file());
+        assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 3);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
