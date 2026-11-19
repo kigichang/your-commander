@@ -2,7 +2,7 @@ use crate::fs::provider::FsEntry;
 use crate::fs::{archive_fs, local};
 use crate::ops::transfer;
 use crate::state::{AppState, Location, Resolved};
-use super::blocking;
+use super::{blocking, require_absolute};
 use std::path::PathBuf;
 use tauri::State;
 
@@ -33,7 +33,10 @@ pub async fn mkdir(
     let conn = state.resolve(&location)?.conn_or_err("New folder")?;
     transfer::check_name(&name)?;
     blocking(move || match conn {
-        None => transfer::new_folder(&dir, &name),
+        None => {
+            require_absolute(&dir)?;
+            transfer::new_folder(&dir, &name)
+        }
         Some(c) => {
             let dest = dir.join(&name);
             if c.exists(&dest).is_some() {
@@ -55,7 +58,10 @@ pub async fn rename(
     let conn = state.resolve(&location)?.conn_or_err("Rename")?;
     transfer::check_name(&new_name)?;
     blocking(move || match conn {
-        None => transfer::rename(&path, &new_name),
+        None => {
+            require_absolute(&path)?;
+            transfer::rename(&path, &new_name)
+        }
         Some(c) => {
             let Some(parent) = path.parent() else {
                 return Err("no parent".to_string());
@@ -97,6 +103,13 @@ pub async fn batch_rename(
             .collect();
         let mut finals = std::collections::HashSet::new();
         for item in &items {
+            // An entry in a folder: "/a/.." or "/" names no such thing.
+            if item.path.file_name().is_none() {
+                return Err(format!("{}: not a file or folder", item.path.display()));
+            }
+            if conn.is_none() {
+                require_absolute(&item.path)?;
+            }
             transfer::check_name(&item.new_name)?;
             let parent = item
                 .path
@@ -124,6 +137,11 @@ pub async fn batch_rename(
                 ));
             }
         }
+        // Temp names carry this batch's own number: two batches running in
+        // one folder at once (two windows) would otherwise pick the same
+        // names, and a rename onto a taken name replaces it silently.
+        static BATCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let batch = BATCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let plan: Vec<transfer::RenameStep> = items
             .iter()
             .enumerate()
@@ -131,7 +149,7 @@ pub async fn batch_rename(
                 let parent = item.path.parent().unwrap();
                 transfer::RenameStep {
                     from: item.path.clone(),
-                    temp: parent.join(format!(".ycrn_{}_{i}", std::process::id())),
+                    temp: parent.join(format!(".ycrn_{}_{batch}_{i}", std::process::id())),
                     to: parent.join(&item.new_name),
                 }
             })
