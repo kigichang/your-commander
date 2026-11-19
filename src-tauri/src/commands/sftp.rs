@@ -78,6 +78,22 @@ pub struct SftpConnectParams {
     pub trusted_fingerprint: Option<String>,
 }
 
+/// What the dialog sends, checked before any of it is used: a host name
+/// with nothing odd in it, and a key file named by absolute path (a
+/// relative one would be looked up in whatever the working directory is).
+fn check_params(params: &SftpConnectParams) -> Result<(), String> {
+    let host = &params.host;
+    if host.is_empty() || host.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err(format!("Invalid host: \"{}\"", host.escape_debug()));
+    }
+    match params.identity_file.as_deref() {
+        Some(p) if !p.is_empty() && !std::path::Path::new(p).is_absolute() => {
+            Err(format!("{p}: the key file must be an absolute path"))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// No password typed means "use the saved one": it is read from the
 /// credential store here and never passes through the webview.
 fn auth_of(app: &AppHandle, params: &SftpConnectParams) -> SshAuth {
@@ -124,6 +140,7 @@ pub async fn sftp_connect(
     state: State<'_, AppState>,
     params: SftpConnectParams,
 ) -> Result<SftpConnected, ConnectError> {
+    check_params(&params)?;
     let (conn, home) = blocking(move || {
         let auth = auth_of(&app, &params);
         let conn = sftp::connect(
@@ -153,6 +170,7 @@ pub async fn sftp_connect(
 /// Dial, authenticate, and hang up — the dialog's Test button.
 #[tauri::command]
 pub async fn sftp_test(app: AppHandle, params: SftpConnectParams) -> Result<(), ConnectError> {
+    check_params(&params)?;
     blocking(move || {
         let auth = auth_of(&app, &params);
         sftp::connect(
