@@ -154,9 +154,9 @@ fn asset_dir(dir: &Path) -> Result<PathBuf, String> {
 /// folders are refused outright: the root and top-level folders (/Users,
 /// /Volumes: every account or every mounted disk), and the home folder or
 /// anything above it (~/.ssh, ~/Library and the rest would come along),
-/// and inside the home folder its hidden top-level folders and ~/Library
-/// themselves (keys, credentials, app data, keychains). A page there
-/// renders without its neighbouring files.
+/// and inside the home folder its private ones (`private_in_home`: keys,
+/// credentials, app data, keychains). A page there renders without its
+/// neighbouring files.
 fn asset_dir_with_home(dir: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
     require_absolute(dir)?;
     let real = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -170,17 +170,34 @@ fn asset_dir_with_home(dir: &Path, home: Option<&Path>) -> Result<PathBuf, Strin
     if home.is_some_and(|h| h.starts_with(&real)) {
         return refuse();
     }
-    let private = home
+    if home
         .and_then(|h| real.strip_prefix(h).ok())
-        .and_then(|rel| rel.components().next())
-        .is_some_and(|first| {
-            let name = first.as_os_str().to_string_lossy();
-            name.starts_with('.') || name == "Library"
-        });
-    if private {
+        .is_some_and(private_in_home)
+    {
         return refuse();
     }
     Ok(real)
+}
+
+/// Is `rel`, a folder's path below the home folder, one of the private
+/// ones: a hidden top-level folder or anything in it, or ~/Library? The
+/// exception is where macOS keeps cloud drives, which hold ordinary
+/// documents: a folder below ~/Library/Mobile Documents (iCloud Drive)
+/// or ~/Library/CloudStorage (Dropbox, OneDrive, Google Drive; ~/Dropbox
+/// is a link there) is not private. Those two folders themselves are:
+/// either would open every cloud account at once.
+fn private_in_home(rel: &Path) -> bool {
+    let mut parts = rel.components().map(|c| c.as_os_str().to_string_lossy());
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    if first != "Library" {
+        return first.starts_with('.');
+    }
+    let cloud = parts
+        .next()
+        .is_some_and(|second| second == "Mobile Documents" || second == "CloudStorage");
+    !(cloud && parts.next().is_some())
 }
 
 #[cfg(test)]
@@ -217,14 +234,36 @@ mod tests {
     #[test]
     fn asset_dir_refuses_private_folders_of_the_home() {
         let home = work("private");
-        for dir in [".ssh", ".config/app", "Library/Keychains", "Documents/site"] {
+        let allowed = |dir: &str| {
             std::fs::create_dir_all(home.join(dir)).unwrap();
-        }
-        let allowed = |dir: &str| asset_dir_with_home(&home.join(dir), Some(&home)).is_ok();
-        assert!(!allowed(".ssh"));
-        assert!(!allowed(".config/app"));
-        assert!(!allowed("Library/Keychains"));
+            asset_dir_with_home(&home.join(dir), Some(&home)).is_ok()
+        };
         assert!(allowed("Documents/site"));
+        for dir in [
+            ".ssh",
+            ".config/app",
+            "Library",
+            "Library/Keychains",
+            "Library/Application Support/x",
+        ] {
+            assert!(!allowed(dir), "{dir}");
+        }
+        // Cloud drives live under ~/Library on macOS (iCloud Drive in
+        // Mobile Documents; Dropbox, OneDrive and Google Drive in
+        // CloudStorage, with ~/Dropbox a link there). A page kept in one
+        // loads its neighbours like any other...
+        for dir in [
+            "Library/Mobile Documents/com~apple~CloudDocs/site",
+            "Library/Mobile Documents/com~apple~CloudDocs",
+            "Library/CloudStorage/Dropbox/site",
+            "Library/CloudStorage/Dropbox",
+        ] {
+            assert!(allowed(dir), "{dir}");
+        }
+        // ...but the two containers themselves are every cloud account at
+        // once, and stay closed.
+        assert!(!allowed("Library/Mobile Documents"));
+        assert!(!allowed("Library/CloudStorage"));
     }
 
     #[test]
