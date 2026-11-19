@@ -66,6 +66,27 @@ pub async fn smb_test(server: String) -> Result<(), String> {
     .await
 }
 
+fn saved_password(username: &str, server: &str, share: &str) -> Option<String> {
+    keychain::load(&keychain::smb_account(username, server, share))
+}
+
+/// The password to log in with: the one typed, or with none typed the
+/// saved one — read here, so it never passes through the webview. Can
+/// block on the credential store; call off the main thread.
+pub(crate) fn login_password(
+    username: &str,
+    server: &str,
+    share: &str,
+    typed: String,
+) -> Result<String, String> {
+    if !typed.is_empty() || username.is_empty() {
+        return Ok(typed);
+    }
+    let saved = saved_password(username, server, share).unwrap_or_default();
+    check_text("Password", &saved)?;
+    Ok(saved)
+}
+
 /// Disk shares the server offers (share picker when none was given).
 #[tauri::command]
 pub async fn smb_shares(
@@ -85,13 +106,13 @@ pub async fn smb_unmount(path: PathBuf) -> Result<(), String> {
 // The credential store can block (an unlock prompt), so these run off the
 // main thread.
 
-/// Stored password for a saved SMB connection (Keychain).
+/// Whether a password is stored for an SMB connection. Only that: the
+/// password itself stays in the backend (`login_password`).
 #[tauri::command]
-pub async fn smb_saved_password(username: String, server: String, share: String) -> Option<String> {
-    blocking(move || Ok::<_, String>(keychain::load(&keychain::smb_account(&username, &server, &share))))
+pub async fn smb_has_password(username: String, server: String, share: String) -> bool {
+    blocking(move || Ok::<_, String>(saved_password(&username, &server, &share).is_some()))
         .await
-        .ok()
-        .flatten()
+        .unwrap_or(false)
 }
 
 #[tauri::command]

@@ -77,7 +77,7 @@ fn owns_legacy_key(conns: &[SshConnection], username: &str, host: &str, port: u1
     port != 22 && matches!((same.next(), same.next()), (Some(c), None) if c.port == port)
 }
 
-fn saved_ssh_password(app: &AppHandle, username: &str, host: &str, port: u16) -> Option<String> {
+pub(crate) fn saved_ssh_password(app: &AppHandle, username: &str, host: &str, port: u16) -> Option<String> {
     let account = keychain::ssh_account(username, host, port);
     if let Some(password) = keychain::load(&account) {
         return Some(password);
@@ -102,19 +102,15 @@ fn saved_ssh_password(app: &AppHandle, username: &str, host: &str, port: u16) ->
 // The credential store can block (the Keychain or Secret Service asking
 // to be unlocked), so these run off the main thread like file I/O.
 
-/// SSH password/passphrase storage, keyed by user, host and port (see
-/// `keychain::ssh_account`).
+/// SSH password storage, keyed by user, host and port (see
+/// `keychain::ssh_account`). The webview learns only whether a password
+/// is saved: the password itself never leaves the backend, which reads
+/// it on connect (`commands::sftp`).
 #[tauri::command]
-pub async fn ssh_saved_password(
-    app: AppHandle,
-    username: String,
-    host: String,
-    port: u16,
-) -> Option<String> {
-    blocking(move || Ok::<_, String>(saved_ssh_password(&app, &username, &host, port)))
+pub async fn ssh_has_password(app: AppHandle, username: String, host: String, port: u16) -> bool {
+    blocking(move || Ok::<_, String>(saved_ssh_password(&app, &username, &host, port).is_some()))
         .await
-        .ok()
-        .flatten()
+        .unwrap_or(false)
 }
 
 #[tauri::command]

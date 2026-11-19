@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { SmbConnection, SshConfigHost, SshConnection } from "../ipc/types";
@@ -48,6 +48,10 @@ type Saved =
 const sameSsh = (a: SshConnection, b: SshConnection) =>
   a.host === b.host && a.username === b.username && a.port === b.port;
 
+/** The login a saved password belongs to. */
+const sshKey = (c: SshConnection) => ["sftp", c.username, c.host, c.port].join("\n");
+const smbKey = (c: SmbConnection) => ["smb", c.username, c.server, c.share].join("\n");
+
 export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" }) {
   const { t } = useTranslation();
   const close = useDialogs((s) => s.close);
@@ -57,7 +61,12 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
   const [side, setSide] = useState<Side>(activeSide);
   const [ssh, setSsh] = useState<SshConnection>(emptySsh);
   const [smb, setSmb] = useState<SmbConnection>(emptySmb);
+  // Only ever what was typed here. A saved password stays in the backend,
+  // which uses it when a login is sent with none typed; `savedFor` is the
+  // login known to have one (shown as a filled placeholder).
   const [secret, setSecret] = useState("");
+  const [savedFor, setSavedFor] = useState("");
+  const pickSeq = useRef(0);
   const [hosts, setHosts] = useState<SshConfigHost[]>([]);
   const [busy, setBusy] = useState<"" | "test" | "connect">("");
   // Password prompt shown when connecting with a username but no password.
@@ -86,8 +95,12 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
   };
 
   const authMode: SshAuthMode = ssh.use_agent ? "agent" : ssh.use_password ? "password" : "key";
-  const setAuthMode = (m: SshAuthMode) =>
+  // The one field is a password in one mode and a key passphrase in the
+  // other: what was typed for one is not carried over to the other.
+  const setAuthMode = (m: SshAuthMode) => {
+    if (m !== authMode) setSecret("");
     setSsh((s) => ({ ...s, use_agent: m === "agent", use_password: m === "password" }));
+  };
 
   const saved: Saved[] = [
     ...(config?.ssh_connections ?? []).map((c) => ({ proto: "sftp", ssh: c }) as Saved),
@@ -106,24 +119,33 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
   }
 
   const pick = (s: Saved) => {
+    // An answer for an earlier pick must not mark this one.
+    const seq = ++pickSeq.current;
+    const mark = (key: string) => (has: boolean) => {
+      if (has && seq === pickSeq.current) setSavedFor(key);
+    };
     setSecret("");
+    setSavedFor("");
     setProtocol(s.proto);
     if (s.proto === "sftp") {
       setSsh(s.ssh);
-      if (s.ssh.remember && s.ssh.use_password && s.ssh.username) {
+      if (s.ssh.use_password && s.ssh.username) {
         void ipc
-          .sshSavedPassword(s.ssh.username, s.ssh.host, s.ssh.port)
-          .then((p) => p && setSecret(p));
+          .sshHasPassword(s.ssh.username, s.ssh.host, s.ssh.port)
+          .then(mark(sshKey(s.ssh)));
       }
     } else {
       setSmb(s.smb);
-      if (s.smb.remember && s.smb.username) {
+      if (s.smb.username) {
         void ipc
-          .smbSavedPassword(s.smb.username, s.smb.server, s.smb.share)
-          .then((p) => p && setSecret(p));
+          .smbHasPassword(s.smb.username, s.smb.server, s.smb.share)
+          .then(mark(smbKey(s.smb)));
       }
     }
   };
+  // Shown in the empty password field of a login that has one saved; any
+  // edit of the login's fields changes its key and the mark goes away.
+  const savedHint = (key: string) => (savedFor === key ? "••••••••" : "");
 
   const remove = (s: Saved) => {
     if (s.proto === "sftp") {
@@ -153,7 +175,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
       const name = ssh.name.trim() || `${ssh.username}@${ssh.host}`;
       const rest = (config?.ssh_connections ?? []).filter((c) => !sameSsh(c, ssh));
       useSettings.getState().save({ ssh_connections: [...rest, { ...ssh, name }] });
-      if (ssh.use_password && secret)
+      if (ssh.remember && ssh.use_password && secret)
         void ipc.sshStorePassword(ssh.username, ssh.host, ssh.port, secret);
     } else if (protocol === "smb") {
       if (!smb.server || !share) return;
@@ -162,7 +184,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
         (c) => !(c.server === smb.server && c.share === share && c.username === smb.username),
       );
       useSettings.getState().save({ smb_connections: [...rest, { ...smb, share, name }] });
-      if (smb.username && pw)
+      if (smb.remember && smb.username && pw)
         void ipc.smbStorePassword(smb.username, smb.server, share, pw);
     }
     toast(t("connect.saved2"));
@@ -175,7 +197,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     username: ssh.username,
     usePassword: ssh.use_password,
     useAgent: ssh.use_agent,
-    password: ssh.use_password ? secret : undefined,
+    password: ssh.use_password ? secret || undefined : undefined,
     identityFile: authMode === "key" ? ssh.identity_file : undefined,
     passphrase: authMode === "key" ? secret || undefined : undefined,
     startIn: ssh.start_in || undefined,
@@ -292,20 +314,20 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
           .getState()
           .navigate(side, res.home, { kind: "sftp", connId: res.connId }, res.label);
       } else {
-        // No password typed: fall back to the Keychain, then ask for one —
-        // never hand NetFS a passwordless URL that fails or double-prompts.
-        let pw = secret;
-        if (!pw && smb.username) {
-          pw = (await ipc.smbSavedPassword(smb.username, smb.server, smb.share)) ?? "";
-          if (pw) setSecret(pw);
-        }
-        if (!pw && smb.username) {
+        // No password typed: the backend uses the saved one, and with none
+        // saved we ask — never hand NetFS a passwordless URL that fails or
+        // double-prompts.
+        if (
+          !secret &&
+          smb.username &&
+          !(await ipc.smbHasPassword(smb.username, smb.server, smb.share))
+        ) {
           setPwInput("");
           setAskPw(true);
           setBusy("");
           return;
         }
-        await mountSmb(pw);
+        await mountSmb(secret);
       }
     } catch (e) {
       onSftpError(e, "connect", opts?.confirmed);
@@ -317,6 +339,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     setAskPw(false);
     setSecret(pwInput);
     void mountSmb(pwInput);
+    setPwInput("");
   };
 
   const canSubmit =
@@ -345,9 +368,11 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
           <button
             className="tab-new new-conn"
             onClick={() => {
+              pickSeq.current++;
               setSsh(emptySsh);
               setSmb(emptySmb);
               setSecret("");
+              setSavedFor("");
             }}
           >
             + {t("connect.new")}
@@ -361,7 +386,12 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
                 className={protocol === p ? "on" : ""}
                 disabled={!READY.has(p)}
                 title={READY.has(p) ? "" : t("status.comingSoon")}
-                onClick={() => READY.has(p) && setProtocol(p)}
+                onClick={() => {
+                  if (!READY.has(p) || p === protocol) return;
+                  // Nothing typed for one protocol's server goes to the other's.
+                  setSecret("");
+                  setProtocol(p);
+                }}
               >
                 {p.toUpperCase()}
               </button>
@@ -377,6 +407,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
                     value=""
                     onChange={(e) => {
                       const h = hosts.find((x) => x.alias === e.target.value);
+                      if (h) setSecret("");
                       if (h)
                         setSsh((s) => ({
                           ...s,
@@ -463,6 +494,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
                   <input
                     type="password"
                     value={secret}
+                    placeholder={authMode === "password" ? savedHint(sshKey(ssh)) : ""}
                     onChange={(e) => setSecret(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && void connect()}
                   />
@@ -526,6 +558,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
                   <input
                     type="password"
                     value={secret}
+                    placeholder={savedHint(smbKey(smb))}
                     onChange={(e) => setSecret(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && void connect()}
                   />

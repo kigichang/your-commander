@@ -2,7 +2,7 @@ use crate::fs::sftp::{self, ConnectError, SshAuth};
 use crate::state::AppState;
 use std::path::PathBuf;
 use super::blocking;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 /// Usable (non-wildcard) Host entry from ~/.ssh/config.
 #[derive(Clone, serde::Serialize)]
@@ -78,11 +78,25 @@ pub struct SftpConnectParams {
     pub trusted_fingerprint: Option<String>,
 }
 
-fn auth_of(params: &SftpConnectParams) -> SshAuth {
+/// No password typed means "use the saved one": it is read from the
+/// credential store here and never passes through the webview.
+fn auth_of(app: &AppHandle, params: &SftpConnectParams) -> SshAuth {
     if params.use_agent {
         SshAuth::Agent
     } else if params.use_password {
-        SshAuth::Password(params.password.clone().unwrap_or_default())
+        let typed = params.password.clone().filter(|p| !p.is_empty());
+        SshAuth::Password(
+            typed
+                .or_else(|| {
+                    super::config::saved_ssh_password(
+                        app,
+                        &params.username,
+                        &params.host,
+                        params.port,
+                    )
+                })
+                .unwrap_or_default(),
+        )
     } else {
         SshAuth::Key {
             path: params
@@ -106,11 +120,12 @@ pub struct SftpConnected {
 /// Blocking SSH connect in a worker; returns the registered connection.
 #[tauri::command]
 pub async fn sftp_connect(
+    app: AppHandle,
     state: State<'_, AppState>,
     params: SftpConnectParams,
 ) -> Result<SftpConnected, ConnectError> {
     let (conn, home) = blocking(move || {
-        let auth = auth_of(&params);
+        let auth = auth_of(&app, &params);
         let conn = sftp::connect(
             &params.host,
             params.port,
@@ -137,9 +152,9 @@ pub async fn sftp_connect(
 
 /// Dial, authenticate, and hang up — the dialog's Test button.
 #[tauri::command]
-pub async fn sftp_test(params: SftpConnectParams) -> Result<(), ConnectError> {
+pub async fn sftp_test(app: AppHandle, params: SftpConnectParams) -> Result<(), ConnectError> {
     blocking(move || {
-        let auth = auth_of(&params);
+        let auth = auth_of(&app, &params);
         sftp::connect(
             &params.host,
             params.port,
