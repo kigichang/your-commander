@@ -354,7 +354,6 @@ export const actions: Record<ActionId, Action> = {
       const tab = s.activeTab(s.activeSide);
       dialogs().open({
         type: "find",
-        side: s.activeSide,
         location: tab.location,
         dir: tab.path,
       });
@@ -422,7 +421,6 @@ export const actions: Record<ActionId, Action> = {
       const other = panels().otherSide(side);
       dialogs().open({
         type: "compress",
-        side,
         items,
         destDir: panels().activeTab(other).path,
       });
@@ -487,7 +485,7 @@ export const actions: Record<ActionId, Action> = {
   },
 
   openSettings: {
-    run: () => dialogs().open({ type: "settings", section: "general" }),
+    run: () => dialogs().open({ type: "settings" }),
   },
 
   // Show the Trash's / Desktop's contents in the active panel.

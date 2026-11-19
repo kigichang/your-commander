@@ -39,7 +39,7 @@ export function Dialogs() {
     case "find":
       return <FindDialog d={dialog} />;
     case "settings":
-      return <SettingsDialog d={dialog} />;
+      return <SettingsDialog />;
     case "palette":
       return <PaletteDialog />;
     case "confirmDelete":
