@@ -10,6 +10,81 @@
 
 ---
 
+## 修正結果（2026-11-19，branch `review-fixes-3`）
+
+本報告的每一項皆已對照程式碼查證；屬實者已修正，每個問題一個 commit（commit 訊息記錄問題與解法）。以下各表的「判定」是查證結果，「未採納」是查證後決定不改的部分與理由。
+
+**驗證狀態**
+
+- `cargo test`：**177 passed / 2 ignored**（原 158；新增 19 個回歸測試）。`cargo clippy --all-targets`：0 warnings。`npx tsc -b` 與 `npm run build`：通過。
+- **未驗證的部分**：
+  - 修正是在 macOS 上完成的，`#[cfg(target_os = "linux")]` 的程式碼（`platform/linux/*`、`media_server` 的正式路徑、`lib.rs` 的 Linux 分支）**沒有經過編譯**，只做了人工檢查。合併前請在 Linux 上跑一次 `cargo test`。
+  - 沒有啟動 App 做人工操作測試。下列變更請實際操作確認：HTML 預覽載入同資料夾圖片／CSS（CSP 新增 `base-uri`）、影片／音訊預覽（`stream://` 改為 token）、連線對話框（已儲存密碼改由後端讀取）、Mermaid 圖表外觀。
+  - SMB／SFTP 的變更沒有對真實伺服器測試。
+
+### 高風險（High）
+
+| 編號 | 判定 | Commit | 修正方式 | 未採納／備註 |
+| :--- | :--- | :--- | :--- | :--- |
+| SEC-H1 | 部分屬實 | `b8311c4` | Mermaid `secure` 清單加入 `themeCSS`／`fontFamily`／`altFontFamily`；`.markdown-body` 加 `contain: layout paint; isolation: isolate`；KaTeX 設 `maxSize`／`maxExpand`、明示 `trust: false`。 | 未改為 iframe 沙箱：Mermaid 需要 script 才能渲染，連結點擊也要經過 IPC。未加 DOMPurify：markdown-it 已 `html: false`，Mermaid strict 模式自帶淨化。 |
+| SEC-H2 | 屬實 | `7cb67c9` | `ssh_saved_password`／`smb_saved_password` 改為只回傳布林的 `ssh_has_password`／`smb_has_password`；未輸入密碼時由後端（`sftp_connect`、`sftp_test`、SMB 掛載）自行讀 Keychain。對話框的 `secret` 只保存使用者輸入；切換協定／驗證模式／ssh config 主機時清空；`pick()` 加序號防競態；`remember` 未勾選不寫入 Keychain；`pwInput` 送出後清空。 | SMB 掛載時使用者「當場輸入」的密碼仍會隨 op 請求暫存於 store，job 結束即移除。 |
+| SEC-H3 | 屬實 | `29b1895` | `stream://` 只服務經 `stream_url` 指令註冊、以 128-bit 隨機 token 命名的檔案（註冊表與 Linux media server 共用）；非 GET／HEAD 回 405；只開一般檔案；範圍運算改飽和運算；僅在 macOS 註冊，Linux CSP 移除 `stream:`。 | — |
+| SEC-H4 | 屬實 | `dfba3a8` | `open_with` 的 `app` 必須是設定中的外部工具、偵測到的影片播放器，或系統對該檔案列出的 handler；Linux `.desktop` id 不得含路徑；PlantUML jar 必須是絕對路徑的一般檔案。 | `update_config` 存檔時不驗證路徑：設定頁每次按鍵即存檔，驗證會擋掉輸入中的值；`soffice`／`java` 在使用時本來就要求絕對路徑的一般檔案。macOS `open -a` 未加 `--`：路徑已強制為絕對路徑。 |
+| SEC-H5 | 屬實 | `e3abc0d` | 伺服器必須是有 host、無帳密／query／fragment 的 http(s) URL；停用重導向（3xx 回報 Location 讓使用者改設定）；原始碼上限 1 MiB。 | 仍允許 `http://`：區網內的 PlantUML 伺服器是正常用法，位址由使用者自己設定。 |
+| SEC-H6 | 部分屬實 | `4eadb85` | ZIP symlink 目標最多讀 4096 bytes；標頭大小加總改飽和加法；瀏覽／預覽 `.tar.gz` 解壓超過 8 GiB 即停止並提示改用解壓縮；試算表先檢查 ZIP 宣告的解壓總量（512 MiB）、最多 100 張工作表、儲存格文字截至 4096 字元；前端 docx／pptx 先檢查解壓總量（300 MiB），圖片解壓前先比對預算。 | 完整解壓縮不設總量上限：那是使用者明確下的指令，有進度、可取消，上限就是磁碟空間；設上限只會擋住正常的大型壓縮檔。 |
+| SEC-H7 | 屬實（已實測 macOS 對唯讀檔 `setxattr` 回 EACCES） | `07f0190` | `Quarantine::mark` 被拒時暫時加上擁有者寫入權限再設定、設完還原；`mark_tree` 遇到擁有者無 rwx 的資料夾會暫時開啟再還原（涵蓋 zip／tar／7z／gz）；`copy_file` 改為先複製 xattr 再套用權限。 | — |
+| SEC-H8 | 屬實 | `d4428e1` | `create_dir_inside` 的不存在尾段只接受一般名稱；`.zip`／`..zip`／`...zip` 改解壓到 `archive` 資料夾，目標以 lstat 檢查；`classify` 改以 ASCII 位元組比對；`copy_op` 以 (device, inode) 判斷同資料夾與資料夾複製到自身，`copy_file` 拒絕目的地就是來源檔的情況。 | — |
+| SEC-H9 | 屬實 | `38bf5f2` | 後端將 `max_bytes` 限制在 256 MiB（前端最大請求值）；本機路徑必須是絕對路徑且為一般檔案（`safe_path::open_regular`）。 | 未使用 `O_NONBLOCK`：該旗標會留在 descriptor 上，而雲端佔位檔必須能在下載期間阻塞；改為開檔前後各檢查一次檔案類型。 |
+| SEC-H10 | 屬實 | `1b10c3e` | 新增共用的 `platform::scrub_password`，macOS 掛載與列出分享的錯誤訊息、Linux 端皆使用。 | 未改用 `NetFSMountURLSync` 或 `mount volume … with password`：無法對真實伺服器驗證，不在沒有測試的情況下更動掛載主流程。 |
+
+### 中風險（Medium）
+
+| 編號 | 判定 | Commit | 修正方式 | 未採納／備註 |
+| :--- | :--- | :--- | :--- | :--- |
+| SEC-M1 | 屬實 | `59e97b3` | 報告列出的所有位置皆改用 `displayName()`；過濾範圍加入 U+200E、U+200F、U+061C 與 C0／C1 控制字元。 | — |
+| SEC-M2 | 部分屬實 | `bf073f2` | CSP 加入 `object-src 'none'`、`form-action 'none'`、`base-uri`（僅 asset 協定）；`allow_asset_dir` 拒絕家目錄下的隱藏資料夾與 `~/Library`。 | `base-uri` 不能設 `'none'`：沙箱中的 HTML 預覽會繼承 App 的 CSP，並需要 `<base>` 指向檔案所在資料夾。授權仍維持整個 session（Tauri 的 scope 無法撤銷）。Linux 的 `http://127.0.0.1:*` 保留：media server 的 port 是執行時才決定的。 |
+| SEC-M3 | 屬實 | `ac5c87b` | wildcard 改為線性 glob 比對；計數器寬度上限 32；JSON 縮排上限 64 層、格式化輸出超過 2 MiB 就改顯示原文；PDF canvas 單邊上限 8192 px；根節點加上 `ErrorBoundary`。 | 批次改名的 regex 是使用者自己輸入、作用在自己的檔名上，維持原樣。 |
+| SEC-M4 | 屬實 | `b1fd210` | 所有 ffmpeg／ffprobe 呼叫加上 `-protocol_whitelist file`（已用本機 ffmpeg 實測四種呼叫形式）；symlink 檢查移到編碼開始前一刻；stderr 只保留前 64 KiB、其餘讀掉丟棄；`finish_repair` 檢查絕對路徑。 | 轉檔不設逾時（長影片本來就久）；暫存檔名不變（`finish_repair` 靠它辨識）。 |
+| SEC-M5 | 屬實 | `e18f5bc` | 子程序以獨立 process group 啟動，逾時時整組 kill；暫存資料夾改用隨機名稱；沒有 cache 目錄時直接失敗而不退回共用的 /tmp；`office_to_pdf` 只接受 Quick View 的 Office 副檔名。 | 未預置 `registrymodifications.xcu`：這裡沒有 LibreOffice 可以驗證設定鍵值。 |
+| SEC-M6 | 屬實 | `efffc06` | 驗證 `Host` 必須是 `127.0.0.1:<port>`（否則 403）；加上 `nosniff`；只開一般檔案；移除重複的 `Connection: close`。（`url_for` 的絕對路徑檢查已隨 SEC-H3 的共用註冊表修正。） | 不設寫入逾時：播放器暫停時本來就會停止讀取，連線數上限已經限制了閒置連線。 |
+| SEC-M7 | 屬實 | `973fb06` | `extract_tar` 略過 FIFO、裝置節點與 hard link；壓縮檔以 `create_new` 建立一次後交給各 writer，失敗時只刪除自己建立的檔案；`.tar.gz` 呼叫 `finish()` 並回報錯誤；`.gz` 失敗會清除半成品。 | — |
+| SEC-M8 | 部分屬實 | `5ac336d` | macOS：`ptbN` 必須是單一檔名、`ptbL` 不得含 `..` 或 NUL；`.DS_Store` 必須是 32 MiB 以內的一般檔案。Linux：`Path=` 含 `..` 則拒絕。`restore_one` 要求有檔名。 | B-tree 位移已有邊界檢查的 reader，64-bit 上不會溢位（此點不成立）。「檢查存在後 rename」的極短競態保留：要關閉需要 `renamex_np`／`renameat2`。 |
+| SEC-M9 | 屬實 | `3b43420` | 暫存檔名加入行程內遞增的批次編號；本機 `mkdir`／`rename`／`batch_rename` 要求絕對路徑；批次項目必須有檔名。 | — |
+| SEC-M10 | 部分屬實 | `0ce26e4` | 整個連線流程（撥號、金鑰交換、驗證、開 SFTP channel）加上 60 秒逾時；keepalive 每 30 秒、3 次無回應即斷線；host 不得為空或含空白／控制字元；金鑰檔必須是絕對路徑；`download_item` 把同名的 symlink 視為衝突，並使用 `create_dir_inside` 回傳的路徑。 | 「SFTP 請求沒有逾時」不成立：russh-sftp 預設每個請求 10 秒逾時。 |
+| SEC-M11 | 部分屬實 | `342babc` | macOS：PTY slave 加 `FD_CLOEXEC`、提示緩衝只留最後 4 KiB、寫入密碼失敗時 kill 並回收子程序。Linux：使用者名稱含 `%` 時拒絕、空的 `XDG_RUNTIME_DIR` 退回預設路徑。兩平台的卸載都加上 60 秒逾時並要求絕對路徑。 | `get_info` 的 AppleScript 注入不成立：引號與反斜線已跳脫，字串內換行是合法的 AppleScript（已用 `osascript` 實測）。Linux 工具仍經由 PATH 尋找（那是使用者自己的環境）。 |
+| SEC-M12 | 屬實 | `9436035` | `unescape` 改以位元組處理、最後才解 UTF-8（修正中文掛載點變亂碼與潛在 panic）；mtime、statfs 改飽和乘法，日期為 0 視為 1 日；內容搜尋只開一般檔案；`watch_dir` 註冊後若視窗已關閉則移除 watcher，並要求絕對路徑；`conflict()` 放入 sender 後檢查取消旗標。 | 本機搜尋不設深度上限：它不跟隨 symlink，深度受系統路徑長度限制。 |
+
+### 低風險（Low）
+
+| 編號 | 判定 | Commit | 修正方式 | 未採納／備註 |
+| :--- | :--- | :--- | :--- | :--- |
+| SEC-L1 | 屬實 | `b846ad4` | `open_url` 開啟的是解析後重新輸出的 URL。 | — |
+| SEC-L2 | 不修正 | — | — | 鍵名碰撞需要 host 含 `@`，而 host／server 的檢查不允許；改變鍵名格式會讓既有的 Keychain 項目全部失效。zeroize 需要新增相依套件，而密碼在交給 russh／系統工具時仍會被複製。 |
+| SEC-L3 | 屬實 | `7d89063` | 先包成 `CFType` 再 `downcast_into::<CFNumber>()`。 | — |
+| SEC-L4 | 部分屬實 | `3daa924` | `keep_both_with` 編號用盡時改用時間戳檔名，不再回傳原路徑；權限改設在已開啟的檔案上（解壓與複製）；7z 的空檔與資料夾也檢查取消；SMB Test 不再對已含 port 的 server 再加 `:445`。 | 保留 setuid／setgid（同擁有者下不增加任何權限，與 `cp -p` 相同）；遠端為來源的 sync 不做 `real_path` 檢查（讀到的本來就是該伺服器自己的資料）；外部指令的路徑皆為絕對路徑，不需要 `--`。 |
+| SEC-L5 | 屬實 | `39c5a4c` | Copy/Move：對側是 SFTP 時，手動輸入的路徑仍屬於該伺服器；Compress：檔名含 `/` 則拒絕；批次改名：結果含控制字元標為無效；SMB `start_in` 含 `..` 時忽略；退出磁碟的路徑比對加上邊界。 | 批次改名不拒絕 Bidi 字元：它們只可能來自既有檔名或使用者自己的遮罩，擋掉反而讓這些檔案無法改名。 |
+| SEC-L6 | 部分修正 | `2bbaf6c` | TOML 解析失敗時先把原檔改名為 `config.toml.bad`；PlantUML 預覽圖不可拖曳；`font_scale` 限制在 0.5–3。 | 未改的項目與理由：SVG 以 `<img>` 載入，blob 或 data URL 都不會執行 script；docx-preview 已渲染到未掛載的元素、只在沙箱內顯示；PlantUML URL 已在使用處驗證（H5）；字型名稱含換行只會讓該 CSS 值無效；`icons.rs`／`fonts.rs`／`officeTools` 屬效能建議；全面改寫 `.lock().unwrap()` 沒有對應的實際失敗案例。 |
+
+### 多餘／重複程式碼
+
+| 項目 | 判定 | Commit | 處理 |
+| :--- | :--- | :--- | :--- |
+| A-1 Linux 上的 `stream://` | 屬實 | `29b1895` | 隨 SEC-H3 移除。 |
+| A-2 `--font-heading` | 屬實 | `4727ba7` | 移除定義與設定處。 |
+| A-3 Dialog 未讀欄位 | 屬實 | `e06b74a` | 移除 find／compress 的 `side` 與 settings 的 `section`。 |
+| A-4 未使用的 IPC 欄位 | 屬實 | `6afabc0` | `FindEvent::Done` 移除 `error` 與 `count`。`Config.window_size` 保留（對應後端的 Config 結構）。 |
+| A-5 7 處不可達的 `_` 分支 | 屬實，未修改 | — | 要消除必須讓 `ask_conflict_with` 回傳新的 4 變體 enum，牽動所有衝突處理點；這些分支目前都是安全的預設行為（略過）。建議獨立成一次重構。 |
+| A-6 多餘的 `pub`／`export` | 大部分屬實 | `90c488f` | 清單中的項目改為私有；`AppState::sftp` 與 `archive::Meter` 實際上有其他模組使用，維持原樣。 |
+| A-7 零星冗餘 | 屬實 | `ec1c973`（doc 註解在 `90c488f`） | 合併重複 import、移除 `let custom`、內聯 `files_equal`、修正過期註解。`connect_with` 的外層大括號與 `!src.is_symlink()` 保留（前者只是重新縮排上百行，後者是零成本的防護）。 |
+| B-4 SMB 密碼遮罩重複 | 屬實 | `1b10c3e` | 隨 SEC-H10 抽成共用函式。 |
+| B-5 迴圈內配置 1 MiB buffer | 屬實 | `537fb8a` | `write_zip` 與 `extract_entries` 的 buffer 移到迴圈外。 |
+| B 其餘重構建議 | 未處理 | — | `on_main_thread`、`useDismissable`、`useTauriListen`、合併 `Meter`／`TarMeter`、共用 Tokio runtime、重複 UI 片段等皆為不改變行為的重構，且多數需要實際操作 UI 才能驗證，未在這一輪進行。 |
+| C 建置產物 | — | — | 僅為說明，無需修改。 |
+
+另有一個後續 commit `e1d3ed9`（為 SEC-H6 新增的函式回傳型別取別名，消除 clippy 警告）。
+
+---
+
 ## 總覽與整體評價
 
 ### 值得肯定的既有安全實作
