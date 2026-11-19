@@ -39,7 +39,10 @@ fn parse_trash_info(text: &str) -> Option<PathBuf> {
                 let bytes = urlencoding::decode_binary(v.as_bytes()).into_owned();
                 use std::os::unix::ffi::OsStringExt;
                 let path = PathBuf::from(std::ffi::OsString::from_vec(bytes));
-                return path.is_absolute().then_some(path);
+                // Absolute, and as written: no ".." to climb with.
+                let plain = path.is_absolute()
+                    && !path.components().any(|c| c == std::path::Component::ParentDir);
+                return plain.then_some(path);
             }
         }
     }
@@ -509,6 +512,7 @@ mod tests {
         assert_eq!(parse_trash_info(text), Some(PathBuf::from("/home/u/My Docs/中.txt")));
         assert_eq!(parse_trash_info("[Other]\nPath=/x\n"), None);
         assert_eq!(parse_trash_info("[Trash Info]\nPath=relative/x\n"), None);
+        assert_eq!(parse_trash_info("[Trash Info]\nPath=/home/u/../../etc/x\n"), None);
         assert_eq!(
             trash_info_file(Path::new("/h/.local/share/Trash/files/a.txt")).unwrap(),
             PathBuf::from("/h/.local/share/Trash/info/a.txt.trashinfo")
