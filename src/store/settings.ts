@@ -22,6 +22,12 @@ function applyTheme(theme: string) {
     .catch(() => {});
 }
 
+/** The UI font-size multiplier, kept within what the layout survives: a
+ *  config edited by hand to 50 (or 0) must not leave the window unusable. */
+function fontScaleOf(scale: number | undefined): number {
+  return Math.min(3, Math.max(0.5, scale || 1));
+}
+
 /** CSS string literal for a font family name. */
 const quoted = (family: string) => `"${family.replace(/["\\]/g, "\\$&")}"`;
 
@@ -37,7 +43,7 @@ function applyFonts(c: Pick<Config, "font_family" | "font_mono" | "font_scale">)
     "--font-mono",
     `${mono}"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace`,
   );
-  root.setProperty("--font-scale", String(c.font_scale || 1));
+  root.setProperty("--font-scale", String(fontScaleOf(c.font_scale)));
 }
 
 darkMedia.addEventListener("change", () => {
@@ -73,7 +79,7 @@ type HasConfig = { config: Config | null };
 export const selectShowHidden = (s: HasConfig) => s.config?.show_hidden ?? false;
 export const selectFkeysWithoutFn = (s: HasConfig) => s.config?.fkeys_without_fn ?? true;
 /** UI font-size multiplier (Settings → Appearance); 1 = as designed. */
-export const selectFontScale = (s: HasConfig) => s.config?.font_scale || 1;
+export const selectFontScale = (s: HasConfig) => fontScaleOf(s.config?.font_scale);
 
 export const useSettings = create<SettingsStore>((set, get) => ({
   config: null,

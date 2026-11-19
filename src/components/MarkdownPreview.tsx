@@ -85,6 +85,9 @@ async function renderPlantumlBlocks(
         const img = document.createElement("img");
         img.src = url;
         img.alt = "PlantUML diagram";
+        // Not a drag source: a drop is another way a URL reaches a
+        // navigation (MarkdownPreview guards this for its own content).
+        img.draggable = false;
         node.replaceChildren(img);
         node.classList.add("rendered");
       } catch (e) {

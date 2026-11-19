@@ -190,7 +190,16 @@ impl Config {
             return Self::default();
         };
         match std::fs::read_to_string(&path) {
-            Ok(text) => toml::from_str(&text).unwrap_or_default(),
+            Ok(text) => toml::from_str(&text).unwrap_or_else(|_| {
+                // A config that no longer parses (a hand edit, a damaged
+                // file) is set aside, not lost: the next save would
+                // otherwise replace saved connections, hotkeys and tools
+                // with defaults.
+                let mut bad = path.clone().into_os_string();
+                bad.push(".bad");
+                let _ = std::fs::rename(&path, PathBuf::from(bad));
+                Self::default()
+            }),
             Err(_) => Self::default(),
         }
     }
