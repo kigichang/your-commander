@@ -112,6 +112,15 @@ pub fn compress_op(
     if format == ArchiveFormat::Gz && (sources.len() != 1 || sources[0].is_dir()) {
         return Err(".gz can only compress a single file".to_string());
     }
+    // What goes in is listed before the archive file exists. The
+    // destination may lie inside a source folder (the other panel standing
+    // in a subfolder of the selection): listed afterwards, the archive
+    // would be among its own contents, reading itself as it writes itself
+    // until the disk is full. A listing that fails leaves no file behind.
+    let tree = match format {
+        ArchiveFormat::Gz => Vec::new(),
+        _ => collect_tree(&sources)?,
+    };
     // Created here, exclusively: whatever takes the name after the check
     // above fails the open instead of being truncated, and from here on
     // the file is ours to remove if the archive cannot be finished.
@@ -130,11 +139,6 @@ pub fn compress_op(
             .to_string());
     }
 
-    let tree = collect_tree(&sources);
-    if tree.is_err() {
-        let _ = std::fs::remove_file(&dest);
-    }
-    let tree = tree?;
     ctx.total_bytes = tree
         .iter()
         .filter(|(_, _, is_dir)| !is_dir)
@@ -805,6 +809,73 @@ mod tests {
             assert!(!victim.exists(), "nothing was written through it");
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The archive is written into a subfolder of what it archives (the
+    /// other panel standing inside the selected folder). It must not find
+    /// itself in the list of things to pack: reading itself while writing
+    /// itself, it would grow until the disk was full.
+    fn compress_into_own_source(format: ArchiveFormat, file_name: &str) {
+        const SIZE: usize = 4 * 1024 * 1024;
+        let dir = tmp(&format!("self_{file_name}"));
+        let proj = dir.join("proj");
+        std::fs::create_dir_all(proj.join("sub")).unwrap();
+        // Incompressible, so the archive is about as big as the data.
+        let mut x = 0x2545_F491_4F6C_DD1Du64;
+        let noise: Vec<u8> = (0..SIZE)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                (x >> 24) as u8
+            })
+            .collect();
+        std::fs::write(proj.join("data.bin"), &noise).unwrap();
+        let dest = proj.join("sub").join(file_name);
+
+        // A runaway is cancelled here instead of filling the disk.
+        let (mut ctx, seen) = OpCtx::recording(Some(16 * SIZE as u64));
+        compress_op(&mut ctx, vec![proj.clone()], dest.clone(), format).unwrap();
+        let most = seen.lock().unwrap().iter().map(|(done, _)| *done).max().unwrap_or(0);
+        assert!(most <= SIZE as u64, "processed {most} bytes of a {SIZE}-byte source");
+
+        let names: Vec<String> = match format {
+            ArchiveFormat::Zip => {
+                let zip = zip::ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();
+                zip.file_names().map(|n| n.unwrap().into_owned()).collect()
+            }
+            _ => {
+                let gz = flate2::read::GzDecoder::new(std::fs::File::open(&dest).unwrap());
+                tar::Archive::new(gz)
+                    .entries()
+                    .unwrap()
+                    .map(|e| e.unwrap().path().unwrap().to_string_lossy().into_owned())
+                    .collect()
+            }
+        };
+        assert!(names.iter().any(|n| n.ends_with("data.bin")), "{names:?}");
+        assert!(!names.iter().any(|n| n.ends_with(file_name)), "{names:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_source_that_cannot_be_listed_leaves_no_archive_behind() {
+        let dir = tmp("unlistable");
+        let dest = dir.join("out.zip");
+        let err = compress_op(&mut test_ctx(), vec![PathBuf::from("/")], dest.clone(), ArchiveFormat::Zip);
+        assert!(err.is_err());
+        assert!(dest.symlink_metadata().is_err(), "an empty archive was left behind");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn zip_written_inside_its_source_does_not_pack_itself() {
+        compress_into_own_source(ArchiveFormat::Zip, "proj.zip");
+    }
+
+    #[test]
+    fn tar_gz_written_inside_its_source_does_not_pack_itself() {
+        compress_into_own_source(ArchiveFormat::TarGz, "proj.tar.gz");
     }
 
     #[test]
