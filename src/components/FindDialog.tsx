@@ -5,15 +5,14 @@ import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { FsEntry } from "../ipc/types";
 import { useScaled } from "../lib/fontScale";
-import { humanSize } from "../lib/format";
-import { parentPath } from "../lib/path";
+import { displayName, humanSize } from "../lib/format";
+import { displayPath, expandHome, parentPath } from "../lib/path";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
 import { Overlay } from "./Overlay";
-import { displayPath, expandHome } from "../lib/path";
 
 const DAY = 24 * 60 * 60 * 1000;
 const MODIFIED = [
@@ -129,7 +128,6 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
             flush();
             setRunning(false);
             setScanning("");
-            if (event.error) useOps.getState().toast(event.error, "error");
           }
         },
       );
@@ -250,9 +248,9 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
                   onMouseDown={() => setSelected(item.index)}
                   onDoubleClick={() => goTo(entry)}
                 >
-                  <span className="fname">{entry.name}</span>
+                  <span className="fname">{displayName(entry.name)}</span>
                   <span className="fdir">
-                    {displayPath(parentPath(entry.path) ?? "", home)}
+                    {displayName(displayPath(parentPath(entry.path) ?? "", home))}
                   </span>
                   <span className="fsize">{humanSize(entry.size)}</span>
                 </div>

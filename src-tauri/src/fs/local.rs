@@ -92,7 +92,7 @@ fn statfs(path: &Path) -> Option<(u64, u64)> {
         return None;
     }
     let block = stat.f_bsize as u64;
-    Some((stat.f_bavail * block, stat.f_blocks * block))
+    Some((stat.f_bavail.saturating_mul(block), stat.f_blocks.saturating_mul(block)))
 }
 
 /// statfs for every mount at once under one shared deadline: a sleeping
@@ -239,23 +239,29 @@ mod linux_volumes {
 
     /// Decode mountinfo's octal escapes (\040 space, \011 tab, \012 newline,
     /// \134 backslash).
+    /// Works on bytes and decodes UTF-8 once at the end: pushed one byte
+    /// at a time as a char, a name like "/media/資料" came out as Latin-1
+    /// noise, and slicing the text after a backslash could land inside a
+    /// multi-byte character and panic.
     fn unescape(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
         let bytes = s.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
         let mut i = 0;
         while i < bytes.len() {
-            if bytes[i] == b'\\' && i + 3 < bytes.len() {
-                let oct = &s[i + 1..i + 4];
-                if let Ok(v) = u8::from_str_radix(oct, 8) {
-                    out.push(v as char);
-                    i += 4;
-                    continue;
-                }
+            if bytes[i] == b'\\'
+                && let Some(oct) = bytes.get(i + 1..i + 4)
+                && let Some(v) = std::str::from_utf8(oct)
+                    .ok()
+                    .and_then(|oct| u8::from_str_radix(oct, 8).ok())
+            {
+                out.push(v);
+                i += 4;
+                continue;
             }
-            out.push(bytes[i] as char);
+            out.push(bytes[i]);
             i += 1;
         }
-        out
+        String::from_utf8_lossy(&out).into_owned()
     }
 
     /// (name, path, is_system) for each mountinfo line worth listing.
@@ -361,6 +367,20 @@ mod tests {
         assert_eq!(vols[1].0, "My Stick");
         assert!(!vols[1].2);
         assert_eq!(vols[2].0, "nas");
+    }
+
+    #[test]
+    fn non_ascii_mount_points_survive() {
+        // A CJK label with an escaped space, and a stray backslash right
+        // in front of a multi-byte character (once a panic).
+        let text = "\
+88 30 8:17 / /media/kigi/資料\\040備份 rw,relatime shared:1 - vfat /dev/sdb1 rw
+89 30 8:18 / /media/kigi/a\\中文 rw,relatime shared:2 - vfat /dev/sdc1 rw
+";
+        let vols = parse_mountinfo(text);
+        assert_eq!(vols[0].1, PathBuf::from("/media/kigi/資料 備份"));
+        assert_eq!(vols[0].0, "資料 備份");
+        assert_eq!(vols[1].1, PathBuf::from("/media/kigi/a\\中文"));
     }
 
     #[test]

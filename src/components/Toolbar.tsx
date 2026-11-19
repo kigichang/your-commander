@@ -296,7 +296,6 @@ function SearchField() {
             inputRef.current?.blur();
             useDialogs.getState().open({
               type: "find",
-              side: s.activeSide,
               location: tab.location,
               dir: tab.path,
               mask: toMask(text) || undefined,

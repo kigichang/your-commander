@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import { useScaled } from "../lib/fontScale";
-import { humanSize } from "../lib/format";
+import { displayName, humanSize } from "../lib/format";
 import { decodeText } from "../lib/text";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
@@ -193,11 +193,11 @@ export function CompareDialog({ d }: { d: Extract<Dialog, { type: "compare" }> }
   return (
     <Overlay onClose={close} className="wide cmp">
       <div className="cmp-head">
-        <span className="cmp-file" title={d.left.label}>
-          {d.left.label}
+        <span className="cmp-file" title={displayName(d.left.label)}>
+          {displayName(d.left.label)}
         </span>
-        <span className="cmp-file" title={d.right.label}>
-          {d.right.label}
+        <span className="cmp-file" title={displayName(d.right.label)}>
+          {displayName(d.right.label)}
         </span>
       </div>
       {state.phase === "loading" && <div className="cmp-note">{t("sync.comparing")}</div>}

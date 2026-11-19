@@ -88,17 +88,14 @@ pub fn symlink_inside(root: &Path, link: &Path, target: &str) -> Result<(), Stri
 /// canonical path of `dir`.
 pub fn create_dir_inside(root: &Path, dir: &Path) -> Result<PathBuf, String> {
     // The deepest ancestor that already exists is where symlinks could
-    // redirect us; the pieces below it are created fresh.
-    let mut existing = dir;
-    while std::fs::symlink_metadata(existing).is_err() {
-        existing = existing.parent().ok_or_else(|| escape_err(dir))?;
-    }
-    let canon = existing
-        .canonicalize()
-        .map_err(|e| format!("{}: {e}", existing.display()))?;
-    if !canon.starts_with(root) {
+    // redirect us; the pieces below it are created fresh, and must be
+    // plain names: a ".." among them ("missing/../../out") would pass the
+    // check on the existing part and then be created outside the root.
+    let real = real_path(dir).ok_or_else(|| escape_err(dir))?;
+    if !real.starts_with(root) {
         return Err(escape_err(dir));
     }
+    let dir = real.as_path();
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let canon = dir
         .canonicalize()
@@ -107,6 +104,41 @@ pub fn create_dir_inside(root: &Path, dir: &Path) -> Result<PathBuf, String> {
         return Err(escape_err(dir));
     }
     Ok(canon)
+}
+
+/// Open `path` for reading only if it is a regular file. A plain `open`
+/// of a FIFO blocks until someone writes to it, and a device like
+/// /dev/zero never ends. The kind is checked before opening (so a FIFO is
+/// never opened) and again on the open descriptor. Not opened with
+/// O_NONBLOCK instead: that flag is for the open, but stays on the
+/// descriptor, and cloud placeholder files must block while they download.
+pub fn open_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    let refuse = || {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("{}: not a regular file", path.display()),
+        )
+    };
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(refuse());
+    }
+    let file = std::fs::File::open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(refuse());
+    }
+    Ok((file, meta))
+}
+
+/// Create a file that must not exist yet: fails if anything, a dangling
+/// symlink included, already has the name. For a destination checked to
+/// be free, so nothing that appears in between is truncated or followed.
+pub fn create_new_file(path: &Path) -> Result<std::fs::File, String> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// `File::create` that refuses to write through a symlink at `path`.
@@ -178,6 +210,20 @@ pub fn is_plain_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn create_dir_inside_refuses_dotdot_below_a_missing_folder() {
+        let base = std::env::temp_dir().join(format!("yc_sp_dotdot_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("root")).unwrap();
+        let root = base.join("root").canonicalize().unwrap();
+        let sneaky = root.join("missing/../../outside");
+        assert!(create_dir_inside(&root, &sneaky).is_err());
+        assert!(!base.join("outside").exists());
+        assert!(!root.join("missing").exists());
+        assert_eq!(create_dir_inside(&root, &root.join("a/b")).unwrap(), root.join("a/b"));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
 
     #[test]
     fn remove_nofollow_takes_links_not_their_targets() {

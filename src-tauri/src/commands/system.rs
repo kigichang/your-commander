@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use super::{blocking, require_absolute};
 use tauri::Manager;
 
-pub use crate::platform::OpenApp;
+use crate::platform::OpenApp;
 
 /// Smallest window the layout fits (tauri.conf.json's minWidth/minHeight
 /// say the same for the first window).
@@ -173,7 +173,11 @@ pub async fn video_tools() -> VideoTools {
 /// exits non-zero without an output file; "Duration:" is on stderr).
 fn probe_duration(ffmpeg: &std::path::Path, src: &std::path::Path) -> Option<f64> {
     let out = crate::proc::output_bounded(
-        std::process::Command::new(ffmpeg).arg("-hide_banner").arg("-i").arg(src),
+        std::process::Command::new(ffmpeg)
+            .arg("-hide_banner")
+            .args(platform::FFMPEG_LOCAL_INPUT)
+            .arg("-i")
+            .arg(src),
         platform::PROBE_TIMEOUT,
         platform::PROBE_OUTPUT_MAX,
     )
@@ -210,15 +214,19 @@ pub async fn repair_video(
     let src = path.clone();
     let out_path = tmp.clone();
     blocking(move || {
+        let total = probe_duration(&ffmpeg, &src);
         // The name is predictable, and ffmpeg -y writes through a link: one
         // left here (a folder that came from elsewhere) would have its target
         // overwritten. A file of ours from an interrupted run is fine.
+        // Checked right before ffmpeg starts, not ahead of the probe, which
+        // can take half a minute.
         remove_if_link(&out_path)?;
-        let total = probe_duration(&ffmpeg, &src);
         let mut command = std::process::Command::new(ffmpeg);
         command
             .arg("-hide_banner")
-            .args(["-v", "error", "-y", "-progress", "pipe:1", "-nostats", "-i"])
+            .args(["-v", "error", "-y", "-progress", "pipe:1", "-nostats"])
+            .args(platform::FFMPEG_LOCAL_INPUT)
+            .arg("-i")
             .arg(&src)
             .args(platform::encode_args())
             .args(["-vf", "setsar=1"])
@@ -252,6 +260,9 @@ pub async fn repair_video(
     .await
 }
 
+/// How much of a child's stderr `run_with_progress` keeps.
+const STDERR_KEEP: u64 = 64 * 1024;
+
 /// Run `command`, handing each stdout line to `on_line` as it arrives, and
 /// return its exit status and stderr. stderr drains on its own thread:
 /// read after stdout instead, a chatty child (ffmpeg logging an error per
@@ -269,8 +280,12 @@ fn run_with_progress(
         .spawn()?;
     let mut stderr = child.stderr.take().expect("piped stderr");
     let drain = std::thread::spawn(move || {
+        // Keep the start of the log (the error message), then go on
+        // reading and dropping: a broken file can log without end, and a
+        // full pipe would stall the child.
         let mut buf = Vec::new();
-        let _ = stderr.read_to_end(&mut buf);
+        let _ = stderr.by_ref().take(STDERR_KEEP).read_to_end(&mut buf);
+        let _ = std::io::copy(&mut stderr, &mut std::io::sink());
         buf
     });
     if let Some(stdout) = child.stdout.take() {
@@ -299,6 +314,7 @@ pub async fn finish_repair(
     // Only ever the work file repair_video made for this very original:
     // this renames over `original` or deletes `tmp`, so neither may be an
     // arbitrary pair of paths.
+    require_absolute(&original)?;
     if tmp != repair_work_file(&original)? {
         return Err(format!("{}: not the repair file for this video", tmp.display()));
     }
@@ -358,14 +374,39 @@ pub async fn apps_for_path(path: PathBuf) -> Vec<OpenApp> {
         .unwrap_or_default()
 }
 
-/// Launch a user-defined external tool with the given files.
+/// Launch an app with the given files. Not any program the caller names:
+/// only one the user configured as an external tool, the detected video
+/// player, or an app the system lists as a handler for one of the files
+/// (the "Open With" menu's entries).
 #[tauri::command]
-pub async fn open_with(app: String, paths: Vec<PathBuf>) -> Result<(), String> {
+pub async fn open_with(
+    state: tauri::State<'_, AppState>,
+    app: String,
+    paths: Vec<PathBuf>,
+) -> Result<(), String> {
     if app.trim().is_empty() || paths.is_empty() {
         return Err("open_with: app and paths required".into());
     }
     paths.iter().try_for_each(|p| require_absolute(p))?;
-    blocking(move || platform::open_with(&app, &paths)).await
+    let configured = state
+        .config
+        .lock()
+        .unwrap()
+        .external_tools
+        .iter()
+        .any(|tool| tool.app == app);
+    blocking(move || {
+        let known = configured
+            || platform::video_player().as_deref() == Some(app.as_str())
+            || paths
+                .iter()
+                .any(|p| platform::apps_for(p).iter().any(|a| a.path == app));
+        if !known {
+            return Err(format!("{app}: not an app offered for these files"));
+        }
+        platform::open_with(&app, &paths)
+    })
+    .await
 }
 
 /// The system file manager's info/properties window for each path (local
@@ -391,26 +432,33 @@ pub async fn open_path(path: PathBuf) -> Result<(), String> {
     blocking(move || open::that(&path).map_err(|e| e.to_string())).await
 }
 
-/// Is `url` one the app may hand to the system to open? Web pages, and on
-/// macOS a System Settings pane (the Full Disk Access shortcut). Nothing
-/// that would run or open a local file: those go through `open_path`.
-fn is_openable_url(url: &str) -> bool {
-    let Ok(parsed) = tauri::Url::parse(url) else {
-        return false;
-    };
-    match parsed.scheme() {
+/// `url` as the app may hand it to the system to open, or None. Web
+/// pages, and on macOS a System Settings pane (the Full Disk Access
+/// shortcut). Nothing that would run or open a local file: those go
+/// through `open_path`. What comes back is the parsed URL written out
+/// again: the text that was checked, not the text that was sent (which
+/// may carry whitespace or control characters the parser dropped).
+fn openable_url(url: &str) -> Option<String> {
+    let parsed = tauri::Url::parse(url).ok()?;
+    let ok = match parsed.scheme() {
         "http" | "https" => parsed.host().is_some(),
         "x-apple.systempreferences" => cfg!(target_os = "macos"),
         _ => false,
-    }
+    };
+    ok.then(|| parsed.to_string())
+}
+
+#[cfg(test)]
+fn is_openable_url(url: &str) -> bool {
+    openable_url(url).is_some()
 }
 
 /// Open a web link in the default browser (or a System Settings pane).
 #[tauri::command]
 pub async fn open_url(url: String) -> Result<(), String> {
-    if !is_openable_url(&url) {
+    let Some(url) = openable_url(&url) else {
         return Err(format!("{url}: not a link the app opens"));
-    }
+    };
     blocking(move || open::that(&url).map_err(|e| e.to_string())).await
 }
 
@@ -478,7 +526,8 @@ mod tests {
         let (result, lines) = rx
             .recv_timeout(std::time::Duration::from_secs(20))
             .expect("deadlocked on a full stderr pipe");
-        assert_eq!(result.unwrap(), (Some(3), 1 << 20));
+        // All of it was read (the child got to exit); only the start is kept.
+        assert_eq!(result.unwrap(), (Some(3), STDERR_KEEP as usize));
         // A non-UTF-8 line does not end the progress stream.
         assert_eq!(lines.first().map(String::as_str), Some("out_time_us=1"));
         assert_eq!(lines.last().map(String::as_str), Some("out_time_us=3"));

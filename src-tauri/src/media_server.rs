@@ -10,15 +10,11 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use crate::stream_protocol::{mime_for, parse_range};
+use crate::stream_protocol::{mime_for, parse_range, Tokens};
 use crate::commands::blocking;
-
-/// Served files kept registered; older registrations age out so a long
-/// session doesn't accumulate tokens (one preview plays at a time).
-const MAX_TOKENS: usize = 16;
 
 /// The whole request head (request line plus headers) must arrive within
 /// this long and fit in `HEAD_MAX` bytes; a client that dawdles or never
@@ -78,8 +74,7 @@ impl Read for DeadlineReader {
 
 struct MediaServer {
     port: u16,
-    /// token → path, insertion-ordered for pruning.
-    tokens: Mutex<Vec<(String, PathBuf)>>,
+    tokens: Tokens,
 }
 
 static SERVER: OnceLock<Result<MediaServer, String>> = OnceLock::new();
@@ -101,42 +96,21 @@ fn server() -> Result<&'static MediaServer, String> {
                     });
                 }
             });
-            Ok(MediaServer { port, tokens: Mutex::new(Vec::new()) })
+            Ok(MediaServer { port, tokens: Tokens::new() })
         })
         .as_ref()
         .map_err(|e| e.clone())
 }
 
-fn random_token() -> Result<String, String> {
-    let mut bytes = [0u8; 16];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
-        .map_err(|e| e.to_string())?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
-}
-
 /// http://127.0.0.1:<port>/<token> serving `path`, registering it first.
-pub fn url_for(path: &Path) -> Result<String, String> {
+fn url_for(path: &Path) -> Result<String, String> {
     let server = server()?;
-    let mut tokens = server.tokens.lock().unwrap();
-    let token = match tokens.iter().find(|(_, p)| p == path) {
-        Some((t, _)) => t.clone(),
-        None => {
-            let token = random_token()?;
-            tokens.push((token.clone(), path.to_path_buf()));
-            if tokens.len() > MAX_TOKENS {
-                tokens.remove(0);
-            }
-            token
-        }
-    };
+    let token = server.tokens.register(path)?;
     Ok(format!("http://127.0.0.1:{}/{token}", server.port))
 }
 
 fn lookup(token: &str) -> Option<PathBuf> {
-    let server = server().ok()?;
-    let tokens = server.tokens.lock().unwrap();
-    tokens.iter().find(|(t, _)| t == token).map(|(_, p)| p.clone())
+    server().ok()?.tokens.lookup(token)
 }
 
 /// One request per connection (`Connection: close`); GStreamer reconnects
@@ -154,15 +128,19 @@ fn handle(stream: TcpStream) -> std::io::Result<()> {
     let target = parts.next().unwrap_or("").to_string();
 
     let mut range: Option<String> = None;
+    let mut host: Option<String> = None;
     loop {
         let mut header = String::new();
         if reader.read_line(&mut header)? == 0 || header.trim().is_empty() {
             break;
         }
-        if let Some((name, value)) = header.split_once(':')
-            && name.trim().eq_ignore_ascii_case("range")
-        {
-            range = Some(value.trim().to_string());
+        if let Some((name, value)) = header.split_once(':') {
+            let name = name.trim();
+            if name.eq_ignore_ascii_case("range") {
+                range = Some(value.trim().to_string());
+            } else if name.eq_ignore_ascii_case("host") {
+                host = Some(value.trim().to_string());
+            }
         }
     }
 
@@ -172,6 +150,13 @@ fn handle(stream: TcpStream) -> std::io::Result<()> {
     if reader.get_ref().limit() == 0 {
         return status_line(&mut out, 431, "Request Header Fields Too Large", &[]);
     }
+    // Only as the address the URL was issued for: a page that got a
+    // browser to resolve some other name to 127.0.0.1 (DNS rebinding)
+    // sends that name here.
+    let local = out.local_addr()?;
+    if host.as_deref() != Some(format!("127.0.0.1:{}", local.port()).as_str()) {
+        return status_line(&mut out, 403, "Forbidden", &[]);
+    }
     let head_only = method == "HEAD";
     if !head_only && method != "GET" {
         return status_line(&mut out, 405, "Method Not Allowed", &[]);
@@ -180,16 +165,15 @@ fn handle(stream: TcpStream) -> std::io::Result<()> {
         return status_line(&mut out, 404, "Not Found", &[]);
     };
 
-    let Ok(mut file) = std::fs::File::open(&path) else {
+    // Regular files only: a FIFO would hold this connection's slot for good.
+    let Ok((mut file, meta)) = crate::ops::safe_path::open_regular(&path) else {
         return status_line(&mut out, 404, "Not Found", &[]);
     };
-    let len = match file.metadata() {
-        Ok(m) if m.is_file() => m.len(),
-        _ => return status_line(&mut out, 404, "Not Found", &[]),
-    };
+    let len = meta.len();
     let mime = mime_for(&path);
     let common = [
         ("Content-Type", mime.to_string()),
+        ("X-Content-Type-Options", "nosniff".to_string()),
         ("Accept-Ranges", "bytes".to_string()),
         ("Connection", "close".to_string()),
     ];
@@ -199,8 +183,8 @@ fn handle(stream: TcpStream) -> std::io::Result<()> {
         Some(r) => match parse_range(r, len) {
             Some((s, e)) => (206, s, e),
             None => {
-                let hdrs =
-                    [("Content-Range", format!("bytes */{len}")), common[2].clone()];
+                // status_line adds Connection: close itself.
+                let hdrs = [("Content-Range", format!("bytes */{len}"))];
                 return status_line(&mut out, 416, "Range Not Satisfiable", &hdrs);
             }
         },
@@ -223,7 +207,8 @@ fn handle(stream: TcpStream) -> std::io::Result<()> {
     }
 
     // Stream the body; a dropped connection (seek, cursor move) just ends
-    // the loop via the write error.
+    // the loop via the write error. No write timeout: a paused player
+    // stops reading for as long as it stays paused.
     file.seek(SeekFrom::Start(start))?;
     let mut remaining = body_len;
     let mut buf = vec![0u8; 256 * 1024];
@@ -389,6 +374,7 @@ mod tests {
         let (head, body) = fetch(&url, None);
         assert!(head.starts_with("HTTP/1.1 200"), "{head}");
         assert!(head.contains("Content-Type: video/mp4"), "{head}");
+        assert!(head.contains("X-Content-Type-Options: nosniff"), "{head}");
         assert_eq!(body.len(), 1000);
 
         let (head, body) = fetch(&url, Some("bytes=10-19"));
@@ -398,6 +384,14 @@ mod tests {
 
         let (head, _) = fetch(&url, Some("bytes=2000-"));
         assert!(head.starts_with("HTTP/1.1 416"), "{head}");
+
+        // Only under the address the URL was issued for.
+        let (addr, token) = url.strip_prefix("http://").unwrap().split_once('/').unwrap();
+        let mut sock = TcpStream::connect(addr).unwrap();
+        let req = format!("GET /{token} HTTP/1.1\r\nHost: evil.example:80\r\n\r\n");
+        sock.write_all(req.as_bytes()).unwrap();
+        let (raw, _) = drain(sock);
+        assert!(String::from_utf8_lossy(&raw).starts_with("HTTP/1.1 403"));
 
         // Unknown tokens stay unreachable.
         let bogus = url.rsplit_once('/').unwrap().0.to_string() + "/deadbeef";

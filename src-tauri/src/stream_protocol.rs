@@ -3,9 +3,16 @@
 //! which starves AVFoundation with round trips on SMB/NFS mounts and makes
 //! multi-GB videos unplayable there; this handler serves the requested
 //! range up to [`CHUNK_MAX`] per response instead.
+//!
+//! Only files registered through [`url_for`] are served, each under an
+//! unguessable token: the scheme names no path, so it cannot be used to
+//! read the rest of the disk. The scheme itself is macOS-only (Linux has
+//! the media server); the token registry and helpers are shared.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code, unused_imports))]
 
 use std::io::{Read, Seek, SeekFrom};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use tauri::http::{header, Method, Request, Response, StatusCode};
 use tauri::UriSchemeResponder;
@@ -14,6 +21,60 @@ use tauri::UriSchemeResponder;
 /// network-mount latency, small enough that seeks stay snappy and memory
 /// stays bounded (each response body is buffered before WebKit gets it).
 const CHUNK_MAX: u64 = 16 * 1024 * 1024;
+
+/// Files registered at once; older registrations age out so a long
+/// session doesn't accumulate tokens (one preview plays at a time).
+const MAX_TOKENS: usize = 16;
+
+/// Served files by token, insertion-ordered for pruning. Shared with the
+/// Linux media server.
+pub(crate) struct Tokens(Mutex<Vec<(String, PathBuf)>>);
+
+impl Tokens {
+    pub(crate) const fn new() -> Self {
+        Tokens(Mutex::new(Vec::new()))
+    }
+
+    /// The token `path` is served under, registering it first. The same
+    /// file registers once.
+    pub(crate) fn register(&self, path: &Path) -> Result<String, String> {
+        crate::commands::require_absolute(path)?;
+        let mut tokens = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((token, _)) = tokens.iter().find(|(_, p)| p == path) {
+            return Ok(token.clone());
+        }
+        let mut bytes = [0u8; 16];
+        std::fs::File::open("/dev/urandom")
+            .and_then(|mut f| f.read_exact(&mut bytes))
+            .map_err(|e| e.to_string())?;
+        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        tokens.push((token.clone(), path.to_path_buf()));
+        if tokens.len() > MAX_TOKENS {
+            tokens.remove(0);
+        }
+        Ok(token)
+    }
+
+    pub(crate) fn lookup(&self, token: &str) -> Option<PathBuf> {
+        let tokens = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        tokens.iter().find(|(t, _)| t == token).map(|(_, p)| p.clone())
+    }
+}
+
+static TOKENS: Tokens = Tokens::new();
+
+/// stream://localhost/<token> serving `path`, registering it first.
+pub fn url_for(path: &Path) -> Result<String, String> {
+    Ok(format!("stream://localhost/{}", TOKENS.register(path)?))
+}
+
+/// Register `path` and return the URL a media element can range-request
+/// it through.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn stream_url(path: PathBuf) -> Result<String, String> {
+    url_for(&path)
+}
 
 pub fn handle(request: Request<Vec<u8>>, responder: UriSchemeResponder) {
     // File I/O can touch a slow or dead network mount — off the main thread.
@@ -99,22 +160,17 @@ fn build_response(request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
             .unwrap()
     };
 
-    let raw = request.uri().path();
-    let raw = raw.strip_prefix('/').unwrap_or(raw);
-    let Ok(decoded) = urlencoding::decode(raw) else {
-        return plain(StatusCode::BAD_REQUEST);
-    };
-    let path = PathBuf::from(decoded.as_ref());
-
-    let Ok(mut file) = std::fs::File::open(&path) else {
-        return plain(StatusCode::NOT_FOUND);
-    };
-    let Ok(meta) = file.metadata() else {
-        return plain(StatusCode::INTERNAL_SERVER_ERROR);
-    };
-    if !meta.is_file() {
-        return plain(StatusCode::NOT_FOUND);
+    if request.method() != Method::GET && request.method() != Method::HEAD {
+        return plain(StatusCode::METHOD_NOT_ALLOWED);
     }
+    let raw = request.uri().path();
+    let Some(path) = TOKENS.lookup(raw.strip_prefix('/').unwrap_or(raw)) else {
+        return plain(StatusCode::NOT_FOUND);
+    };
+    // Regular files only: a FIFO would hold this worker thread forever.
+    let Ok((mut file, meta)) = crate::ops::safe_path::open_regular(&path) else {
+        return plain(StatusCode::NOT_FOUND);
+    };
     let len = meta.len();
     let mime = mime_for(&path);
 
@@ -143,9 +199,9 @@ fn build_response(request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         // the first chunk and let WebKit range through the rest.
         None => (0, len - 1),
     };
-    let end = end.min(start + CHUNK_MAX - 1);
+    let end = end.min(start.saturating_add(CHUNK_MAX - 1));
 
-    let nbytes = end + 1 - start;
+    let nbytes = end - start + 1;
     let mut buf = Vec::with_capacity(nbytes as usize);
     if file.seek(SeekFrom::Start(start)).is_err()
         || file.take(nbytes).read_to_end(&mut buf).is_err()
@@ -172,15 +228,11 @@ fn build_response(request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_response, parse_range};
+    use super::{build_response, parse_range, url_for};
     use tauri::http::{header, Request, StatusCode};
 
     fn request(path: &std::path::Path, range: Option<&str>) -> Request<Vec<u8>> {
-        let uri = format!(
-            "stream://localhost/{}",
-            urlencoding::encode(path.to_str().unwrap())
-        );
-        let mut req = Request::builder().uri(uri);
+        let mut req = Request::builder().uri(url_for(path).unwrap());
         if let Some(r) = range {
             req = req.header(header::RANGE, r);
         }
@@ -223,6 +275,41 @@ mod tests {
             resp.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none(),
             "no cross-origin grant on streamed files"
         );
+    }
+
+    #[test]
+    fn only_registered_files_are_served() {
+        let path = temp_file("stream_proto_unregistered.bin", 16);
+        // The path itself, as the scheme once took it, names nothing.
+        let by_path = format!(
+            "stream://localhost/{}",
+            urlencoding::encode(path.to_str().unwrap())
+        );
+        let req = Request::builder().uri(by_path).body(Vec::new()).unwrap();
+        assert_eq!(build_response(&req).status(), StatusCode::NOT_FOUND);
+        assert!(url_for(std::path::Path::new("relative.mp4")).is_err());
+    }
+
+    #[test]
+    fn other_methods_are_refused() {
+        let path = temp_file("stream_proto_method.bin", 16);
+        let req = Request::builder()
+            .method("POST")
+            .uri(url_for(&path).unwrap())
+            .body(Vec::new())
+            .unwrap();
+        assert_eq!(build_response(&req).status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[test]
+    fn a_fifo_is_refused_without_blocking() {
+        let path = std::env::temp_dir().join(format!("stream_proto_fifo_{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let resp = build_response(&request(&path, None));
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
@@ -284,12 +371,8 @@ mod large_file_tests {
         let path = std::env::temp_dir().join("stream_proto_2gb.bin");
         let f = std::fs::File::create(&path).unwrap();
         f.set_len(2_300_000_000).unwrap();
-        let uri = format!(
-            "stream://localhost/{}",
-            urlencoding::encode(path.to_str().unwrap())
-        );
         let req = Request::builder()
-            .uri(&uri)
+            .uri(super::url_for(&path).unwrap())
             .header(header::RANGE, "bytes=2147483648-2147483657")
             .body(Vec::new())
             .unwrap();

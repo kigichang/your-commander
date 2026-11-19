@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { Location } from "../ipc/types";
+import { displayName } from "../lib/format";
 import { useScaled } from "../lib/fontScale";
 import { joinPath, parentPath } from "../lib/path";
 import type { CaseMode, RenameRules } from "../lib/renameMask";
@@ -176,10 +177,10 @@ export function MultiRenameDialog({ d }: { d: Extract<Dialog, { type: "multiRena
                 className={clsx("mr-row", r.problem && "bad")}
                 style={{ top: item.start, height: rowHeight }}
               >
-                <span className="old">{r.entry.name}</span>
+                <span className="old">{displayName(r.entry.name)}</span>
                 <span className="arrow">→</span>
                 <span className={clsx("new", !r.changed && "same")}>
-                  {r.newName}
+                  {displayName(r.newName)}
                   {r.problem && (
                     <>
                       {"  "}

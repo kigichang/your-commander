@@ -2,7 +2,7 @@ import { CloudDownload, Folder, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
-import { formatDate, humanSize } from "../lib/format";
+import { displayName, formatDate, humanSize } from "../lib/format";
 import { isJson, prettyJson } from "../lib/json";
 import { baseName, parentPath } from "../lib/path";
 import { isMac } from "../lib/platform";
@@ -701,7 +701,7 @@ export function QuickView() {
           </button>
         )}
         <span className="spacer" />
-        <span>{entry?.name ?? ""}</span>
+        <span>{displayName(entry?.name ?? "")}</span>
         <button
           className="tbtn"
           title="F3"
@@ -837,7 +837,7 @@ export function QuickView() {
           <span className="none">
             {entry.isDir ? (
               <>
-                <Icon of={Folder} size={14} /> {entry.name}
+                <Icon of={Folder} size={14} /> {displayName(entry.name)}
               </>
             ) : (
               t("quickview.noPreview")
@@ -887,7 +887,7 @@ export function QuickView() {
         </>
       )}
       <div className="statusline">
-        {ownTab ? t("quickview.copyTarget", { name: baseName(ownTab.path) }) : ""}
+        {ownTab ? t("quickview.copyTarget", { name: displayName(baseName(ownTab.path)) }) : ""}
       </div>
     </div>
   );

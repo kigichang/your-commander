@@ -21,6 +21,7 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(30);
 /// menu, `fs::local::volumes`).
 pub fn gvfs_dir() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", unsafe { libc::getuid() })))
         .join("gvfs")
@@ -28,7 +29,7 @@ pub fn gvfs_dir() -> PathBuf {
 
 /// `smb-share:server=nas,share=media[,user=kigi]` → (server, share), both
 /// %XX-decoded. Anything else (sftp:…, mtp:…) is None.
-pub fn parse_smb_dir(name: &str) -> Option<(String, String)> {
+fn parse_smb_dir(name: &str) -> Option<(String, String)> {
     let rest = name.strip_prefix("smb-share:")?;
     let mut server = None;
     let mut share = None;
@@ -54,7 +55,7 @@ pub fn display_name(dir: &str) -> Option<String> {
 }
 
 /// Where is `//server/share` mounted, if at all?
-pub fn find_mount(server: &str, share: &str) -> Option<PathBuf> {
+fn find_mount(server: &str, share: &str) -> Option<PathBuf> {
     let server = server.to_lowercase();
     let share = share.to_lowercase();
     for entry in std::fs::read_dir(gvfs_dir()).ok()?.flatten() {
@@ -73,15 +74,7 @@ fn smb_url(server: &str, share: &str) -> String {
     format!("smb://{server}/{}", urlencoding::encode(share))
 }
 
-/// Strip the password out of an error before it reaches the UI or a log.
-fn scrub(mut err: String, password: &str) -> String {
-    if !password.is_empty() {
-        err = err
-            .replace(&urlencoding::encode(password).to_string(), "•••")
-            .replace(password, "•••");
-    }
-    err
-}
+use super::super::scrub_password as scrub;
 
 /// Mount an SMB share via `gio mount`, which shares the mount with GNOME
 /// Files. Blocking: run inside an op worker. gio prompts on stdin when the
@@ -140,6 +133,11 @@ pub fn mount(
 /// List the disk shares a server offers, via `smbclient -L -g` (machine-
 /// readable lines). The password goes in on stdin.
 pub fn list_shares(server: &str, username: &str, password: &str) -> Result<Vec<String>, String> {
+    // smbclient reads "--user=name%secret" as a name and its password:
+    // whatever followed a '%' would sit in argv for every process to see.
+    if username.contains('%') {
+        return Err("User name may not contain '%'".to_string());
+    }
     let mut cmd = Command::new("smbclient");
     cmd.arg("-L").arg(format!("//{server}")).args(["-g", "-m", "SMB3"]);
     if username.is_empty() {
@@ -203,10 +201,12 @@ pub fn unmount(path: &Path) -> Result<(), String> {
         .filter(|_| path.parent() == Some(gvfs_dir().as_path()))
         .map(|(server, share)| smb_url(&server, &share))
         .unwrap_or_else(|| super::file_uri(path));
-    let output = Command::new("gio")
-        .args(["mount", "-u", &uri])
-        .output()
-        .map_err(|e| e.to_string())?;
+    // A mount whose server stopped answering can take gio with it.
+    let output = crate::proc::output_bounded(
+        Command::new("gio").args(["mount", "-u", &uri]),
+        MOUNT_TIMEOUT,
+        OUTPUT_MAX,
+    )?;
     if output.status.success() {
         Ok(())
     } else {

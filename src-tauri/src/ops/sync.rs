@@ -90,10 +90,6 @@ fn collect_remote(
     Ok(())
 }
 
-fn files_equal(a: &Path, b: &Path) -> Result<bool, String> {
-    super::transfer::same_contents(a, b, &|| false)
-}
-
 pub fn compare(
     left_conn: Option<&SftpConnection>,
     left_dir: &Path,
@@ -120,7 +116,7 @@ pub fn compare(
         let equal = match (&l, &r) {
             (Some(a), Some(b)) if a.size == b.size => {
                 if by_content && left_conn.is_none() && right_conn.is_none() {
-                    files_equal(&left_dir.join(rel), &right_dir.join(rel))?
+                    transfer::same_contents(&left_dir.join(rel), &right_dir.join(rel), &|| false)?
                 } else {
                     match (a.modified, b.modified) {
                         (Some(ma), Some(mb)) => ma.abs_diff(mb) <= MTIME_TOLERANCE_MS,

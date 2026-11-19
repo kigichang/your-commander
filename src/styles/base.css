@@ -1291,6 +1291,10 @@ svg.li {
   padding: var(--space-2) var(--space-3);
   user-select: text;
   cursor: auto;
+  /* Rendered file content can't position or paint outside its own box,
+     whatever CSS a diagram manages to carry. */
+  contain: layout paint;
+  isolation: isolate;
 }
 .qv-body .markdown-body img {
   max-width: 100%;

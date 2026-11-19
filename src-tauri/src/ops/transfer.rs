@@ -59,12 +59,15 @@ pub fn copy_op(
         }
         let Some(name) = src.file_name() else { continue };
         let dest = dest_dir.join(name);
-        if dest == *src {
+        // Judged by what the folders are, not how their paths are spelled:
+        // the destination may be reached through a link, or differ only in
+        // letter case on a case-insensitive volume.
+        if is_inside(src, &dest_dir) {
             // Same folder: make an automatic copy under a new name.
             let alt = keep_both_path(&dest);
             copy_item(ctx, src, &alt, remove_source)?;
         } else {
-            if src.is_dir() && dest.starts_with(src) {
+            if src.is_dir() && !src.is_symlink() && is_within(&dest_dir, src) {
                 return Err("Cannot copy a folder into itself".to_string());
             }
             copy_item(ctx, src, &dest, remove_source)?;
@@ -74,16 +77,29 @@ pub fn copy_op(
     Ok(copied)
 }
 
-/// Is `dir` the folder that holds `path`? Compared after resolving
-/// symlinks, so a folder reached through a link counts too.
+/// Do both paths lead (through any links) to one file or folder?
+fn same_file(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (a.metadata(), b.metadata()) {
+        (Ok(ma), Ok(mb)) => ma.dev() == mb.dev() && ma.ino() == mb.ino(),
+        _ => false,
+    }
+}
+
+/// Is `dir` the folder that holds `path`? By identity, so a folder
+/// reached through a link, or spelled in another letter case, counts too.
 fn is_inside(path: &Path, dir: &Path) -> bool {
     let Some(parent) = path.parent() else {
         return false;
     };
-    match (parent.canonicalize(), dir.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => parent == dir,
-    }
+    parent == dir || same_file(parent, dir)
+}
+
+/// Is `dir` the folder `ancestor` itself or somewhere below it?
+fn is_within(dir: &Path, ancestor: &Path) -> bool {
+    let real = dir.canonicalize();
+    let dir = real.as_deref().unwrap_or(dir);
+    dir.starts_with(ancestor) || dir.ancestors().any(|p| same_file(p, ancestor))
 }
 
 fn copy_item(ctx: &mut OpCtx, src: &Path, dest: &Path, remove_source: bool) -> Result<(), String> {
@@ -219,6 +235,21 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<bool
 
     let mut reader =
         std::fs::File::open(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    // Creating the destination truncates it: were it the source itself
+    // (reached by another path), the file would be emptied before a byte
+    // of it was read.
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(s), Ok(d)) = (reader.metadata(), dest.symlink_metadata())
+            && s.dev() == d.dev()
+            && s.ino() == d.ino()
+        {
+            return Err(format!(
+                "{}: source and destination are the same file",
+                src.display()
+            ));
+        }
+    }
     // Overwrite replaces a link at `dest` rather than writing into the file
     // it points at; one that appears meanwhile fails the open.
     let mut writer = super::safe_path::replace_file_nofollow(&dest)?;
@@ -241,15 +272,18 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<bool
         ctx.done_bytes += n as u64;
         ctx.report(&src.to_string_lossy());
     }
-    // Preserve permissions, mtime, and xattrs (Finder tags) when asked.
+    // Preserve permissions, mtime, and xattrs (Finder tags, the quarantine
+    // flag) when asked. Attributes go first: once the copy has a read-only
+    // source's permissions, the system refuses to set them.
     if ctx.options.keep_meta {
+        copy_xattrs(src, &dest);
         if let Ok(meta) = src.metadata() {
-            let _ = std::fs::set_permissions(&dest, meta.permissions());
+            // On the open file: the name could have been swapped meanwhile.
+            let _ = writer.set_permissions(meta.permissions());
             if let Ok(mtime) = meta.modified() {
                 let _ = writer.set_modified(mtime);
             }
         }
-        copy_xattrs(src, &dest);
     }
     drop(writer);
     if ctx.options.verify {
@@ -776,6 +810,36 @@ mod tests {
         assert_eq!(err, cancelled_err());
         assert!(dest.join("a.txt").is_symlink(), "the link is left alone");
         assert!(src.join("a.txt").exists(), "the source stays");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// The destination folder is the source's own folder, reached through
+    /// a link. Overwriting there used to empty the source file; a folder
+    /// copied into a link to its own inside recursed until the disk filled.
+    #[test]
+    fn copy_through_a_link_to_the_same_folder_never_truncates() {
+        let work = tmp("same_via_link");
+        let src = work.join("src");
+        std::fs::create_dir_all(src.join("sub")).unwrap();
+        std::fs::write(src.join("a.txt"), b"precious").unwrap();
+        let alias = work.join("alias");
+        std::os::unix::fs::symlink(&src, &alias).unwrap();
+
+        let mut ctx = OpCtx::for_test(ConflictChoice::Overwrite);
+        copy_op(&mut ctx, vec![src.join("a.txt")], alias.clone(), false).unwrap();
+        assert_eq!(std::fs::read(src.join("a.txt")).unwrap(), b"precious");
+        // Same folder after all: it became an automatic copy.
+        assert_eq!(std::fs::read_dir(&src).unwrap().count(), 3);
+
+        // Straight at copy_file, as a nested copy would reach it.
+        let err = copy_file(&mut ctx, &src.join("a.txt"), &alias.join("a.txt")).unwrap_err();
+        assert!(err.contains("same file"), "{err}");
+        assert_eq!(std::fs::read(src.join("a.txt")).unwrap(), b"precious");
+
+        let inner = work.join("inner");
+        std::os::unix::fs::symlink(src.join("sub"), &inner).unwrap();
+        let err = copy_op(&mut ctx, vec![src.clone()], inner, false).unwrap_err();
+        assert!(err.contains("into itself"), "{err}");
         let _ = std::fs::remove_dir_all(&work);
     }
 

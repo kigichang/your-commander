@@ -1,4 +1,4 @@
-import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { isMac } from "../lib/platform";
 import type {
   Config,
@@ -163,11 +163,13 @@ export const sftpDisconnect = (connId: number) =>
 
 export const smbUnmount = (path: string) =>
   invoke<void>("smb_unmount", { path });
-export const smbSavedPassword = (
+/** Whether a password is saved — never the password: the backend reads
+ *  it itself when a login is sent with none typed. */
+export const smbHasPassword = (
   username: string,
   server: string,
   share: string,
-) => invoke<string | null>("smb_saved_password", { username, server, share });
+) => invoke<boolean>("smb_has_password", { username, server, share });
 export const smbStorePassword = (
   username: string,
   server: string,
@@ -179,8 +181,8 @@ export const smbForgetPassword = (username: string, server: string, share: strin
 
 /** SSH passwords are keyed by user, host and port: two servers behind one
  *  host never share one. */
-export const sshSavedPassword = (username: string, host: string, port: number) =>
-  invoke<string | null>("ssh_saved_password", { username, host, port });
+export const sshHasPassword = (username: string, host: string, port: number) =>
+  invoke<boolean>("ssh_has_password", { username, host, port });
 export const sshStorePassword = (username: string, host: string, port: number, password: string) =>
   invoke<void>("ssh_store_password", { username, host, port, password });
 export const sshForgetPassword = (username: string, host: string, port: number) =>
@@ -216,13 +218,13 @@ export const mediaInfo = (path: string) =>
   invoke<import("./types").MediaInfo>("media_info", { path });
 /** Lets asset:// serve files under `dir` (HTML preview resources). */
 export const allowAssetDir = (dir: string) => invoke<void>("allow_asset_dir", { dir });
-/** Localhost URL streaming the file with Range support (Linux media). */
-const mediaUrl = (path: string) => invoke<string>("media_url", { path });
 /** A URL the media elements can range-request `path` through: stream://
  *  on macOS; on Linux, where WebKitGTK won't range through custom schemes,
- *  the localhost media server. Nothing is read into memory either way. */
-export const streamUrl = async (path: string) =>
-  isMac ? convertFileSrc(path, "stream") : mediaUrl(path);
+ *  the localhost media server. Either way the backend registers the file
+ *  and the URL carries only a random token for it, never a path. Nothing
+ *  is read into memory. */
+export const streamUrl = (path: string) =>
+  invoke<string>(isMac ? "stream_url" : "media_url", { path });
 export const videoTools = () =>
   invoke<{ player: string | null; ffmpeg: boolean }>("video_tools");
 export const repairVideo = (path: string, onProgress: (fraction: number) => void) => {

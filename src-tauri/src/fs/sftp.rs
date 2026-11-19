@@ -24,6 +24,10 @@ const STAT_CONCURRENCY: usize = 16;
 /// Real trees stay far below; a server inventing endless nesting does not.
 const MAX_LIST_DEPTH: usize = 128;
 
+/// Long enough for a slow link and a key that waits for a touch or an
+/// agent's confirmation.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 fn runtime() -> &'static tokio::runtime::Runtime {
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RT.get_or_init(|| tokio::runtime::Runtime::new().expect("tokio runtime"))
@@ -56,7 +60,7 @@ pub enum SshAuth {
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ConnectError {
-    /// Not in ~/.ssh/known_hosts and `trust_host_key` was off.
+    /// Not in ~/.ssh/known_hosts, and no `trusted_fingerprint` matched.
     #[serde(rename_all = "camelCase")]
     UnknownHostKey { key_type: String, fingerprint: String },
     /// known_hosts has a different key for this host, of the same type or
@@ -237,7 +241,7 @@ pub(crate) fn connect_confirming_key(
 }
 
 /// `connect` against a given known_hosts file.
-pub(crate) fn connect_checked(
+fn connect_checked(
     known_hosts: &Path,
     host: &str,
     port: u16,
@@ -253,7 +257,17 @@ pub(crate) fn connect_checked(
         trusted_fingerprint: trusted_fingerprint.map(str::to_string),
         verdict: verdict.clone(),
     };
-    let result = runtime().block_on(connect_with(handler, host, port, user, auth));
+    // One deadline over dialling, key exchange, authentication and opening
+    // the SFTP channel: a server that accepts the connection and then says
+    // nothing would otherwise hold this worker (and the dialog) for good.
+    // Requests on an open session have russh-sftp's own 10 s timeout.
+    let result = runtime().block_on(async {
+        tokio::time::timeout(CONNECT_TIMEOUT, connect_with(handler, host, port, user, auth))
+            .await
+            .unwrap_or_else(|_| {
+                Err(format!("{host}: no answer within {}s", CONNECT_TIMEOUT.as_secs()))
+            })
+    });
     // A key the handler rejected surfaces as a generic russh error; the
     // handler's own verdict says why.
     match result {
@@ -270,7 +284,13 @@ async fn connect_with(
     auth: &SshAuth,
 ) -> Result<Arc<SftpConnection>, String> {
     {
-        let config = Arc::new(client::Config::default());
+        // Keepalives notice a server that went away (sleep, network change)
+        // and close the session, instead of leaving it half-open forever.
+        let config = Arc::new(client::Config {
+            keepalive_interval: Some(std::time::Duration::from_secs(30)),
+            keepalive_max: 3,
+            ..Default::default()
+        });
         let mut handle = client::connect(config, (host, port), handler)
             .await
             .map_err(|e| e.to_string())?;

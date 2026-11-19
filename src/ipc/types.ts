@@ -150,7 +150,7 @@ export interface FindParams {
 export type FindEvent =
   | { type: "found"; entry: FsEntry }
   | { type: "scanning"; dir: string }
-  | { type: "done"; count: number; error: string | null };
+  | { type: "done" };
 
 export type ConflictChoice =
   | "overwrite"

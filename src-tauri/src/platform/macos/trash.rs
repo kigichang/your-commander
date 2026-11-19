@@ -144,14 +144,40 @@ pub fn original_location(item: &Path) -> Result<PathBuf, String> {
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or("not in the Trash")?;
-    let data = std::fs::read(trash.join(".DS_Store")).map_err(|_| no_record(name))?;
+    // The Trash's own .DS_Store, a regular file of ordinary size: not a
+    // link to something else, and not read whole whatever its size.
+    let store = trash.join(".DS_Store");
+    let plain = store
+        .symlink_metadata()
+        .is_ok_and(|m| m.is_file() && m.len() <= DS_STORE_MAX);
+    if !plain {
+        return Err(no_record(name));
+    }
+    let data = std::fs::read(&store).map_err(|_| no_record(name))?;
     let records = put_back_records(&data).ok_or_else(|| no_record(name))?;
     match records.get(name) {
         Some((Some(folder), orig)) => {
-            Ok(from_volume_root(folder).join(orig.as_deref().unwrap_or(name)))
+            put_back_path(folder, orig.as_deref().unwrap_or(name)).ok_or_else(|| no_record(name))
         }
         _ => Err(no_record(name)),
     }
+}
+
+/// Biggest Trash .DS_Store read; real ones are kilobytes.
+const DS_STORE_MAX: u64 = 32 * 1024 * 1024;
+
+/// The path a record's folder (`ptbL`) and name (`ptbN`) put an item back
+/// at. The record is data from a file: the name must be one path piece
+/// (an absolute one would replace the folder outright when joined) and
+/// the folder must not climb with "..".
+fn put_back_path(folder: &str, name: &str) -> Option<PathBuf> {
+    let climbs = Path::new(folder)
+        .components()
+        .any(|c| c == std::path::Component::ParentDir);
+    if climbs || folder.contains('\0') || !crate::ops::safe_path::is_listing_name(name) {
+        return None;
+    }
+    Some(from_volume_root(folder).join(name))
 }
 
 fn no_record(name: &str) -> String {
@@ -226,6 +252,18 @@ mod tests {
             (Some("Users/u/Docs/".into()), Some("a.txt".into()))
         );
         assert_eq!(recs["中文.zip"].0.as_deref(), Some("System/Volumes/Data/Users/u/"));
+    }
+
+    #[test]
+    fn put_back_records_cannot_point_anywhere() {
+        assert_eq!(
+            put_back_path("Users/kigi/Docs/", "a.txt"),
+            Some(PathBuf::from("/Users/kigi/Docs/a.txt"))
+        );
+        assert_eq!(put_back_path("Users/kigi/Docs/", "/etc/hosts"), None);
+        assert_eq!(put_back_path("Users/kigi/Docs/", "../x"), None);
+        assert_eq!(put_back_path("Users/kigi/Docs/", ".."), None);
+        assert_eq!(put_back_path("Users/kigi/../../etc/", "hosts"), None);
     }
 
     #[test]

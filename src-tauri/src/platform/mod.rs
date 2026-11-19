@@ -18,6 +18,12 @@ pub(crate) fn file_uri(path: &std::path::Path) -> String {
     format!("file://{}", encoded.join("/"))
 }
 
+/// Input options for every ffmpeg/ffprobe run on a file the user merely
+/// pointed at: the file may be a playlist or a container that names other
+/// inputs, and without this ffmpeg would fetch URLs or read other local
+/// formats on its behalf. Goes before `-i`.
+pub(crate) const FFMPEG_LOCAL_INPUT: [&str; 2] = ["-protocol_whitelist", "file"];
+
 #[derive(serde::Serialize)]
 pub struct OpenApp {
     pub name: String,
@@ -102,6 +108,17 @@ pub use macos::*;
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::*;
+
+/// Strip a password, as typed or URL-encoded, out of an external tool's
+/// error text before it reaches the UI or a log.
+pub(crate) fn scrub_password(mut err: String, password: &str) -> String {
+    if !password.is_empty() {
+        err = err
+            .replace(&urlencoding::encode(password).to_string(), "•••")
+            .replace(password, "•••");
+    }
+    err
+}
 
 #[cfg(test)]
 mod tests {

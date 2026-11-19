@@ -39,7 +39,10 @@ fn parse_trash_info(text: &str) -> Option<PathBuf> {
                 let bytes = urlencoding::decode_binary(v.as_bytes()).into_owned();
                 use std::os::unix::ffi::OsStringExt;
                 let path = PathBuf::from(std::ffi::OsString::from_vec(bytes));
-                return path.is_absolute().then_some(path);
+                // Absolute, and as written: no ".." to climb with.
+                let plain = path.is_absolute()
+                    && !path.components().any(|c| c == std::path::Component::ParentDir);
+                return plain.then_some(path);
             }
         }
     }
@@ -220,7 +223,7 @@ pub fn apps_for(path: &Path) -> Vec<OpenApp> {
 
 /// Parse `gio mime <type>` output: the default handler plus the registered
 /// and recommended lists, deduplicated in order.
-pub(crate) fn parse_gio_mime(text: &str) -> (Option<String>, Vec<String>) {
+fn parse_gio_mime(text: &str) -> (Option<String>, Vec<String>) {
     let mut default_id = None;
     let mut ids: Vec<String> = Vec::new();
     let mut in_list = false;
@@ -266,7 +269,12 @@ fn applications_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// The .desktop file for an id like "org.gnome.gedit.desktop". An id is a
+/// file name: one with a path in it ("../../tmp/x.desktop") names nothing.
 fn find_desktop_file(id: &str) -> Option<PathBuf> {
+    if !crate::ops::safe_path::is_listing_name(id) {
+        return None;
+    }
     applications_dirs()
         .into_iter()
         .map(|d| d.join(id))
@@ -275,7 +283,7 @@ fn find_desktop_file(id: &str) -> Option<PathBuf> {
 
 /// Name= from a .desktop file's [Desktop Entry] section, preferring the
 /// current locale ("zh_TW" tries Name[zh_TW], Name[zh], then Name).
-pub(crate) fn desktop_entry_name(content: &str) -> Option<String> {
+fn desktop_entry_name(content: &str) -> Option<String> {
     let locale = std::env::var("LC_MESSAGES")
         .or_else(|_| std::env::var("LANG"))
         .unwrap_or_default();
@@ -394,6 +402,7 @@ pub fn media_info(path: &Path) -> Result<MediaInfo, String> {
     let out = crate::proc::output_bounded(
         Command::new(ffprobe)
             .args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams"])
+            .args(super::FFMPEG_LOCAL_INPUT)
             .arg(path),
         super::PROBE_TIMEOUT,
         super::PROBE_OUTPUT_MAX,
@@ -401,7 +410,7 @@ pub fn media_info(path: &Path) -> Result<MediaInfo, String> {
     Ok(parse_ffprobe(&String::from_utf8_lossy(&out.stdout)))
 }
 
-pub(crate) fn parse_ffprobe(json: &str) -> MediaInfo {
+fn parse_ffprobe(json: &str) -> MediaInfo {
     let v: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
     let duration = v["format"]["duration"]
         .as_str()
@@ -419,7 +428,7 @@ pub(crate) fn parse_ffprobe(json: &str) -> MediaInfo {
 
 /// Icon-theme names to try for a file-list key ("folder", "generic", or a
 /// lower-cased extension), most specific first.
-pub(crate) fn icon_names(key: &str) -> Vec<String> {
+fn icon_names(key: &str) -> Vec<String> {
     match key {
         "folder" => vec!["folder".to_string()],
         "generic" | "" => vec!["text-x-generic".to_string()],
@@ -503,6 +512,7 @@ mod tests {
         assert_eq!(parse_trash_info(text), Some(PathBuf::from("/home/u/My Docs/中.txt")));
         assert_eq!(parse_trash_info("[Other]\nPath=/x\n"), None);
         assert_eq!(parse_trash_info("[Trash Info]\nPath=relative/x\n"), None);
+        assert_eq!(parse_trash_info("[Trash Info]\nPath=/home/u/../../etc/x\n"), None);
         assert_eq!(
             trash_info_file(Path::new("/h/.local/share/Trash/files/a.txt")).unwrap(),
             PathBuf::from("/h/.local/share/Trash/info/a.txt.trashinfo")

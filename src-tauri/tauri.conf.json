@@ -31,7 +31,10 @@
         "media-src": ["'self'", "asset:", "http://asset.localhost", "stream:", "http://stream.localhost", "blob:"],
         "worker-src": ["'self'", "blob:"],
         "font-src": ["'self'", "data:", "asset:", "http://asset.localhost"],
-        "connect-src": ["ipc:", "http://ipc.localhost"]
+        "connect-src": ["ipc:", "http://ipc.localhost"],
+        "object-src": ["'none'"],
+        "form-action": ["'none'"],
+        "base-uri": ["asset:", "http://asset.localhost"]
       },
       "assetProtocol": {
         "enable": true,

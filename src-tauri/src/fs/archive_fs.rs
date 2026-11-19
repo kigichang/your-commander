@@ -41,7 +41,8 @@ fn civil_epoch_ms(y: i64, m: u64, d: u64, h: u64, min: u64, s: u64) -> u64 {
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = (y - era * 400) as u64;
     let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
+    // A day of 0 (a zeroed zip timestamp) counts as the 1st.
+    let doy = (153 * mp + 2) / 5 + d.max(1) - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days = era * 146_097 + doe as i64 - 719_468;
     if days < 0 {
@@ -59,6 +60,56 @@ fn zip_epoch_ms(t: zip::DateTime) -> u64 {
         t.minute() as u64,
         t.second() as u64,
     )
+}
+
+/// Most a .tar.gz may decompress to while it is browsed or previewed. A
+/// tar has no index: finding an entry means inflating everything before
+/// it, and gzip turns megabytes into a hundred gigabytes of zeros. Past
+/// this the archive can still be extracted, which shows progress and can
+/// be cancelled.
+const BROWSE_MAX_GZ_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+/// Reads at most `left` bytes, then fails and raises `hit` (the tar
+/// iterators swallow read errors as an early end of the archive).
+struct Capped<R> {
+    inner: R,
+    left: u64,
+    hit: Rc<std::cell::Cell<bool>>,
+}
+
+impl<R: Read> Read for Capped<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.left == 0 {
+            self.hit.set(true);
+            return Err(std::io::Error::other("archive too large to browse"));
+        }
+        let want = buf.len().min(self.left.min(usize::MAX as u64) as usize);
+        let n = self.inner.read(&mut buf[..want])?;
+        self.left -= n as u64;
+        Ok(n)
+    }
+}
+
+type BrowseStream = (Box<dyn Read>, Rc<std::cell::Cell<bool>>);
+
+/// The tar stream of `archive` for browsing, and the flag raised when a
+/// .tar.gz turned out to be past `BROWSE_MAX_GZ_BYTES`.
+fn browse_tar(archive: &Path, kind: Kind) -> std::io::Result<BrowseStream> {
+    let file = std::fs::File::open(archive)?;
+    let hit = Rc::new(std::cell::Cell::new(false));
+    let reader: Box<dyn Read> = match kind {
+        Kind::TarGz => Box::new(Capped {
+            inner: flate2::read::GzDecoder::new(file),
+            left: BROWSE_MAX_GZ_BYTES,
+            hit: hit.clone(),
+        }),
+        _ => Box::new(file),
+    };
+    Ok((reader, hit))
+}
+
+fn too_large(archive: &Path) -> String {
+    format!("{}: too large to browse; extract it instead", archive.display())
 }
 
 /// Visit every entry: `(inner_path, is_dir, size, modified_ms)`. An error
@@ -87,11 +138,7 @@ fn for_each_entry(
             }
         }
         Kind::Tar | Kind::TarGz => {
-            let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
-            let reader: Box<dyn Read> = match kind {
-                Kind::TarGz => Box::new(flate2::read::GzDecoder::new(file)),
-                _ => Box::new(file),
-            };
+            let (reader, hit) = browse_tar(archive, kind).map_err(|e| err(&e))?;
             let mut tar = tar::Archive::new(reader);
             for entry in tar.entries().map_err(|e| err(&e))?.flatten() {
                 let Ok(path) = entry.path() else { continue };
@@ -100,13 +147,16 @@ fn for_each_entry(
                     continue;
                 }
                 let header = entry.header();
-                let modified = header.mtime().ok().map(|s| s * 1000);
+                let modified = header.mtime().ok().map(|s| s.saturating_mul(1000));
                 visit(
                     name.trim_start_matches("./"),
                     header.entry_type().is_dir(),
                     header.size().unwrap_or(0),
                     modified,
                 )?;
+            }
+            if hit.get() {
+                return Err(too_large(archive));
             }
         }
     }
@@ -266,11 +316,7 @@ pub fn read_entry(archive: &Path, inner: &str, max: u64) -> Result<Vec<u8>, Stri
             Ok(out)
         }
         Kind::Tar | Kind::TarGz => {
-            let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
-            let reader: Box<dyn Read> = match kind {
-                Kind::TarGz => Box::new(flate2::read::GzDecoder::new(file)),
-                _ => Box::new(file),
-            };
+            let (reader, hit) = browse_tar(archive, kind).map_err(|e| err(&e))?;
             let mut tar = tar::Archive::new(reader);
             for entry in tar.entries().map_err(|e| err(&e))?.flatten() {
                 let matches = entry
@@ -285,6 +331,9 @@ pub fn read_entry(archive: &Path, inner: &str, max: u64) -> Result<Vec<u8>, Stri
                         .map_err(|e| err(&e))?;
                     return Ok(out);
                 }
+            }
+            if hit.get() {
+                return Err(too_large(archive));
             }
             Err(format!("{inner}: not found in archive"))
         }
@@ -408,10 +457,12 @@ pub fn extract_entries(
                 }
                 let Ok(name) = entry.name() else { continue };
                 if out_path(name.trim_matches('/')).is_some() {
-                    total += entry.size();
+                    total = total.saturating_add(entry.size());
                 }
             }
             ctx.total_bytes = total;
+            // One buffer for the whole selection, not one per file.
+            let mut buf = vec![0u8; CHUNK];
             for i in 0..zip.len() {
                 if ctx.cancelled() {
                     return Err(cancelled_err());
@@ -441,7 +492,6 @@ pub fn extract_entries(
                 let mut writer = replace_file_nofollow(&out)?;
                 quarantine.mark_below(&root, &out);
                 let mode = entry.unix_mode();
-                let mut buf = vec![0u8; CHUNK];
                 loop {
                     if ctx.cancelled() {
                         return Err(cancelled_err());
@@ -455,7 +505,7 @@ pub fn extract_entries(
                     ctx.done_bytes += n as u64;
                     ctx.report(&name);
                 }
-                apply_mode(&out, mode);
+                apply_mode(&writer, mode);
                 count += 1;
             }
         }
@@ -498,7 +548,7 @@ pub fn extract_entries(
                         continue;
                     }
                     let out = real_out(&root, &out)?;
-                    let modified = entry.header().mtime().ok().map(|s| s * 1000);
+                    let modified = entry.header().mtime().ok().map(|s| s.saturating_mul(1000));
                     let Some(out) =
                         settle_existing(&mut shared.borrow_mut(), &name, out, modified)?
                     else {
@@ -509,7 +559,7 @@ pub fn extract_entries(
                     let mut writer = replace_file_nofollow(&out)?;
                     quarantine.mark_below(&root, &out);
                     std::io::copy(&mut entry, &mut writer).map_err(|e| e.to_string())?;
-                    apply_mode(&out, entry.header().mode().ok());
+                    apply_mode(&writer, entry.header().mode().ok());
                     count += 1;
                 }
                 Ok::<_, String>(())

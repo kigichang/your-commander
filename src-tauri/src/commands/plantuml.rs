@@ -48,16 +48,44 @@ fn with_start_end(code: &str) -> String {
     }
 }
 
+/// The configured server as a base URL the diagram path can be appended
+/// to: http(s) with a host, and nothing that would swallow or reshape the
+/// appended path (query, fragment) or carry credentials.
+fn server_base(server: &str) -> Result<String, String> {
+    let server = server.trim();
+    let bad = || format!("PlantUML server is not an http(s) URL: {server}");
+    let url = tauri::Url::parse(server).map_err(|_| bad())?;
+    let plain = matches!(url.scheme(), "http" | "https")
+        && url.host().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none();
+    if !plain {
+        return Err(bad());
+    }
+    Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
 fn render_via_server(server: &str, uml: &str) -> Result<String, String> {
     let encoded = encode_for_server(uml)?;
-    let url = format!("{}/svg/{}", server.trim_end_matches('/'), encoded);
+    let url = format!("{}/svg/{}", server_base(server)?, encoded);
     if url.len() > 8000 {
         return Err("Diagram too large for server rendering — use a local plantuml.jar".into());
     }
-    match ureq::get(&url)
+    // Redirects are not followed: the diagram goes to the server the user
+    // set and nowhere that server points (another host, an address inside
+    // the network, or https downgraded to http).
+    let agent = ureq::AgentBuilder::new().redirects(0).build();
+    match agent
+        .get(&url)
         .timeout(std::time::Duration::from_secs(15))
         .call()
     {
+        Ok(resp) if (300..400).contains(&resp.status()) => Err(format!(
+            "PlantUML server redirects to {} — set that address in Settings",
+            resp.header("location").unwrap_or("another address")
+        )),
         Ok(resp) => {
             let body = resp.into_string().map_err(|e| e.to_string())?;
             if body.contains("<svg") {
@@ -155,6 +183,9 @@ fn find_java(override_path: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+/// Diagram source accepted for rendering; real diagrams are a few KB.
+const CODE_MAX: usize = 1024 * 1024;
+
 /// Quick View renders whatever is under the cursor, so a diagram may be built
 /// to hang the JVM or to make it write without end.
 const JAR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -169,7 +200,10 @@ fn render_via_jar(java_override: &str, jar: &str, uml: &str) -> Result<String, S
                 .into(),
         );
     };
-    if !std::path::Path::new(jar).exists() {
+    // Like the java path: absolute (a relative one would resolve against
+    // whatever the working directory is) and an actual file.
+    let jar_path = std::path::Path::new(jar);
+    if !(jar_path.is_absolute() && jar_path.is_file()) {
         return Err(format!("plantuml.jar not found: {jar}"));
     }
     let mut child = std::process::Command::new(&java)
@@ -238,6 +272,9 @@ pub async fn render_plantuml(
     if mode != "server" && mode != "jar" {
         return Err("PlantUML rendering is disabled — enable it in Settings".into());
     }
+    if code.len() > CODE_MAX {
+        return Err("Diagram source too large".into());
+    }
 
     let key = cache_key(&mode, &server, &jar, &java, &code);
     if let Some(svg) = state.plantuml_cache.lock().unwrap().get(&key) {
@@ -279,6 +316,23 @@ mod tests {
             cache_key("server", "https://a", "/p.jar", "java", "A -> C"),
         ] {
             assert_ne!(base, other);
+        }
+    }
+
+    #[test]
+    fn server_must_be_a_plain_http_url() {
+        assert_eq!(server_base("https://www.plantuml.com/plantuml/").unwrap(), "https://www.plantuml.com/plantuml");
+        assert_eq!(server_base(" http://nas.local:8080 ").unwrap(), "http://nas.local:8080");
+        for bad in [
+            "",
+            "ftp://host/plantuml",
+            "file:///etc/passwd",
+            "https://user:pw@host/plantuml",
+            "https://host/plantuml?x=",
+            "https://host/plantuml#",
+            "plantuml.com",
+        ] {
+            assert!(server_base(bad).is_err(), "{bad}");
         }
     }
 

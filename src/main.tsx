@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initI18n } from "./i18n";
 import { getConfig } from "./ipc/commands";
 import { applyPlatformDataset } from "./lib/platform";
@@ -15,7 +16,9 @@ getConfig()
     initI18n(config?.language ?? null);
     ReactDOM.createRoot(document.getElementById("root")!).render(
       <React.StrictMode>
-        <App />
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </React.StrictMode>,
     );
   });

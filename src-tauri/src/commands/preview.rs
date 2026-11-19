@@ -6,7 +6,7 @@ use super::{blocking, require_absolute};
 use tauri::{AppHandle, Manager, State};
 use tauri::ipc::Response;
 
-pub use crate::platform::MediaInfo;
+use crate::platform::MediaInfo;
 
 /// Video metadata for Quick View, local files only. Missing attributes
 /// come back as None.
@@ -30,7 +30,9 @@ pub async fn video_poster(path: PathBuf) -> Result<Response, String> {
         for seek in ["5", "0"] {
             let out = crate::proc::output_bounded(
                 std::process::Command::new(&ffmpeg)
-                    .args(["-v", "error", "-ss", seek, "-i"])
+                    .args(["-v", "error"])
+                    .args(crate::platform::FFMPEG_LOCAL_INPUT)
+                    .args(["-ss", seek, "-i"])
                     .arg(&path)
                     .args(["-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-q:v", "4", "pipe:1"]),
                 crate::platform::PROBE_TIMEOUT,
@@ -62,8 +64,13 @@ pub async fn cloud_download(path: PathBuf) -> Result<(), String> {
     blocking(move || crate::platform::download_cloud_file(&path)).await
 }
 
+/// The most `read_preview` returns whatever the caller asks for: the
+/// frontend's largest request (audio from SFTP or an archive, played from
+/// memory). The bytes are held in memory here and again in the webview.
+const PREVIEW_MAX: u64 = 256 * 1024 * 1024;
+
 /// Raw file bytes for the Quick View pane (PDF.js, images, text). Works for
-/// local and SFTP paths alike; capped at `max_bytes`.
+/// local and SFTP paths alike; capped at `max_bytes`, and at `PREVIEW_MAX`.
 #[tauri::command]
 pub async fn read_preview(
     state: State<'_, AppState>,
@@ -72,6 +79,7 @@ pub async fn read_preview(
     max_bytes: u64,
 ) -> Result<Response, String> {
     let resolved = state.resolve(&location)?;
+    let max_bytes = max_bytes.min(PREVIEW_MAX);
     let bytes = blocking(move || read_bytes(resolved, &path, max_bytes)).await?;
     Ok(Response::new(bytes))
 }
@@ -85,8 +93,11 @@ pub(crate) fn read_bytes(
 ) -> Result<Vec<u8>, String> {
     match resolved {
         Resolved::Local => {
-            let mut file =
-                std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            require_absolute(path)?;
+            // Regular files only: a FIFO would block this thread until
+            // someone wrote to it, and a device never ends.
+            let (mut file, _) = crate::ops::safe_path::open_regular(path)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
             let mut buf = Vec::new();
             file.by_ref()
                 .take(max_bytes)
@@ -142,8 +153,10 @@ fn asset_dir(dir: &Path) -> Result<PathBuf, String> {
 /// `asset_dir` with the home folder given. A grant is recursive, so some
 /// folders are refused outright: the root and top-level folders (/Users,
 /// /Volumes: every account or every mounted disk), and the home folder or
-/// anything above it (~/.ssh, ~/Library and the rest would come along). A
-/// page there renders without its neighbouring files.
+/// anything above it (~/.ssh, ~/Library and the rest would come along),
+/// and inside the home folder its private ones (`private_in_home`: keys,
+/// credentials, app data, keychains). A page there renders without its
+/// neighbouring files.
 fn asset_dir_with_home(dir: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
     require_absolute(dir)?;
     let real = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -157,7 +170,34 @@ fn asset_dir_with_home(dir: &Path, home: Option<&Path>) -> Result<PathBuf, Strin
     if home.is_some_and(|h| h.starts_with(&real)) {
         return refuse();
     }
+    if home
+        .and_then(|h| real.strip_prefix(h).ok())
+        .is_some_and(private_in_home)
+    {
+        return refuse();
+    }
     Ok(real)
+}
+
+/// Is `rel`, a folder's path below the home folder, one of the private
+/// ones: a hidden top-level folder or anything in it, or ~/Library? The
+/// exception is where macOS keeps cloud drives, which hold ordinary
+/// documents: a folder below ~/Library/Mobile Documents (iCloud Drive)
+/// or ~/Library/CloudStorage (Dropbox, OneDrive, Google Drive; ~/Dropbox
+/// is a link there) is not private. Those two folders themselves are:
+/// either would open every cloud account at once.
+fn private_in_home(rel: &Path) -> bool {
+    let mut parts = rel.components().map(|c| c.as_os_str().to_string_lossy());
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    if first != "Library" {
+        return first.starts_with('.');
+    }
+    let cloud = parts
+        .next()
+        .is_some_and(|second| second == "Mobile Documents" || second == "CloudStorage");
+    !(cloud && parts.next().is_some())
 }
 
 #[cfg(test)]
@@ -174,6 +214,56 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::canonicalize(dir).unwrap()
+    }
+
+    #[test]
+    fn local_preview_reads_only_regular_files_by_absolute_path() {
+        use crate::state::Resolved;
+        let dir = work("read");
+        std::fs::write(dir.join("a.txt"), b"hello").unwrap();
+        let read = |p: &Path| super::read_bytes(Resolved::Local, p, 3);
+        assert_eq!(read(&dir.join("a.txt")).unwrap(), b"hel");
+        assert!(read(Path::new("a.txt")).is_err());
+        assert!(read(Path::new("/dev/zero")).is_err());
+        let fifo = dir.join("fifo");
+        let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        assert!(read(&fifo).is_err());
+    }
+
+    #[test]
+    fn asset_dir_refuses_private_folders_of_the_home() {
+        let home = work("private");
+        let allowed = |dir: &str| {
+            std::fs::create_dir_all(home.join(dir)).unwrap();
+            asset_dir_with_home(&home.join(dir), Some(&home)).is_ok()
+        };
+        assert!(allowed("Documents/site"));
+        for dir in [
+            ".ssh",
+            ".config/app",
+            "Library",
+            "Library/Keychains",
+            "Library/Application Support/x",
+        ] {
+            assert!(!allowed(dir), "{dir}");
+        }
+        // Cloud drives live under ~/Library on macOS (iCloud Drive in
+        // Mobile Documents; Dropbox, OneDrive and Google Drive in
+        // CloudStorage, with ~/Dropbox a link there). A page kept in one
+        // loads its neighbours like any other...
+        for dir in [
+            "Library/Mobile Documents/com~apple~CloudDocs/site",
+            "Library/Mobile Documents/com~apple~CloudDocs",
+            "Library/CloudStorage/Dropbox/site",
+            "Library/CloudStorage/Dropbox",
+        ] {
+            assert!(allowed(dir), "{dir}");
+        }
+        // ...but the two containers themselves are every cloud account at
+        // once, and stay closed.
+        assert!(!allowed("Library/Mobile Documents"));
+        assert!(!allowed("Library/CloudStorage"));
     }
 
     #[test]

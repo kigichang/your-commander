@@ -1,16 +1,27 @@
+const INDENT_MAX = 64;
+/** Longest formatted text worth showing; past it the caller shows the
+ *  file as it is. */
+const PRETTY_MAX = 2 * 1024 * 1024;
+
 /** Re-indents JSON text without parsing it into values, so numbers keep
  *  every digit (no float rounding of big integers), key order and
  *  duplicate keys survive, and a file cut off by the preview size cap
- *  still formats as far as it goes. Strings are copied verbatim. */
-export function prettyJson(text: string, indent = "  "): string {
+ *  still formats as far as it goes. Strings are copied verbatim. Null
+ *  when the result would pass PRETTY_MAX (thousands of nesting levels:
+ *  nothing a person reads formatted). */
+export function prettyJson(text: string, indent = "  "): string | null {
   let out = "";
   let depth = 0;
   let i = 0;
   const n = text.length;
+  // Indentation stops deepening at INDENT_MAX levels: a file that is
+  // nothing but "[[[[…" would otherwise grow by its depth on every line,
+  // gigabytes from a few hundred kilobytes.
   const newline = () => {
-    out += "\n" + indent.repeat(depth);
+    out += "\n" + indent.repeat(Math.min(depth, INDENT_MAX));
   };
   while (i < n) {
+    if (out.length > PRETTY_MAX) return null;
     const c = text[i];
     if (c === '"') {
       let j = i + 1;

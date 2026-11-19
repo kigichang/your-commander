@@ -234,7 +234,7 @@ impl OpCtx {
 /// Sink used by unit tests: swallows progress, answers conflicts with a
 /// canned choice.
 #[cfg(test)]
-pub struct TestSink(pub ConflictChoice);
+struct TestSink(ConflictChoice);
 
 #[cfg(test)]
 impl OpSink for TestSink {
@@ -305,17 +305,25 @@ pub fn keep_both_with(dest: &Path, taken: impl Fn(&Path) -> bool) -> PathBuf {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_default();
     let ext = dest.extension().map(|e| e.to_string_lossy().to_string());
-    for n in 2..10_000 {
-        let name = match &ext {
+    let named = |n: u128| {
+        parent.join(match &ext {
             Some(e) => format!("{stem} {n}.{e}"),
             None => format!("{stem} {n}"),
-        };
-        let candidate = parent.join(name);
+        })
+    };
+    for n in 2..10_000 {
+        let candidate = named(n);
         if !taken(&candidate) {
             return candidate;
         }
     }
-    dest.to_path_buf()
+    // Every numbered name is taken. Never `dest` itself: "keep both" would
+    // then overwrite the very file it was asked to keep. The clock gives a
+    // name nothing has yet.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    named(nanos)
 }
 
 #[cfg(test)]
@@ -393,7 +401,9 @@ mod tests {
         let probe = |p: &Path| taken.iter().any(|t| Path::new(t) == p);
         assert_eq!(keep_both_with(Path::new("/r/a.tar.gz"), probe), Path::new("/r/a.tar 3.gz"));
         assert_eq!(keep_both_with(Path::new("/r/notes"), probe), Path::new("/r/notes 2"));
-        // Nothing free: the original path comes back.
-        assert_eq!(keep_both_with(Path::new("/r/x"), |_| true), Path::new("/r/x"));
+        // Nothing free: still never the original, which would be overwritten.
+        let last_resort = keep_both_with(Path::new("/r/x.txt"), |_| true);
+        assert_ne!(last_resort, Path::new("/r/x.txt"));
+        assert_eq!(last_resort.extension().unwrap(), "txt");
     }
 }

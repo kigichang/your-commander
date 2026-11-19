@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import { useOps } from "../store/ops";
 import type { VolumeInfo } from "../ipc/types";
-import { humanSize } from "../lib/format";
+import { displayName, humanSize } from "../lib/format";
 import { baseName, displayPath, expandHome, parentPath, remotePrefix } from "../lib/path";
 import { dragRegion, isMac } from "../lib/platform";
 import { isMask } from "../lib/wildcard";
@@ -24,7 +24,9 @@ async function ejectVolume(volPath: string, side: Side, currentPath: string) {
   const { toast } = useOps.getState();
   try {
     // Leave the volume first when this panel is inside it.
-    if (currentPath.startsWith(volPath)) {
+    // The volume itself or a path below it: "/Volumes/Data2" is not
+    // inside "/Volumes/Data".
+    if (currentPath === volPath || currentPath.startsWith(volPath.replace(/\/+$/, "") + "/")) {
       const home = useSettings.getState().home ?? "/";
       await usePanels.getState().navigate(side, home, { kind: "local" }, null);
     }
@@ -93,7 +95,7 @@ function TabStrip({ side }: { side: Side }) {
         >
           <span className="label">
             {remotePrefix(tab)}
-            {baseName(tab.path)}
+            {displayName(baseName(tab.path))}
           </span>
           {panel.tabs.length > 1 && (
             <span
@@ -244,9 +246,9 @@ function PanelBar({ side, tab }: { side: Side; tab: TabState }) {
                     }}
                   >
                     <span>
-                      <FileIcon isDir ext="" path={f.path} own /> {f.name}
+                      <FileIcon isDir ext="" path={f.path} own /> {displayName(f.name)}
                     </span>
-                    <span className="sub">{displayPath(f.path, home)}</span>
+                    <span className="sub">{displayName(displayPath(f.path, home))}</span>
                   </button>
                 ))}
               </>

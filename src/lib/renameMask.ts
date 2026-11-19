@@ -38,7 +38,9 @@ function expand(mask: string, stem: string, ext: string, counter: number, date: 
     const upper = tag.toUpperCase();
     if (upper === "N") return stem;
     if (upper === "E") return ext;
-    if (upper.startsWith("C")) return pad(counter, width ? Number(width) : 1);
+    // The width is typed by hand: "[C:99999999]" must not build a string
+    // that long for every row (padStart throws past the engine's limit).
+    if (upper.startsWith("C")) return pad(counter, width ? Math.min(Number(width), 32) : 1);
     if (upper === "YMD") return `${date.getFullYear()}${pad(date.getMonth() + 1, 2)}${pad(date.getDate(), 2)}`;
     if (upper === "Y") return String(date.getFullYear());
     if (upper === "M") return pad(date.getMonth() + 1, 2);
@@ -88,7 +90,11 @@ export function previewRenames(
 
     let problem: string | null = null;
     if (badRegex) problem = "rename.badRegex";
-    else if (!full || full === "." || full === ".." || full.includes("/")) problem = "rename.badName";
+    // No path pieces, and no control characters (a newline or NUL in a
+    // name typed into a mask is a mistake, never a wish).
+    // eslint-disable-next-line no-control-regex
+    else if (!full || full === "." || full === ".." || /[/\u0000-\u001F\u007F]/.test(full))
+      problem = "rename.badName";
     else if (seen.has(full)) problem = "rename.duplicate";
     else if (full !== entry.name && existingNames.has(full)) problem = "rename.taken";
     seen.set(full, i);

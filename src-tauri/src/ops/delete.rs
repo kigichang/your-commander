@@ -53,7 +53,10 @@ pub fn restore_op(ctx: &mut OpCtx, items: Vec<PathBuf>) -> Result<usize, String>
 
 fn restore_one(trash: &std::path::Path, item: &std::path::Path) -> Result<(), String> {
     let name = item.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    if item.parent() != Some(trash) || item.symlink_metadata().is_err() {
+    if item.parent() != Some(trash)
+        || item.file_name().is_none()
+        || item.symlink_metadata().is_err()
+    {
         return Err(format!("{name}: not in the Trash"));
     }
     let dest = crate::platform::trash_origin(item)?;

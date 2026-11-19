@@ -54,7 +54,13 @@ pub async fn smb_test(server: String) -> Result<(), String> {
     blocking(move || {
         use std::net::{TcpStream, ToSocketAddrs};
         use std::time::Duration;
-        let addrs = format!("{server}:445")
+        // The server may carry its own port ("nas:4450", "[fe80::1]:445").
+        let has_port = match server.rfind(']') {
+            Some(end) => server[end + 1..].starts_with(':'),
+            None => server.matches(':').count() == 1,
+        };
+        let target = if has_port { server.clone() } else { format!("{server}:445") };
+        let addrs = target
             .to_socket_addrs()
             .map_err(|e| format!("{server}: {e}"))?
             .collect::<Vec<_>>();
@@ -64,6 +70,27 @@ pub async fn smb_test(server: String) -> Result<(), String> {
             .map_err(|e| format!("{server}: {e}"))
     })
     .await
+}
+
+fn saved_password(username: &str, server: &str, share: &str) -> Option<String> {
+    keychain::load(&keychain::smb_account(username, server, share))
+}
+
+/// The password to log in with: the one typed, or with none typed the
+/// saved one — read here, so it never passes through the webview. Can
+/// block on the credential store; call off the main thread.
+pub(crate) fn login_password(
+    username: &str,
+    server: &str,
+    share: &str,
+    typed: String,
+) -> Result<String, String> {
+    if !typed.is_empty() || username.is_empty() {
+        return Ok(typed);
+    }
+    let saved = saved_password(username, server, share).unwrap_or_default();
+    check_text("Password", &saved)?;
+    Ok(saved)
 }
 
 /// Disk shares the server offers (share picker when none was given).
@@ -79,19 +106,20 @@ pub async fn smb_shares(
 
 #[tauri::command]
 pub async fn smb_unmount(path: PathBuf) -> Result<(), String> {
+    super::require_absolute(&path)?;
     blocking(move || smb::unmount(&path)).await
 }
 
 // The credential store can block (an unlock prompt), so these run off the
 // main thread.
 
-/// Stored password for a saved SMB connection (Keychain).
+/// Whether a password is stored for an SMB connection. Only that: the
+/// password itself stays in the backend (`login_password`).
 #[tauri::command]
-pub async fn smb_saved_password(username: String, server: String, share: String) -> Option<String> {
-    blocking(move || Ok::<_, String>(keychain::load(&keychain::smb_account(&username, &server, &share))))
+pub async fn smb_has_password(username: String, server: String, share: String) -> bool {
+    blocking(move || Ok::<_, String>(saved_password(&username, &server, &share).is_some()))
         .await
-        .ok()
-        .flatten()
+        .unwrap_or(false)
 }
 
 #[tauri::command]

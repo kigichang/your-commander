@@ -25,7 +25,6 @@ import { actions } from "../keymap/actions";
 import type { PresetName } from "../keymap/keymap";
 import { chordOf, prettyChord } from "../keymap/keymap";
 import type { ExternalTool } from "../ipc/types";
-import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useKeymap } from "../store/keymapStore";
 import { useOps } from "../store/ops";
@@ -47,10 +46,10 @@ const SECTIONS: ReadonlyArray<{ id: string; icon: LucideIcon }> = [
   { id: "about", icon: Info },
 ];
 
-export function SettingsDialog({ d }: { d: Extract<Dialog, { type: "settings" }> }) {
+export function SettingsDialog() {
   const { t } = useTranslation();
   const close = useDialogs((s) => s.close);
-  const [section, setSection] = useState<string>(d.section ?? "general");
+  const [section, setSection] = useState<string>("general");
   // Which action is recording a new chord, and which chord it replaces.
   const [capture, setCapture] = useState<{ action: ActionId; replace?: string } | null>(null);
 

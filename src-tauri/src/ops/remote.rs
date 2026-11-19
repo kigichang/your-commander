@@ -280,7 +280,24 @@ fn download_item(
         return Ok(true);
     }
     if is_dir {
-        create_dir_inside(root, dest)?;
+        // As in a local copy: only a real folder is merged into. A link
+        // under this name is a conflict even when it leads to a folder
+        // inside the destination; the download would otherwise be written
+        // wherever it points.
+        let mut dest = dest.to_path_buf();
+        let real_dir = dest.is_dir() && !dest.is_symlink();
+        if (dest.exists() || dest.is_symlink()) && !real_dir {
+            match ctx.ask_conflict_with(src, &dest, || None) {
+                ConflictChoice::Overwrite => remove_nofollow(&dest)?,
+                ConflictChoice::Skip => return Ok(false),
+                ConflictChoice::KeepBoth => dest = super::queue::keep_both_path(&dest),
+                ConflictChoice::CancelOp => return Err(cancelled_err()),
+                _ => return Ok(false),
+            }
+        }
+        // The folder as it really is, checked to be inside root: entries
+        // are written under that path, not under the one given.
+        let dest = create_dir_inside(root, &dest)?;
         let entries = conn
             .list(src)
             .map_err(|e| format!("{}: {e}", src.display()))?;

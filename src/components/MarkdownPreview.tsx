@@ -31,7 +31,11 @@ md.use(taskLists, { enabled: false });
 // namespace object instead of the function.
 const katexFn =
   (katexPlugin as unknown as { default?: typeof katexPlugin }).default ?? katexPlugin;
-md.use(katexFn);
+// A size cap keeps `\rule{9999em}{9999em}` and the like from blowing the
+// layout up; `trust` stays off (no \href, \includegraphics, \htmlStyle).
+// The plugin hands its options on to katex.renderToString; its own type
+// lists only the plugin's.
+md.use(katexFn, { trust: false, maxSize: 50, maxExpand: 500 } as object);
 
 // ```mermaid fences become diagram containers rendered after mount.
 const defaultFence =
@@ -81,6 +85,9 @@ async function renderPlantumlBlocks(
         const img = document.createElement("img");
         img.src = url;
         img.alt = "PlantUML diagram";
+        // Not a drag source: a drop is another way a URL reaches a
+        // navigation (MarkdownPreview guards this for its own content).
+        img.draggable = false;
         node.replaceChildren(img);
         node.classList.add("rendered");
       } catch (e) {
@@ -102,6 +109,20 @@ function loadMermaid() {
       startOnLoad: false,
       theme: "dark",
       securityLevel: "strict",
+      // What a diagram's own `%%{init}%%` or front matter may not set:
+      // mermaid's defaults, plus the keys that put the file's text into
+      // the page's CSS (a fixed, full-window overlay otherwise).
+      secure: [
+        "secure",
+        "securityLevel",
+        "startOnLoad",
+        "maxTextSize",
+        "suppressErrorRendering",
+        "maxEdges",
+        "themeCSS",
+        "fontFamily",
+        "altFontFamily",
+      ],
     });
     return m.default;
   });

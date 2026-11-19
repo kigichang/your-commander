@@ -39,7 +39,7 @@ export function Dialogs() {
     case "find":
       return <FindDialog d={dialog} />;
     case "settings":
-      return <SettingsDialog d={dialog} />;
+      return <SettingsDialog />;
     case "palette":
       return <PaletteDialog />;
     case "confirmDelete":
@@ -95,9 +95,15 @@ function CopyMoveDialog({ d }: { d: Extract<Dialog, { type: "copyMove" }> }) {
     const srcTab = s.activeTab(d.side);
     const destTab = s.activeTab(s.otherSide(d.side));
     const sameDest = dest === destTab.path;
-    // Typing a different path only makes sense toward the other panel's
-    // location; the default is exactly that panel's folder.
-    const destLocation = sameDest ? destTab.location : ({ kind: "local" } as const);
+    // The default is exactly the other panel's folder. A different path
+    // typed while that panel shows a server is a path on that server: it
+    // must not quietly become a local folder of the same name. Anything
+    // else typed (the other panel local, or inside an archive, which
+    // can't be written to) is a local path.
+    const destLocation =
+      sameDest || destTab.location.kind === "sftp"
+        ? destTab.location
+        : ({ kind: "local" } as const);
     // A move within the same folder has nowhere to go: refuse it rather
     // than leave the items behind under new names.
     if (
@@ -314,7 +320,7 @@ function RepairVideoDialog({ d }: { d: Extract<Dialog, { type: "repairVideo" }> 
     <Overlay onClose={() => finish("discard")}>
       <h2>{t("quickview.repairTitle")}</h2>
       <div className="body">
-        <p>{t("quickview.repairAsk", { name: baseName(d.original) })}</p>
+        <p>{t("quickview.repairAsk", { name: displayName(baseName(d.original)) })}</p>
       </div>
       <div className="buttons">
         <button className="btn" onClick={() => finish("discard")}>
@@ -417,7 +423,14 @@ function CompressDialog({ d }: { d: Extract<Dialog, { type: "compress" }> }) {
   const [name, setName] = useState(defaultStem);
 
   const go = () => {
-    if (!name.trim()) return;
+    const stem = name.trim();
+    if (!stem) return;
+    // A file name, not a path: "a/b" or "../x" would put the archive
+    // somewhere other than the folder shown.
+    if (stem.includes("/")) {
+      useOps.getState().toast(t("rename.badName"), "warning");
+      return;
+    }
     close();
     void useOps.getState().run(
       t("dialog.compress"),
@@ -474,10 +487,10 @@ function ConflictDialog() {
     <Overlay onClose={() => answer("cancelOp")}>
       <h2>{t("dialog.conflictTitle")}</h2>
       <div className="body">
-        <p>{t("dialog.conflictMsg", { name: baseName(conflict.dest) })}</p>
+        <p>{t("dialog.conflictMsg", { name: displayName(baseName(conflict.dest)) })}</p>
         <div className="list">
-          <div>→ {conflict.src}</div>
-          <div>⇒ {conflict.dest}</div>
+          <div>→ {displayName(conflict.src)}</div>
+          <div>⇒ {displayName(conflict.dest)}</div>
         </div>
       </div>
       <div className="buttons">
