@@ -504,7 +504,7 @@ pub fn extract_entries(
                     ctx.done_bytes += n as u64;
                     ctx.report(&name);
                 }
-                apply_mode(&out, mode);
+                apply_mode(&writer, mode);
                 count += 1;
             }
         }
@@ -558,7 +558,7 @@ pub fn extract_entries(
                     let mut writer = replace_file_nofollow(&out)?;
                     quarantine.mark_below(&root, &out);
                     std::io::copy(&mut entry, &mut writer).map_err(|e| e.to_string())?;
-                    apply_mode(&out, entry.header().mode().ok());
+                    apply_mode(&writer, entry.header().mode().ok());
                     count += 1;
                 }
                 Ok::<_, String>(())

@@ -470,7 +470,7 @@ fn extract_zip(
         };
         std::io::copy(&mut meter, &mut writer).map_err(|e| e.to_string())?;
         read = meter.read;
-        apply_mode(&out, mode);
+        apply_mode(&writer, mode);
     }
     Ok(())
 }
@@ -479,11 +479,13 @@ fn extract_zip(
 /// archive recorded (the executable bit of a script, say). Only rwx: an
 /// archive's setuid/setgid/sticky bits are dropped, as tar's unpack does
 /// by default. Used by full extraction and by F5 copy-out of entries.
-pub(crate) fn apply_mode(path: &Path, mode: Option<u32>) {
+/// Set on the open file, not by its path: the name could be swapped for
+/// a link to something else in between.
+pub(crate) fn apply_mode(file: &std::fs::File, mode: Option<u32>) {
     #[cfg(unix)]
     if let Some(mode) = mode {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o777));
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(mode & 0o777));
     }
 }
 
@@ -589,6 +591,11 @@ fn extract_7z(
     // a link at the destination: as with zip, write in the entry's real
     // folder, checked to be inside root, and never through a link.
     sevenz_rust2::decompress_file_with_extract_fn(archive, dest, |entry, reader, path| {
+        // Empty files and folders never reach the metered reader, which is
+        // where a cancel is otherwise noticed.
+        if ctx.cancelled() {
+            return Err(refuse(cancelled_err()));
+        }
         if entry.is_directory() {
             create_dir_inside(&root, path).map_err(refuse)?;
             return Ok(true);

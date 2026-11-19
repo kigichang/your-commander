@@ -54,7 +54,13 @@ pub async fn smb_test(server: String) -> Result<(), String> {
     blocking(move || {
         use std::net::{TcpStream, ToSocketAddrs};
         use std::time::Duration;
-        let addrs = format!("{server}:445")
+        // The server may carry its own port ("nas:4450", "[fe80::1]:445").
+        let has_port = match server.rfind(']') {
+            Some(end) => server[end + 1..].starts_with(':'),
+            None => server.matches(':').count() == 1,
+        };
+        let target = if has_port { server.clone() } else { format!("{server}:445") };
+        let addrs = target
             .to_socket_addrs()
             .map_err(|e| format!("{server}: {e}"))?
             .collect::<Vec<_>>();

@@ -278,7 +278,8 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<bool
     if ctx.options.keep_meta {
         copy_xattrs(src, &dest);
         if let Ok(meta) = src.metadata() {
-            let _ = std::fs::set_permissions(&dest, meta.permissions());
+            // On the open file: the name could have been swapped meanwhile.
+            let _ = writer.set_permissions(meta.permissions());
             if let Ok(mtime) = meta.modified() {
                 let _ = writer.set_modified(mtime);
             }
