@@ -169,7 +169,10 @@ fn render_via_jar(java_override: &str, jar: &str, uml: &str) -> Result<String, S
                 .into(),
         );
     };
-    if !std::path::Path::new(jar).exists() {
+    // Like the java path: absolute (a relative one would resolve against
+    // whatever the working directory is) and an actual file.
+    let jar_path = std::path::Path::new(jar);
+    if !(jar_path.is_absolute() && jar_path.is_file()) {
         return Err(format!("plantuml.jar not found: {jar}"));
     }
     let mut child = std::process::Command::new(&java)

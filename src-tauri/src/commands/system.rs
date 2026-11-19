@@ -358,14 +358,39 @@ pub async fn apps_for_path(path: PathBuf) -> Vec<OpenApp> {
         .unwrap_or_default()
 }
 
-/// Launch a user-defined external tool with the given files.
+/// Launch an app with the given files. Not any program the caller names:
+/// only one the user configured as an external tool, the detected video
+/// player, or an app the system lists as a handler for one of the files
+/// (the "Open With" menu's entries).
 #[tauri::command]
-pub async fn open_with(app: String, paths: Vec<PathBuf>) -> Result<(), String> {
+pub async fn open_with(
+    state: tauri::State<'_, AppState>,
+    app: String,
+    paths: Vec<PathBuf>,
+) -> Result<(), String> {
     if app.trim().is_empty() || paths.is_empty() {
         return Err("open_with: app and paths required".into());
     }
     paths.iter().try_for_each(|p| require_absolute(p))?;
-    blocking(move || platform::open_with(&app, &paths)).await
+    let configured = state
+        .config
+        .lock()
+        .unwrap()
+        .external_tools
+        .iter()
+        .any(|tool| tool.app == app);
+    blocking(move || {
+        let known = configured
+            || platform::video_player().as_deref() == Some(app.as_str())
+            || paths
+                .iter()
+                .any(|p| platform::apps_for(p).iter().any(|a| a.path == app));
+        if !known {
+            return Err(format!("{app}: not an app offered for these files"));
+        }
+        platform::open_with(&app, &paths)
+    })
+    .await
 }
 
 /// The system file manager's info/properties window for each path (local

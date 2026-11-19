@@ -266,7 +266,12 @@ fn applications_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// The .desktop file for an id like "org.gnome.gedit.desktop". An id is a
+/// file name: one with a path in it ("../../tmp/x.desktop") names nothing.
 fn find_desktop_file(id: &str) -> Option<PathBuf> {
+    if !crate::ops::safe_path::is_listing_name(id) {
+        return None;
+    }
     applications_dirs()
         .into_iter()
         .map(|d| d.join(id))
