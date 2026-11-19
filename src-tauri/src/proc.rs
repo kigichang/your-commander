@@ -21,6 +21,25 @@ fn drain<R: Read + Send + 'static>(pipe: Option<R>, max: u64) -> mpsc::Receiver<
     rx
 }
 
+/// Kill `child` and, when it leads a process group of its own (as
+/// `output_bounded` starts it), everything else in that group. Killing
+/// only the child leaves what it started running: /usr/bin/soffice is a
+/// shell script, and the real soffice.bin would live on, holding the
+/// profile lock and the output pipes.
+fn kill_with_group(child: &mut Child) {
+    let pid = child.id() as libc::pid_t;
+    // SAFETY: plain syscalls on the pid of a child not yet reaped, so the
+    // pid cannot have been reused. A group is signalled only when the
+    // child is its leader: never our own group.
+    unsafe {
+        if libc::getpgid(pid) == pid {
+            libc::kill(-pid, libc::SIGKILL);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// `Child::wait_with_output` with limits: the child is killed if it runs past
 /// `timeout`, and more than `max_output` bytes on either stream is an error
 /// rather than a truncated result. Pipes that outlive the child (a background
@@ -42,8 +61,7 @@ pub(crate) fn wait_bounded(
             break status;
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            kill_with_group(&mut child);
             return Err(timed_out());
         }
         std::thread::sleep(Duration::from_millis(20));
@@ -72,10 +90,13 @@ pub(crate) fn output_bounded(
     timeout: Duration,
     max_output: u64,
 ) -> Result<Output, String> {
+    use std::os::unix::process::CommandExt;
     let child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        // Its own process group, so a timeout takes its children with it.
+        .process_group(0)
         .spawn()
         .map_err(|e| e.to_string())?;
     wait_bounded(child, timeout, max_output)
@@ -124,6 +145,23 @@ mod tests {
         let err = wait_bounded(sh("sleep 30 & exit 0"), Duration::from_millis(300), 1024).unwrap_err();
         assert!(err.contains("Timed out"), "{err}");
         assert!(t.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_timeout_takes_the_childs_own_children_with_it() {
+        let marker = std::env::temp_dir().join(format!("yc_proc_group_{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        // A wrapper script whose real work happens in a child, as soffice's does.
+        let script = format!("(sleep 1; touch '{}') & wait", marker.display());
+        let err = output_bounded(
+            Command::new("/bin/sh").args(["-c", &script]),
+            Duration::from_millis(200),
+            1024,
+        )
+        .unwrap_err();
+        assert!(err.contains("Timed out"), "{err}");
+        std::thread::sleep(Duration::from_millis(1500));
+        assert!(!marker.exists(), "the grandchild outlived the timeout");
     }
 
     #[test]

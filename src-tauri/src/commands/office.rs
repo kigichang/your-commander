@@ -35,6 +35,12 @@ const SHEET_COLS_MAX: usize = 100;
 const CONVERT_INPUT_MAX: u64 = 50 * 1024 * 1024;
 /// Biggest PDF read back from a conversion.
 const CONVERT_OUTPUT_MAX: u64 = 150 * 1024 * 1024;
+/// What `office_to_pdf` hands to LibreOffice: Quick View's Office types
+/// (the frontend's DOCX/PPTX/SHEET/LEGACY sets in QuickView.tsx).
+const CONVERTIBLE_EXTS: [&str; 14] = [
+    "docx", "docm", "dotx", "pptx", "pptm", "ppsx", "potx", "xlsx", "xlsm", "xlsb", "ods", "doc",
+    "ppt", "xls",
+];
 /// A fresh profile's first start alone can take ten seconds or more.
 const CONVERT_TIMEOUT: Duration = Duration::from_secs(90);
 /// soffice's own console chatter, not the PDF (that goes to a file).
@@ -330,12 +336,15 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new() -> Result<Self, String> {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "yc-office-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
+        // A name nobody can guess: on Linux the temp dir is shared, and
+        // another user holding a predictable name first would make every
+        // conversion fail.
+        let mut random = [0u8; 8];
+        std::fs::File::open("/dev/urandom")
+            .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut random))
+            .map_err(|e| e.to_string())?;
+        let random: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let dir = std::env::temp_dir().join(format!("yc-office-{random}"));
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         {
@@ -353,23 +362,28 @@ impl Drop for Scratch {
     }
 }
 
-/// The private LibreOffice profile Quick View converts with.
-fn profile_dir() -> PathBuf {
+/// The private LibreOffice profile Quick View converts with: under the
+/// user's own cache folder only. The shared temp dir is no fallback: a
+/// profile someone else put there would be loaded, macros and all.
+fn profile_dir() -> Result<PathBuf, String> {
     dirs::cache_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("your-commander")
-        .join("lo-profile")
+        .map(|cache| cache.join("your-commander").join("lo-profile"))
+        .ok_or_else(|| "LibreOffice: no cache folder for its profile".to_string())
 }
 
 /// Run soffice on `input` and return the PDF it writes.
 fn run_soffice(soffice: &Path, input: &Path, scratch: &Path) -> Result<Vec<u8>, String> {
     let outdir = scratch.join("out");
     std::fs::create_dir(&outdir).map_err(|e| format!("{}: {e}", outdir.display()))?;
+    use std::os::unix::process::CommandExt;
     let child = std::process::Command::new(soffice)
-        .args(convert_args(&profile_dir(), &outdir, input))
+        .args(convert_args(&profile_dir()?, &outdir, input))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
+        // Its own process group: on Linux soffice is a wrapper script, and
+        // a timeout has to reach the soffice.bin it started.
+        .process_group(0)
         .spawn()
         .map_err(|e| format!("LibreOffice: {e}"))?;
     let output = crate::proc::wait_bounded(child, CONVERT_TIMEOUT, CONVERT_LOG_MAX)
@@ -417,6 +431,15 @@ pub async fn office_to_pdf(
     size: u64,
     modified: i64,
 ) -> Result<Response, String> {
+    // Office documents only: LibreOffice opens far more (HTML, SVG, text,
+    // images), and those would be fetched or laid out by it for nothing.
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if !CONVERTIBLE_EXTS.contains(&ext.as_str()) {
+        return Err(format!("{}: not an Office document", path.display()));
+    }
     let custom = state.config.lock().unwrap().office_soffice.clone();
     let resolved = state.resolve(&location)?;
     let soffice = blocking(move || {
