@@ -95,9 +95,15 @@ function CopyMoveDialog({ d }: { d: Extract<Dialog, { type: "copyMove" }> }) {
     const srcTab = s.activeTab(d.side);
     const destTab = s.activeTab(s.otherSide(d.side));
     const sameDest = dest === destTab.path;
-    // Typing a different path only makes sense toward the other panel's
-    // location; the default is exactly that panel's folder.
-    const destLocation = sameDest ? destTab.location : ({ kind: "local" } as const);
+    // The default is exactly the other panel's folder. A different path
+    // typed while that panel shows a server is a path on that server: it
+    // must not quietly become a local folder of the same name. Anything
+    // else typed (the other panel local, or inside an archive, which
+    // can't be written to) is a local path.
+    const destLocation =
+      sameDest || destTab.location.kind === "sftp"
+        ? destTab.location
+        : ({ kind: "local" } as const);
     // A move within the same folder has nowhere to go: refuse it rather
     // than leave the items behind under new names.
     if (
@@ -417,7 +423,14 @@ function CompressDialog({ d }: { d: Extract<Dialog, { type: "compress" }> }) {
   const [name, setName] = useState(defaultStem);
 
   const go = () => {
-    if (!name.trim()) return;
+    const stem = name.trim();
+    if (!stem) return;
+    // A file name, not a path: "a/b" or "../x" would put the archive
+    // somewhere other than the folder shown.
+    if (stem.includes("/")) {
+      useOps.getState().toast(t("rename.badName"), "warning");
+      return;
+    }
     close();
     void useOps.getState().run(
       t("dialog.compress"),

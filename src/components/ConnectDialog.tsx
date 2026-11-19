@@ -293,8 +293,11 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
       (done) => {
         if (done.name) {
           toast(t("status.mounted", { path: done.name }));
+          // A folder inside the share: with ".." it could name one above
+          // the mount, so such a value is ignored.
           const startIn = smb.start_in.replace(/^\/+/, "");
-          const target = startIn ? joinPath(done.name, startIn) : done.name;
+          const inside = startIn && !startIn.split("/").includes("..");
+          const target = inside ? joinPath(done.name, startIn) : done.name;
           void usePanels.getState().navigate(side, target, { kind: "local" }, null);
         }
       },

@@ -24,7 +24,9 @@ async function ejectVolume(volPath: string, side: Side, currentPath: string) {
   const { toast } = useOps.getState();
   try {
     // Leave the volume first when this panel is inside it.
-    if (currentPath.startsWith(volPath)) {
+    // The volume itself or a path below it: "/Volumes/Data2" is not
+    // inside "/Volumes/Data".
+    if (currentPath === volPath || currentPath.startsWith(volPath.replace(/\/+$/, "") + "/")) {
       const home = useSettings.getState().home ?? "/";
       await usePanels.getState().navigate(side, home, { kind: "local" }, null);
     }

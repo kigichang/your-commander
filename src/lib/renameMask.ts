@@ -90,7 +90,11 @@ export function previewRenames(
 
     let problem: string | null = null;
     if (badRegex) problem = "rename.badRegex";
-    else if (!full || full === "." || full === ".." || full.includes("/")) problem = "rename.badName";
+    // No path pieces, and no control characters (a newline or NUL in a
+    // name typed into a mask is a mistake, never a wish).
+    // eslint-disable-next-line no-control-regex
+    else if (!full || full === "." || full === ".." || /[/\u0000-\u001F\u007F]/.test(full))
+      problem = "rename.badName";
     else if (seen.has(full)) problem = "rename.duplicate";
     else if (full !== entry.name && existingNames.has(full)) problem = "rename.taken";
     seen.set(full, i);
