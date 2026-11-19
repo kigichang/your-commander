@@ -300,10 +300,9 @@ pub struct OfficeTools {
 /// backend's config yet.
 #[tauri::command]
 pub async fn office_tools(soffice_path: String) -> Result<OfficeTools, String> {
-    let custom = soffice_path;
     blocking(move || {
         Ok(OfficeTools {
-            soffice: crate::platform::find_soffice(&custom)
+            soffice: crate::platform::find_soffice(&soffice_path)
                 .map(|p| p.to_string_lossy().into_owned()),
         })
     })

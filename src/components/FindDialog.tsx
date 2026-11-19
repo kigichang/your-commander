@@ -6,14 +6,13 @@ import * as ipc from "../ipc/commands";
 import type { FsEntry } from "../ipc/types";
 import { useScaled } from "../lib/fontScale";
 import { displayName, humanSize } from "../lib/format";
-import { parentPath } from "../lib/path";
+import { displayPath, expandHome, parentPath } from "../lib/path";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
 import { usePanels } from "../store/panels";
 import { useSettings } from "../store/settings";
 import { Overlay } from "./Overlay";
-import { displayPath, expandHome } from "../lib/path";
 
 const DAY = 24 * 60 * 60 * 1000;
 const MODIFIED = [
