@@ -73,15 +73,7 @@ fn smb_url(server: &str, share: &str) -> String {
     format!("smb://{server}/{}", urlencoding::encode(share))
 }
 
-/// Strip the password out of an error before it reaches the UI or a log.
-fn scrub(mut err: String, password: &str) -> String {
-    if !password.is_empty() {
-        err = err
-            .replace(&urlencoding::encode(password).to_string(), "•••")
-            .replace(password, "•••");
-    }
-    err
-}
+use super::super::scrub_password as scrub;
 
 /// Mount an SMB share via `gio mount`, which shares the mount with GNOME
 /// Files. Blocking: run inside an op worker. gio prompts on stdin when the

@@ -89,11 +89,12 @@ pub fn mount(
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        // Never echo the URL (it contains the password); osascript errors don't.
+        // The script holds the URL, password included, and osascript may
+        // quote the script in its error: never pass that on as it is.
         return Err(if err.is_empty() {
             "Could not mount the share".to_string()
         } else {
-            err
+            super::super::scrub_password(err, password)
         });
     }
 
@@ -138,12 +139,7 @@ pub fn list_shares(server: &str, username: &str, password: &str) -> Result<Vec<S
             err = "Could not list shares".to_string();
         }
         // Defense in depth: never echo the password, encoded or not.
-        if !password.is_empty() {
-            err = err
-                .replace(&urlencoding::encode(password).to_string(), "•••")
-                .replace(password, "•••");
-        }
-        return Err(err);
+        return Err(super::super::scrub_password(err, password));
     }
     Ok(parse_view(&String::from_utf8_lossy(&output.stdout)))
 }

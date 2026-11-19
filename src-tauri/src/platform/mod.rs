@@ -103,6 +103,17 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::*;
 
+/// Strip a password, as typed or URL-encoded, out of an external tool's
+/// error text before it reaches the UI or a log.
+pub(crate) fn scrub_password(mut err: String, password: &str) -> String {
+    if !password.is_empty() {
+        err = err
+            .replace(&urlencoding::encode(password).to_string(), "•••")
+            .replace(password, "•••");
+    }
+    err
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
