@@ -108,20 +108,24 @@ pub fn create_dir_inside(root: &Path, dir: &Path) -> Result<PathBuf, String> {
 
 /// Open `path` for reading only if it is a regular file. A plain `open`
 /// of a FIFO blocks until someone writes to it, and a device like
-/// /dev/zero never ends; opening non-blocking and checking the open
-/// descriptor rules both out without a check-then-open race.
+/// /dev/zero never ends. The kind is checked before opening (so a FIFO is
+/// never opened) and again on the open descriptor. Not opened with
+/// O_NONBLOCK instead: that flag is for the open, but stays on the
+/// descriptor, and cloud placeholder files must block while they download.
 pub fn open_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open(path)?;
-    let meta = file.metadata()?;
-    if !meta.is_file() {
-        return Err(std::io::Error::new(
+    let refuse = || {
+        std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             format!("{}: not a regular file", path.display()),
-        ));
+        )
+    };
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(refuse());
+    }
+    let file = std::fs::File::open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(refuse());
     }
     Ok((file, meta))
 }

@@ -167,8 +167,7 @@ fn build_response(request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let Some(path) = TOKENS.lookup(raw.strip_prefix('/').unwrap_or(raw)) else {
         return plain(StatusCode::NOT_FOUND);
     };
-    // Regular files only, checked on the open descriptor: a FIFO would
-    // hold this worker thread forever.
+    // Regular files only: a FIFO would hold this worker thread forever.
     let Ok((mut file, meta)) = crate::ops::safe_path::open_regular(&path) else {
         return plain(StatusCode::NOT_FOUND);
     };

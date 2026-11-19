@@ -62,8 +62,13 @@ pub async fn cloud_download(path: PathBuf) -> Result<(), String> {
     blocking(move || crate::platform::download_cloud_file(&path)).await
 }
 
+/// The most `read_preview` returns whatever the caller asks for: the
+/// frontend's largest request (audio from SFTP or an archive, played from
+/// memory). The bytes are held in memory here and again in the webview.
+const PREVIEW_MAX: u64 = 256 * 1024 * 1024;
+
 /// Raw file bytes for the Quick View pane (PDF.js, images, text). Works for
-/// local and SFTP paths alike; capped at `max_bytes`.
+/// local and SFTP paths alike; capped at `max_bytes`, and at `PREVIEW_MAX`.
 #[tauri::command]
 pub async fn read_preview(
     state: State<'_, AppState>,
@@ -72,6 +77,7 @@ pub async fn read_preview(
     max_bytes: u64,
 ) -> Result<Response, String> {
     let resolved = state.resolve(&location)?;
+    let max_bytes = max_bytes.min(PREVIEW_MAX);
     let bytes = blocking(move || read_bytes(resolved, &path, max_bytes)).await?;
     Ok(Response::new(bytes))
 }
@@ -85,8 +91,11 @@ pub(crate) fn read_bytes(
 ) -> Result<Vec<u8>, String> {
     match resolved {
         Resolved::Local => {
-            let mut file =
-                std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            require_absolute(path)?;
+            // Regular files only: a FIFO would block this thread until
+            // someone wrote to it, and a device never ends.
+            let (mut file, _) = crate::ops::safe_path::open_regular(path)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
             let mut buf = Vec::new();
             file.by_ref()
                 .take(max_bytes)
@@ -174,6 +183,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::canonicalize(dir).unwrap()
+    }
+
+    #[test]
+    fn local_preview_reads_only_regular_files_by_absolute_path() {
+        use crate::state::Resolved;
+        let dir = work("read");
+        std::fs::write(dir.join("a.txt"), b"hello").unwrap();
+        let read = |p: &Path| super::read_bytes(Resolved::Local, p, 3);
+        assert_eq!(read(&dir.join("a.txt")).unwrap(), b"hel");
+        assert!(read(Path::new("a.txt")).is_err());
+        assert!(read(Path::new("/dev/zero")).is_err());
+        let fifo = dir.join("fifo");
+        let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        assert!(read(&fifo).is_err());
     }
 
     #[test]
