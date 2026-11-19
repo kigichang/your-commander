@@ -10,15 +10,11 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use crate::stream_protocol::{mime_for, parse_range};
+use crate::stream_protocol::{mime_for, parse_range, Tokens};
 use crate::commands::blocking;
-
-/// Served files kept registered; older registrations age out so a long
-/// session doesn't accumulate tokens (one preview plays at a time).
-const MAX_TOKENS: usize = 16;
 
 /// The whole request head (request line plus headers) must arrive within
 /// this long and fit in `HEAD_MAX` bytes; a client that dawdles or never
@@ -78,8 +74,7 @@ impl Read for DeadlineReader {
 
 struct MediaServer {
     port: u16,
-    /// token → path, insertion-ordered for pruning.
-    tokens: Mutex<Vec<(String, PathBuf)>>,
+    tokens: Tokens,
 }
 
 static SERVER: OnceLock<Result<MediaServer, String>> = OnceLock::new();
@@ -101,42 +96,21 @@ fn server() -> Result<&'static MediaServer, String> {
                     });
                 }
             });
-            Ok(MediaServer { port, tokens: Mutex::new(Vec::new()) })
+            Ok(MediaServer { port, tokens: Tokens::new() })
         })
         .as_ref()
         .map_err(|e| e.clone())
 }
 
-fn random_token() -> Result<String, String> {
-    let mut bytes = [0u8; 16];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
-        .map_err(|e| e.to_string())?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
-}
-
 /// http://127.0.0.1:<port>/<token> serving `path`, registering it first.
 pub fn url_for(path: &Path) -> Result<String, String> {
     let server = server()?;
-    let mut tokens = server.tokens.lock().unwrap();
-    let token = match tokens.iter().find(|(_, p)| p == path) {
-        Some((t, _)) => t.clone(),
-        None => {
-            let token = random_token()?;
-            tokens.push((token.clone(), path.to_path_buf()));
-            if tokens.len() > MAX_TOKENS {
-                tokens.remove(0);
-            }
-            token
-        }
-    };
+    let token = server.tokens.register(path)?;
     Ok(format!("http://127.0.0.1:{}/{token}", server.port))
 }
 
 fn lookup(token: &str) -> Option<PathBuf> {
-    let server = server().ok()?;
-    let tokens = server.tokens.lock().unwrap();
-    tokens.iter().find(|(t, _)| t == token).map(|(_, p)| p.clone())
+    server().ok()?.tokens.lookup(token)
 }
 
 /// One request per connection (`Connection: close`); GStreamer reconnects

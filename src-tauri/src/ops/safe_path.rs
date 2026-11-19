@@ -109,6 +109,26 @@ pub fn create_dir_inside(root: &Path, dir: &Path) -> Result<PathBuf, String> {
     Ok(canon)
 }
 
+/// Open `path` for reading only if it is a regular file. A plain `open`
+/// of a FIFO blocks until someone writes to it, and a device like
+/// /dev/zero never ends; opening non-blocking and checking the open
+/// descriptor rules both out without a check-then-open race.
+pub fn open_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("{}: not a regular file", path.display()),
+        ));
+    }
+    Ok((file, meta))
+}
+
 /// `File::create` that refuses to write through a symlink at `path`.
 pub fn create_file_nofollow(path: &Path) -> Result<std::fs::File, String> {
     use std::os::unix::fs::OpenOptionsExt;

@@ -110,11 +110,14 @@ pub fn run() {
     let app_state = AppState::default();
     *app_state.config.lock().unwrap() = config::Config::load();
 
-    let app = tauri::Builder::default()
-        .plugin(navigation_guard())
-        .register_asynchronous_uri_scheme_protocol("stream", |_ctx, request, responder| {
+    let builder = tauri::Builder::default().plugin(navigation_guard());
+    // Linux plays media through the localhost media server instead.
+    #[cfg(target_os = "macos")]
+    let builder =
+        builder.register_asynchronous_uri_scheme_protocol("stream", |_ctx, request, responder| {
             stream_protocol::handle(request, responder)
-        })
+        });
+    let app = builder
         .manage(app_state)
         .manage(FnKeysState(fnkeys::FnKeys::open()))
         .setup(|app| {
@@ -229,6 +232,8 @@ pub fn run() {
             commands::preview::video_poster,
             #[cfg(target_os = "linux")]
             media_server::media_url,
+            #[cfg(target_os = "macos")]
+            stream_protocol::stream_url,
             commands::plantuml::render_plantuml,
             commands::sync::sync_compare,
             commands::find::start_find,
@@ -338,8 +343,11 @@ mod tests {
         let linux = media_src(Target::Linux);
         assert!(!mac.iter().any(|s| s.contains("127.0.0.1")), "{mac:?}");
         assert!(mac.contains(&"stream:".to_string()), "{mac:?}");
-        // Linux keeps everything macOS allows and adds the media server.
-        assert!(mac.iter().all(|s| linux.contains(s)), "{linux:?}");
+        // Linux keeps what macOS allows apart from stream:// (not registered
+        // there) and adds the media server.
+        let stream = |s: &String| s.starts_with("stream:") || s.contains("stream.localhost");
+        assert!(!linux.iter().any(stream), "{linux:?}");
+        assert!(mac.iter().filter(|s| !stream(s)).all(|s| linux.contains(s)), "{linux:?}");
         assert!(linux.contains(&"http://127.0.0.1:*".to_string()), "{linux:?}");
     }
 }
