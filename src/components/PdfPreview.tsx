@@ -5,6 +5,9 @@ import { useEffect, useRef, useState } from "react";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
+/** Longest side of the page canvas, in device pixels. */
+const CANVAS_MAX = 8192;
+
 /** Canvas-rendered PDF with ‹ page › navigation (design screen 3d). */
 export function PdfPreview({
   data,
@@ -58,8 +61,12 @@ export function PdfPreview({
         if (gone) return;
         const boxWidth = boxRef.current?.clientWidth ?? 600;
         const base = pdfPage.getViewport({ scale: 1 });
-        const scale = (boxWidth - 8) / base.width;
         const dpr = window.devicePixelRatio || 1;
+        // Fit the width, but never past CANVAS_MAX pixels a side: a page
+        // a point wide and metres tall would ask for a canvas of gigabytes.
+        let scale = base.width > 0 ? (boxWidth - 8) / base.width : 1;
+        const longest = Math.max(base.width, base.height) * scale * dpr;
+        if (longest > CANVAS_MAX) scale *= CANVAS_MAX / longest;
         const viewport = pdfPage.getViewport({ scale });
         canvas.width = Math.floor(viewport.width * dpr);
         canvas.height = Math.floor(viewport.height * dpr);

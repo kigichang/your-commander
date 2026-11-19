@@ -38,7 +38,9 @@ function expand(mask: string, stem: string, ext: string, counter: number, date: 
     const upper = tag.toUpperCase();
     if (upper === "N") return stem;
     if (upper === "E") return ext;
-    if (upper.startsWith("C")) return pad(counter, width ? Number(width) : 1);
+    // The width is typed by hand: "[C:99999999]" must not build a string
+    // that long for every row (padStart throws past the engine's limit).
+    if (upper.startsWith("C")) return pad(counter, width ? Math.min(Number(width), 32) : 1);
     if (upper === "YMD") return `${date.getFullYear()}${pad(date.getMonth() + 1, 2)}${pad(date.getDate(), 2)}`;
     if (upper === "Y") return String(date.getFullYear());
     if (upper === "M") return pad(date.getMonth() + 1, 2);
