@@ -89,7 +89,9 @@ impl Search {
         }
         match &self.conn {
             None => {
-                let Ok(file) = std::fs::File::open(&entry.path) else {
+                // Regular files only: opening a FIFO would block the search
+                // for good, where even Cancel cannot reach it.
+                let Ok((file, _)) = crate::ops::safe_path::open_regular(&entry.path) else {
                     return false;
                 };
                 self.scan_reader(file.take(CONTENT_MAX))

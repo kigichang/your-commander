@@ -41,7 +41,8 @@ fn civil_epoch_ms(y: i64, m: u64, d: u64, h: u64, min: u64, s: u64) -> u64 {
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = (y - era * 400) as u64;
     let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
+    // A day of 0 (a zeroed zip timestamp) counts as the 1st.
+    let doy = (153 * mp + 2) / 5 + d.max(1) - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days = era * 146_097 + doe as i64 - 719_468;
     if days < 0 {
@@ -146,7 +147,7 @@ fn for_each_entry(
                     continue;
                 }
                 let header = entry.header();
-                let modified = header.mtime().ok().map(|s| s * 1000);
+                let modified = header.mtime().ok().map(|s| s.saturating_mul(1000));
                 visit(
                     name.trim_start_matches("./"),
                     header.entry_type().is_dir(),
@@ -546,7 +547,7 @@ pub fn extract_entries(
                         continue;
                     }
                     let out = real_out(&root, &out)?;
-                    let modified = entry.header().mtime().ok().map(|s| s * 1000);
+                    let modified = entry.header().mtime().ok().map(|s| s.saturating_mul(1000));
                     let Some(out) =
                         settle_existing(&mut shared.borrow_mut(), &name, out, modified)?
                     else {

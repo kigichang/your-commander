@@ -68,6 +68,13 @@ impl OpSink for TauriSink {
     fn conflict(&self, src: &Path, dest: &Path) -> ConflictChoice {
         let (tx, rx) = channel();
         *self.control.conflict_tx.lock().unwrap() = Some(tx);
+        // cancel_op sets the flag, then answers a waiting sender. One that
+        // ran just before the sender was in place found none to answer:
+        // without this check the op would sit on a question nobody asked.
+        if self.control.cancel.load(Ordering::Relaxed) {
+            *self.control.conflict_tx.lock().unwrap() = None;
+            return ConflictChoice::CancelOp;
+        }
         let _ = self.channel.send(OpEvent::Conflict {
             src: src.to_string_lossy().to_string(),
             dest: dest.to_string_lossy().to_string(),

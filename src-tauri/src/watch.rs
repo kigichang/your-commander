@@ -24,6 +24,7 @@ pub async fn watch_dir(
     watch_id: u32,
     path: PathBuf,
 ) -> Result<(), String> {
+    crate::commands::require_absolute(&path)?;
     let label = window.label().to_string();
     tauri::async_runtime::spawn_blocking(move || {
         let (tx, rx) = std::sync::mpsc::channel::<()>();
@@ -47,6 +48,19 @@ pub async fn watch_dir(
             .unwrap()
             .insert(watch_key(&label, watch_id), watcher);
         drop(previous);
+        // The window may have closed while the watch was being set up
+        // (slow volume): its close handler has already dropped its
+        // watchers, and this one would stay for the rest of the session.
+        if app.get_webview_window(&label).is_none() {
+            let orphan = app
+                .state::<AppState>()
+                .watchers
+                .lock()
+                .unwrap()
+                .remove(&watch_key(&label, watch_id));
+            drop(orphan);
+            return Ok(());
+        }
 
         std::thread::spawn(move || {
             while rx.recv().is_ok() {
