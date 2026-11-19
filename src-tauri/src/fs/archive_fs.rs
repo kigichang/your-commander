@@ -89,9 +89,11 @@ impl<R: Read> Read for Capped<R> {
     }
 }
 
+type BrowseStream = (Box<dyn Read>, Rc<std::cell::Cell<bool>>);
+
 /// The tar stream of `archive` for browsing, and the flag raised when a
 /// .tar.gz turned out to be past `BROWSE_MAX_GZ_BYTES`.
-fn browse_tar(archive: &Path, kind: Kind) -> std::io::Result<(Box<dyn Read>, Rc<std::cell::Cell<bool>>)> {
+fn browse_tar(archive: &Path, kind: Kind) -> std::io::Result<BrowseStream> {
     let file = std::fs::File::open(archive)?;
     let hit = Rc::new(std::cell::Cell::new(false));
     let reader: Box<dyn Read> = match kind {
