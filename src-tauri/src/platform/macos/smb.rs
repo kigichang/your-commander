@@ -144,6 +144,9 @@ pub fn list_shares(server: &str, username: &str, password: &str) -> Result<Vec<S
     Ok(parse_view(&String::from_utf8_lossy(&output.stdout)))
 }
 
+/// How much terminal output is kept while waiting for the password prompt.
+const PROMPT_TAIL: usize = 4096;
+
 /// Run `cmd` with a new pseudo-terminal as its controlling terminal (and
 /// stdin), answer the first password prompt that appears there, and
 /// collect its piped stdout/stderr. The password never touches argv or
@@ -177,9 +180,16 @@ fn run_with_password_prompt(
     }
     // SAFETY: both fds are fresh from openpty and owned only here.
     let (master, slave) = unsafe { (OwnedFd::from_raw_fd(master_fd), OwnedFd::from_raw_fd(slave_fd)) };
-    // The child must not inherit the master side.
-    // SAFETY: plain fcntl on a valid descriptor.
-    unsafe { libc::fcntl(master_fd, libc::F_SETFD, libc::FD_CLOEXEC) };
+    // The child must not inherit the master side, and no other process
+    // spawned meanwhile may inherit either: a stray copy of the slave
+    // keeps the terminal open, and the reader below would never see it
+    // close. (The child still gets the slave as its stdin: that copy is
+    // made by dup2, which does not carry the flag.)
+    // SAFETY: plain fcntl on valid descriptors.
+    unsafe {
+        libc::fcntl(master_fd, libc::F_SETFD, libc::FD_CLOEXEC);
+        libc::fcntl(slave_fd, libc::F_SETFD, libc::FD_CLOEXEC);
+    }
 
     cmd.stdin(Stdio::from(slave))
         .stdout(Stdio::piped())
@@ -222,10 +232,18 @@ fn run_with_password_prompt(
         match rx.recv_timeout(left.min(std::time::Duration::from_millis(200))) {
             Ok(chunk) => {
                 seen.extend_from_slice(&chunk);
+                // Only the tail can hold the prompt: whatever a tool prints
+                // ahead of it is not kept or searched again and again.
+                if seen.len() > PROMPT_TAIL {
+                    seen.drain(..seen.len() - PROMPT_TAIL);
+                }
                 if String::from_utf8_lossy(&seen).to_lowercase().contains("password") {
-                    writer
-                        .write_all(format!("{password}\n").as_bytes())
-                        .map_err(|e| e.to_string())?;
+                    if let Err(e) = writer.write_all(format!("{password}\n").as_bytes()) {
+                        // Not left running, or behind as a zombie.
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(e.to_string());
+                    }
                     break;
                 }
             }
@@ -290,11 +308,12 @@ pub fn unmount(path: &std::path::Path) -> Result<(), String> {
     if !is_volume_mount(path) {
         return Err(format!("{}: not a mounted volume", path.display()));
     }
-    let output = Command::new("/usr/sbin/diskutil")
-        .arg("unmount")
-        .arg(path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    // A volume whose server stopped answering can take diskutil with it.
+    let output = crate::proc::output_bounded(
+        Command::new("/usr/sbin/diskutil").arg("unmount").arg(path),
+        MOUNT_TIMEOUT,
+        OUTPUT_MAX,
+    )?;
     if output.status.success() {
         Ok(())
     } else {

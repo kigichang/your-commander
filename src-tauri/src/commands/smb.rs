@@ -100,6 +100,7 @@ pub async fn smb_shares(
 
 #[tauri::command]
 pub async fn smb_unmount(path: PathBuf) -> Result<(), String> {
+    super::require_absolute(&path)?;
     blocking(move || smb::unmount(&path)).await
 }
 
