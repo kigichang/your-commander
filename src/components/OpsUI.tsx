@@ -1,3 +1,4 @@
+import { displayName } from "../lib/format";
 import type { LucideIcon } from "lucide-react";
 import { CircleX, Info, Pause, Play, TriangleAlert, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -39,7 +40,7 @@ export function OpsUI() {
           {jobs.map((job) => (
             <div key={job.key} className="op-row">
               <span className="q-label">{job.label}</span>
-              <span className="q-desc">{job.desc}</span>
+              <span className="q-desc">{displayName(job.desc)}</span>
               {job.state === "running" ? (
                 <>
                   <div className="bar">
@@ -51,7 +52,7 @@ export function OpsUI() {
                       ? ` · ${t("queue.left", { eta: formatEta(job.etaSec) })}`
                       : ""}
                   </span>
-                  <span className="detail">{job.detail}</span>
+                  <span className="detail">{displayName(job.detail)}</span>
                   <button
                     className="q-btn"
                     onClick={() => ops().togglePauseJob(job.key)}

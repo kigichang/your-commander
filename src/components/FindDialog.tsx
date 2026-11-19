@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { FsEntry } from "../ipc/types";
 import { useScaled } from "../lib/fontScale";
-import { humanSize } from "../lib/format";
+import { displayName, humanSize } from "../lib/format";
 import { parentPath } from "../lib/path";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
@@ -250,9 +250,9 @@ export function FindDialog({ d }: { d: Extract<Dialog, { type: "find" }> }) {
                   onMouseDown={() => setSelected(item.index)}
                   onDoubleClick={() => goTo(entry)}
                 >
-                  <span className="fname">{entry.name}</span>
+                  <span className="fname">{displayName(entry.name)}</span>
                   <span className="fdir">
-                    {displayPath(parentPath(entry.path) ?? "", home)}
+                    {displayName(displayPath(parentPath(entry.path) ?? "", home))}
                   </span>
                   <span className="fsize">{humanSize(entry.size)}</span>
                 </div>

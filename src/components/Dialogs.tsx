@@ -314,7 +314,7 @@ function RepairVideoDialog({ d }: { d: Extract<Dialog, { type: "repairVideo" }> 
     <Overlay onClose={() => finish("discard")}>
       <h2>{t("quickview.repairTitle")}</h2>
       <div className="body">
-        <p>{t("quickview.repairAsk", { name: baseName(d.original) })}</p>
+        <p>{t("quickview.repairAsk", { name: displayName(baseName(d.original)) })}</p>
       </div>
       <div className="buttons">
         <button className="btn" onClick={() => finish("discard")}>
@@ -474,10 +474,10 @@ function ConflictDialog() {
     <Overlay onClose={() => answer("cancelOp")}>
       <h2>{t("dialog.conflictTitle")}</h2>
       <div className="body">
-        <p>{t("dialog.conflictMsg", { name: baseName(conflict.dest) })}</p>
+        <p>{t("dialog.conflictMsg", { name: displayName(baseName(conflict.dest)) })}</p>
         <div className="list">
-          <div>→ {conflict.src}</div>
-          <div>⇒ {conflict.dest}</div>
+          <div>→ {displayName(conflict.src)}</div>
+          <div>⇒ {displayName(conflict.dest)}</div>
         </div>
       </div>
       <div className="buttons">

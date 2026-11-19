@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import * as ipc from "../ipc/commands";
 import type { SyncActionItem, SyncDirection, SyncRow } from "../ipc/types";
 import { useScaled } from "../lib/fontScale";
-import { formatDate } from "../lib/format";
+import { displayName, formatDate } from "../lib/format";
 import type { Dialog } from "../store/dialogs";
 import { useDialogs } from "../store/dialogs";
 import { useOps } from "../store/ops";
@@ -179,7 +179,7 @@ export function SyncDialog({ d }: { d: Extract<Dialog, { type: "sync" }> }) {
                   style={{ top: item.start, height: rowHeight }}
                 >
                   <span className={clsx("rel", !row.left && "missing")}>
-                    {row.left ? row.rel : "—"}
+                    {row.left ? displayName(row.rel) : "—"}
                   </span>
                   <span className="date">
                     {row.left ? formatDate(row.left.modified) : ""}
@@ -195,7 +195,7 @@ export function SyncDialog({ d }: { d: Extract<Dialog, { type: "sync" }> }) {
                     {row.right ? formatDate(row.right.modified) : ""}
                   </span>
                   <span className={clsx("rel right", !row.right && "missing")}>
-                    {row.right ? row.rel : "—"}
+                    {row.right ? displayName(row.rel) : "—"}
                   </span>
                 </div>
               );
