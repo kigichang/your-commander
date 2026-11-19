@@ -653,17 +653,37 @@ fn extract_tar<R: Read>(reader: R, dest: &Path, detail: &RefCell<String>) -> Res
         // Files, folders and (checked below) symlinks only. A tar can also
         // carry FIFOs and device nodes, which unpack_in would create: a
         // FIFO in the tree blocks whatever reads it next (preview, search,
-        // compress). Hard links are skipped too: they name a file outside
-        // the entry itself. tar's own bookkeeping entries pass through.
+        // compress). These are left out; tar's own bookkeeping entries
+        // pass through.
         let kind = entry.header().entry_type();
         if matches!(
             kind,
-            tar::EntryType::Fifo
-                | tar::EntryType::Char
-                | tar::EntryType::Block
-                | tar::EntryType::Link
+            tar::EntryType::Fifo | tar::EntryType::Char | tar::EntryType::Block
         ) {
             continue;
+        }
+        // A hard link is a second name for a file the archive already
+        // unpacked, named from the archive's root. One whose target is not
+        // a file inside `dest` is an error, never a silent skip: it would
+        // give something outside (or nothing at all) a name in here.
+        // unpack_in checks this as well (tar 0.4.46, covered by a test);
+        // this check does not depend on it.
+        if kind == tar::EntryType::Link {
+            let target = entry
+                .link_name()
+                .map_err(|e| e.to_string())?
+                .unwrap_or_default();
+            let inside = dest
+                .join(&target)
+                .canonicalize()
+                .is_ok_and(|real| real.starts_with(&root));
+            if !inside {
+                return Err(format!(
+                    "{}: hard link to {} does not lead to a file in the destination folder",
+                    detail.borrow(),
+                    target.display()
+                ));
+            }
         }
         // unpack_in refuses paths that escape `dest` and resolves the real
         // parent before writing, but creates symlinks with any target:
@@ -758,40 +778,101 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// One entry of a hand-built tar: a regular file with `data`, or with
+    /// `link` a FIFO / hard link pointing at it.
+    fn tar_entry<W: Write>(
+        tar: &mut tar::Builder<W>,
+        name: &str,
+        kind: tar::EntryType,
+        link: Option<&str>,
+        data: &[u8],
+    ) {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(kind);
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        if let Some(link) = link {
+            header.set_link_name(link).unwrap();
+        }
+        header.set_path(name).unwrap();
+        header.set_cksum();
+        tar.append(&header, data).unwrap();
+    }
+
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        names
+    }
+
     #[test]
     fn tar_special_entries_are_not_created() {
         let dir = tmp("tar_special");
         let archive = dir.join("odd.tar");
         let mut tar = tar::Builder::new(std::fs::File::create(&archive).unwrap());
-        for (name, kind) in [("pipe", tar::EntryType::Fifo), ("hard", tar::EntryType::Link)] {
-            let mut header = tar::Header::new_gnu();
-            header.set_entry_type(kind);
-            header.set_size(0);
-            header.set_mode(0o644);
-            if kind == tar::EntryType::Link {
-                header.set_link_name("/etc/hosts").unwrap();
-            }
-            header.set_path(name).unwrap();
-            header.set_cksum();
-            tar.append(&header, std::io::empty()).unwrap();
-        }
-        let mut header = tar::Header::new_gnu();
-        header.set_size(2);
-        header.set_mode(0o644);
-        header.set_path("ok.txt").unwrap();
-        header.set_cksum();
-        tar.append(&header, &b"ok"[..]).unwrap();
+        tar_entry(&mut tar, "pipe", tar::EntryType::Fifo, None, b"");
+        tar_entry(&mut tar, "ok.txt", tar::EntryType::Regular, None, b"ok");
         tar.into_inner().unwrap();
 
         let dest = dir.join("out");
         std::fs::create_dir(&dest).unwrap();
         extract_op(&mut test_ctx(), vec![archive], dest.clone()).unwrap();
-        let names: Vec<_> = std::fs::read_dir(dest.join("odd"))
-            .unwrap()
-            .flatten()
-            .map(|e| e.file_name().to_string_lossy().to_string())
-            .collect();
-        assert_eq!(names, ["ok.txt"]);
+        assert_eq!(names_in(&dest.join("odd")), ["ok.txt"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A hard link to a file of the same archive is a file like any other:
+    /// leaving it out would report success with files missing.
+    #[test]
+    fn tar_hard_links_inside_the_archive_are_extracted() {
+        let dir = tmp("tar_hardlink");
+        let archive = dir.join("linked.tar");
+        let mut tar = tar::Builder::new(std::fs::File::create(&archive).unwrap());
+        tar_entry(&mut tar, "docs/a.txt", tar::EntryType::Regular, None, b"same bytes");
+        // A hard link names its target from the archive's root.
+        tar_entry(&mut tar, "docs/b.txt", tar::EntryType::Link, Some("docs/a.txt"), b"");
+        tar.into_inner().unwrap();
+
+        let dest = dir.join("out");
+        std::fs::create_dir(&dest).unwrap();
+        extract_op(&mut test_ctx(), vec![archive], dest.clone()).unwrap();
+        let docs = dest.join("linked/docs");
+        assert_eq!(names_in(&docs), ["a.txt", "b.txt"]);
+        assert_eq!(std::fs::read(docs.join("a.txt")).unwrap(), b"same bytes");
+        assert_eq!(std::fs::read(docs.join("b.txt")).unwrap(), b"same bytes");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A hard link to something outside the destination is refused with an
+    /// error, not skipped: nothing outside gets a second name inside.
+    #[test]
+    fn tar_hard_links_leaving_the_destination_are_refused() {
+        let dir = tmp("tar_hardlink_out");
+        let outside = dir.join("outside");
+        std::fs::write(&outside, b"not yours").unwrap();
+        let dest = dir.join("out");
+        std::fs::create_dir(&dest).unwrap();
+        // The archive unpacks to out/<name>/, so "../../outside" is `outside`.
+        for (i, target) in ["/etc/hosts", "../../outside", outside.to_str().unwrap()]
+            .into_iter()
+            .enumerate()
+        {
+            let archive = dir.join(format!("evil{i}.tar"));
+            let mut tar = tar::Builder::new(std::fs::File::create(&archive).unwrap());
+            tar_entry(&mut tar, "grab", tar::EntryType::Link, Some(target), b"");
+            tar.into_inner().unwrap();
+            let result = extract_op(&mut test_ctx(), vec![archive], dest.clone());
+            assert!(result.is_err(), "{target}: extracted without an error");
+            let grab = dest.join(format!("evil{i}/grab"));
+            assert!(grab.symlink_metadata().is_err(), "{target}: link was created");
+        }
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(outside.metadata().unwrap().nlink(), 1, "outside got another name");
+        assert_eq!(names_in(&dir), ["evil0.tar", "evil1.tar", "evil2.tar", "out", "outside"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
