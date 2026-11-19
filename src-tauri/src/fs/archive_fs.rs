@@ -61,6 +61,54 @@ fn zip_epoch_ms(t: zip::DateTime) -> u64 {
     )
 }
 
+/// Most a .tar.gz may decompress to while it is browsed or previewed. A
+/// tar has no index: finding an entry means inflating everything before
+/// it, and gzip turns megabytes into a hundred gigabytes of zeros. Past
+/// this the archive can still be extracted, which shows progress and can
+/// be cancelled.
+const BROWSE_MAX_GZ_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+/// Reads at most `left` bytes, then fails and raises `hit` (the tar
+/// iterators swallow read errors as an early end of the archive).
+struct Capped<R> {
+    inner: R,
+    left: u64,
+    hit: Rc<std::cell::Cell<bool>>,
+}
+
+impl<R: Read> Read for Capped<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.left == 0 {
+            self.hit.set(true);
+            return Err(std::io::Error::other("archive too large to browse"));
+        }
+        let want = buf.len().min(self.left.min(usize::MAX as u64) as usize);
+        let n = self.inner.read(&mut buf[..want])?;
+        self.left -= n as u64;
+        Ok(n)
+    }
+}
+
+/// The tar stream of `archive` for browsing, and the flag raised when a
+/// .tar.gz turned out to be past `BROWSE_MAX_GZ_BYTES`.
+fn browse_tar(archive: &Path, kind: Kind) -> std::io::Result<(Box<dyn Read>, Rc<std::cell::Cell<bool>>)> {
+    let file = std::fs::File::open(archive)?;
+    let hit = Rc::new(std::cell::Cell::new(false));
+    let reader: Box<dyn Read> = match kind {
+        Kind::TarGz => Box::new(Capped {
+            inner: flate2::read::GzDecoder::new(file),
+            left: BROWSE_MAX_GZ_BYTES,
+            hit: hit.clone(),
+        }),
+        _ => Box::new(file),
+    };
+    Ok((reader, hit))
+}
+
+fn too_large(archive: &Path) -> String {
+    format!("{}: too large to browse; extract it instead", archive.display())
+}
+
 /// Visit every entry: `(inner_path, is_dir, size, modified_ms)`. An error
 /// from `visit` ends the scan and is returned.
 fn for_each_entry(
@@ -87,11 +135,7 @@ fn for_each_entry(
             }
         }
         Kind::Tar | Kind::TarGz => {
-            let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
-            let reader: Box<dyn Read> = match kind {
-                Kind::TarGz => Box::new(flate2::read::GzDecoder::new(file)),
-                _ => Box::new(file),
-            };
+            let (reader, hit) = browse_tar(archive, kind).map_err(|e| err(&e))?;
             let mut tar = tar::Archive::new(reader);
             for entry in tar.entries().map_err(|e| err(&e))?.flatten() {
                 let Ok(path) = entry.path() else { continue };
@@ -107,6 +151,9 @@ fn for_each_entry(
                     header.size().unwrap_or(0),
                     modified,
                 )?;
+            }
+            if hit.get() {
+                return Err(too_large(archive));
             }
         }
     }
@@ -266,11 +313,7 @@ pub fn read_entry(archive: &Path, inner: &str, max: u64) -> Result<Vec<u8>, Stri
             Ok(out)
         }
         Kind::Tar | Kind::TarGz => {
-            let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
-            let reader: Box<dyn Read> = match kind {
-                Kind::TarGz => Box::new(flate2::read::GzDecoder::new(file)),
-                _ => Box::new(file),
-            };
+            let (reader, hit) = browse_tar(archive, kind).map_err(|e| err(&e))?;
             let mut tar = tar::Archive::new(reader);
             for entry in tar.entries().map_err(|e| err(&e))?.flatten() {
                 let matches = entry
@@ -285,6 +328,9 @@ pub fn read_entry(archive: &Path, inner: &str, max: u64) -> Result<Vec<u8>, Stri
                         .map_err(|e| err(&e))?;
                     return Ok(out);
                 }
+            }
+            if hit.get() {
+                return Err(too_large(archive));
             }
             Err(format!("{inner}: not found in archive"))
         }
@@ -408,7 +454,7 @@ pub fn extract_entries(
                 }
                 let Ok(name) = entry.name() else { continue };
                 if out_path(name.trim_matches('/')).is_some() {
-                    total += entry.size();
+                    total = total.saturating_add(entry.size());
                 }
             }
             ctx.total_bytes = total;

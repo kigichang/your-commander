@@ -21,6 +21,13 @@ use tauri::ipc::Response;
 
 /// Biggest workbook read into memory for the grid.
 const SHEET_FILE_MAX: u64 = 30 * 1024 * 1024;
+/// Most a zipped workbook (xlsx, xlsb, ods) may unpack to. calamine reads
+/// whole parts into memory (the shared strings, an .ods content.xml), and
+/// 30 MiB of zip can hold gigabytes of them.
+const SHEET_UNPACKED_MAX: u64 = 512 * 1024 * 1024;
+/// Sheets read per workbook, and characters shown per cell.
+const SHEETS_MAX: usize = 100;
+const CELL_CHARS_MAX: usize = 4096;
 /// Rows and columns sent per sheet; the rest is summarized as a count.
 const SHEET_ROWS_MAX: usize = 2000;
 const SHEET_COLS_MAX: usize = 100;
@@ -72,7 +79,12 @@ pub struct Workbook {
 fn cell_text(cell: &Data) -> String {
     match cell {
         Data::Empty => String::new(),
-        Data::String(s) | Data::DateTimeIso(s) | Data::DurationIso(s) => s.clone(),
+        Data::String(s) | Data::DateTimeIso(s) | Data::DurationIso(s) => {
+            match s.char_indices().nth(CELL_CHARS_MAX) {
+                Some((end, _)) => format!("{}…", &s[..end]),
+                None => s.clone(),
+            }
+        }
         Data::Int(i) => i.to_string(),
         Data::Float(f) => float_text(*f),
         Data::Bool(b) => if *b { "TRUE" } else { "FALSE" }.to_string(),
@@ -229,11 +241,21 @@ fn read_workbook(bytes: Vec<u8>) -> Result<Workbook, String> {
     if bytes.starts_with(&OLE2_MAGIC) {
         return Err("Legacy .xls workbooks need LibreOffice".to_string());
     }
+    // What the zip says it unpacks to, checked before calamine unpacks it.
+    if let Ok(zip) = zip::ZipArchive::new(std::io::Cursor::new(&bytes)) {
+        let unpacked = (0..zip.len())
+            .filter_map(|i| zip.by_index_data(i).ok().map(|e| e.size()))
+            .fold(0u64, u64::saturating_add);
+        if unpacked > SHEET_UNPACKED_MAX {
+            return Err("Workbook too large to preview".to_string());
+        }
+    }
     let mut book = calamine::open_workbook_auto_from_rs(std::io::Cursor::new(bytes))
         .map_err(|e| format!("Not a readable spreadsheet: {e}"))?;
     let names = book.sheet_names().to_owned();
     let sheets = names
         .into_iter()
+        .take(SHEETS_MAX)
         .map(|name| match read_sheet(&mut book, name.clone()) {
             Ok(sheet) => sheet,
             Err(error) => Sheet {

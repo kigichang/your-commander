@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 const CHUNK: usize = 1024 * 1024;
+/// Longest symlink target read out of an archive (PATH_MAX on Linux).
+const LINK_TARGET_MAX: u64 = 4096;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ArchiveFormat {
@@ -383,9 +385,10 @@ fn extract_zip(
     let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     // Progress inside this archive counts uncompressed bytes written.
-    let total: u64 = (0..zip.len())
+    // The sizes are the archive's own claims: add them without overflow.
+    let total = (0..zip.len())
         .filter_map(|i| zip.by_index_data(i).ok().map(|e| e.size()))
-        .sum();
+        .fold(0u64, u64::saturating_add);
     let mut read = 0u64;
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     // Directories are created and files written only where the real
@@ -417,10 +420,17 @@ fn extract_zip(
             // The entry's data is the link target, verbatim. A target that
             // leaves `dest` is refused so later entries cannot write
             // through it.
+            // No real target is longer than a path can be; an entry that
+            // claims to be a link can still deflate to gigabytes.
             let mut target = String::new();
             entry
+                .by_ref()
+                .take(LINK_TARGET_MAX + 1)
                 .read_to_string(&mut target)
                 .map_err(|e| e.to_string())?;
+            if target.len() as u64 > LINK_TARGET_MAX {
+                return Err(format!("{shown}: symlink target too long"));
+            }
             let _ = std::fs::remove_file(&out);
             symlink_inside(&root, &out, &target)?;
             continue;
@@ -512,12 +522,12 @@ fn extract_7z(
     len: u64,
 ) -> Result<(), String> {
     // Progress inside this archive counts uncompressed bytes written.
-    let total: u64 = sevenz_rust2::Archive::open(archive)
+    let total = sevenz_rust2::Archive::open(archive)
         .map_err(|e| e.to_string())?
         .files
         .iter()
         .map(|f| f.size)
-        .sum();
+        .fold(0u64, u64::saturating_add);
     let mut read = 0u64;
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     let root = dest.canonicalize().map_err(|e| e.to_string())?;

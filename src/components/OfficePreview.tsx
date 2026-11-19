@@ -8,6 +8,29 @@ import type { Sheet, Workbook } from "../ipc/types";
 import { useScaled } from "../lib/fontScale";
 import { HtmlPreview } from "./HtmlPreview";
 
+/** Most an Office file (a zip) may unpack to before it is rendered: the
+ *  parts are inflated into memory, and a small zip can hold gigabytes. */
+const UNPACKED_MAX = 300 * 1024 * 1024;
+
+/** What the zip says an entry unpacks to. JSZip keeps this from the
+ *  central directory but has no public accessor for it. */
+function unpackedSize(file: JSZip.JSZipObject): number {
+  const size = (file as unknown as { _data?: { uncompressedSize?: number } })._data
+    ?.uncompressedSize;
+  return typeof size === "number" ? size : 0;
+}
+
+/** Opens the zip, refusing one that claims to unpack past the limit. */
+async function loadZip(data: ArrayBuffer): Promise<JSZip> {
+  const zip = await JSZip.loadAsync(data);
+  let total = 0;
+  zip.forEach((_, file) => {
+    total += unpackedSize(file);
+  });
+  if (total > UNPACKED_MAX) throw new Error("file too large to preview");
+  return zip;
+}
+
 /* ── Word ──────────────────────────────────────────────────────────── */
 
 /** Page look inside the sandboxed frame: grey desk, white sheets. */
@@ -44,18 +67,23 @@ export function DocxPreview({ data }: { data: ArrayBuffer }) {
     setError(null);
     const body = document.createElement("div");
     const style = document.createElement("div");
-    renderAsync(data.slice(0), body, style, {
-      className: "docx",
-      inWrapper: true,
-      breakPages: true,
-      ignoreLastRenderedPageBreak: true,
-      useBase64URL: true,
-      experimental: false,
-      renderChanges: false,
-      renderComments: false,
-      // altChunks are embedded HTML/RTF parts; nothing to gain from them.
-      renderAltChunks: false,
-    }).then(
+    // The size check first: docx-preview unpacks every part it renders.
+    loadZip(data)
+      .then(() =>
+        renderAsync(data.slice(0), body, style, {
+          className: "docx",
+          inWrapper: true,
+          breakPages: true,
+          ignoreLastRenderedPageBreak: true,
+          useBase64URL: true,
+          experimental: false,
+          renderChanges: false,
+          renderComments: false,
+          // altChunks are embedded HTML/RTF parts; nothing to gain from them.
+          renderAltChunks: false,
+        }),
+      )
+      .then(
       () => {
         if (gone) return;
         const page = body.querySelector<HTMLElement>("section.docx");
@@ -164,7 +192,7 @@ async function readRels(zip: JSZip, part: string): Promise<Map<string, string>> 
 /** Text and pictures of each slide, in presentation order. Layout and
  *  master content (logos, footers) is left out; so is anything remote. */
 async function readDeck(data: ArrayBuffer): Promise<Slide[]> {
-  const zip = await JSZip.loadAsync(data);
+  const zip = await loadZip(data);
   const presPart = "ppt/presentation.xml";
   const pres = await readXml(zip, presPart);
   if (!pres) throw new Error("not a PowerPoint presentation");
@@ -212,6 +240,9 @@ async function readDeck(data: ArrayBuffer): Promise<Slide[]> {
       const mime = IMAGE_MIME[target.split(".").pop()?.toLowerCase() ?? ""];
       const file = zip.file(target);
       if (!mime || !file) continue;
+      // Checked before inflating: a picture past the budget is never
+      // unpacked at all.
+      if (unpackedSize(file) > budget) break;
       const b64 = await file.async("base64");
       budget -= b64.length;
       if (budget < 0) break;
