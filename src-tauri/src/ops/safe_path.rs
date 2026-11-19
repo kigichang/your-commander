@@ -130,6 +130,17 @@ pub fn open_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Met
     Ok((file, meta))
 }
 
+/// Create a file that must not exist yet: fails if anything, a dangling
+/// symlink included, already has the name. For a destination checked to
+/// be free, so nothing that appears in between is truncated or followed.
+pub fn create_new_file(path: &Path) -> Result<std::fs::File, String> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
 /// `File::create` that refuses to write through a symlink at `path`.
 pub fn create_file_nofollow(path: &Path) -> Result<std::fs::File, String> {
     use std::os::unix::fs::OpenOptionsExt;

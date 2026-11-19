@@ -1,5 +1,7 @@
 use super::queue::{cancelled_err, keep_both_path, OpCtx};
-use super::safe_path::{create_dir_inside, create_file_nofollow, link_inside, symlink_inside};
+use super::safe_path::{
+    create_dir_inside, create_file_nofollow, create_new_file, link_inside, symlink_inside,
+};
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -107,15 +109,32 @@ pub fn compress_op(
     if dest.exists() || dest.is_symlink() {
         return Err(format!("\"{}\" already exists", dest.to_string_lossy()));
     }
+    if format == ArchiveFormat::Gz && (sources.len() != 1 || sources[0].is_dir()) {
+        return Err(".gz can only compress a single file".to_string());
+    }
+    // Created here, exclusively: whatever takes the name after the check
+    // above fails the open instead of being truncated, and from here on
+    // the file is ours to remove if the archive cannot be finished.
+    let file = create_new_file(&dest)?;
 
     if format == ArchiveFormat::Gz {
-        if sources.len() != 1 || sources[0].is_dir() {
-            return Err(".gz can only compress a single file".to_string());
+        let result = gz_file(ctx, &sources[0], file);
+        if result.is_err() {
+            let _ = std::fs::remove_file(&dest);
         }
-        return gz_file(ctx, &sources[0], &dest);
+        result?;
+        return Ok(dest
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string());
     }
 
-    let tree = collect_tree(&sources)?;
+    let tree = collect_tree(&sources);
+    if tree.is_err() {
+        let _ = std::fs::remove_file(&dest);
+    }
+    let tree = tree?;
     ctx.total_bytes = tree
         .iter()
         .filter(|(_, _, is_dir)| !is_dir)
@@ -125,15 +144,15 @@ pub fn compress_op(
         .sum();
 
     let result = match format {
-        ArchiveFormat::Zip => write_zip(ctx, &tree, &dest),
-        ArchiveFormat::Tar => {
-            let file = create_file_nofollow(&dest)?;
-            write_tar(ctx, &tree, file)
-        }
+        ArchiveFormat::Zip => write_zip(ctx, &tree, file),
+        ArchiveFormat::Tar => write_tar(ctx, &tree, file).map(drop),
         ArchiveFormat::TarGz => {
-            let file = create_file_nofollow(&dest)?;
             let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            // finish() writes the gzip trailer. Dropping the encoder would
+            // try the same and throw the error away: a full disk would
+            // leave a cut-off archive reported as done.
             write_tar(ctx, &tree, enc)
+                .and_then(|enc| enc.finish().map(drop).map_err(|e| e.to_string()))
         }
         ArchiveFormat::Gz => unreachable!(),
     };
@@ -151,9 +170,8 @@ pub fn compress_op(
 fn write_zip(
     ctx: &mut OpCtx,
     tree: &[(String, PathBuf, bool)],
-    dest: &Path,
+    file: std::fs::File,
 ) -> Result<(), String> {
-    let file = create_file_nofollow(dest)?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
@@ -198,11 +216,13 @@ fn write_zip(
     Ok(())
 }
 
+/// Returns the writer once the tar's end has been written to it, for a
+/// compressing writer to be finished by the caller.
 fn write_tar<W: Write>(
     ctx: &mut OpCtx,
     tree: &[(String, PathBuf, bool)],
     writer: W,
-) -> Result<(), String> {
+) -> Result<W, String> {
     let mut tar = tar::Builder::new(writer);
     tar.follow_symlinks(false);
     for (rel, path, is_dir) in tree {
@@ -220,21 +240,17 @@ fn write_tar<W: Write>(
             }
         }
     }
-    let inner = tar.into_inner().map_err(|e| e.to_string())?;
-    drop(inner);
-    Ok(())
+    tar.into_inner().map_err(|e| e.to_string())
 }
 
-fn gz_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<String, String> {
+/// Gzip `src` into `file`. The caller removes the file on any error.
+fn gz_file(ctx: &mut OpCtx, src: &Path, file: std::fs::File) -> Result<(), String> {
     ctx.total_bytes = src.metadata().map(|m| m.len()).unwrap_or(0);
     let mut reader = std::fs::File::open(src).map_err(|e| e.to_string())?;
-    let file = create_file_nofollow(dest)?;
     let mut enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
     let mut buf = vec![0u8; CHUNK];
     loop {
         if ctx.cancelled() {
-            drop(enc);
-            let _ = std::fs::remove_file(dest);
             return Err(cancelled_err());
         }
         let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
@@ -246,11 +262,7 @@ fn gz_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<String, String> {
         ctx.report(&src.to_string_lossy());
     }
     enc.finish().map_err(|e| e.to_string())?;
-    Ok(dest
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string())
+    Ok(())
 }
 
 /// Progress for reading one archive, fed from inside the decoder: bytes
@@ -626,10 +638,25 @@ fn extract_tar<R: Read>(reader: R, dest: &Path, detail: &RefCell<String>) -> Res
         if let Ok(path) = entry.path() {
             *detail.borrow_mut() = path.to_string_lossy().to_string();
         }
+        // Files, folders and (checked below) symlinks only. A tar can also
+        // carry FIFOs and device nodes, which unpack_in would create: a
+        // FIFO in the tree blocks whatever reads it next (preview, search,
+        // compress). Hard links are skipped too: they name a file outside
+        // the entry itself. tar's own bookkeeping entries pass through.
+        let kind = entry.header().entry_type();
+        if matches!(
+            kind,
+            tar::EntryType::Fifo
+                | tar::EntryType::Char
+                | tar::EntryType::Block
+                | tar::EntryType::Link
+        ) {
+            continue;
+        }
         // unpack_in refuses paths that escape `dest` and resolves the real
         // parent before writing, but creates symlinks with any target:
         // refuse those that point outside `dest`.
-        if entry.header().entry_type().is_symlink() {
+        if kind.is_symlink() {
             let link = entry.path().map_err(|e| e.to_string())?;
             let link = dest.join(link);
             let target = entry
@@ -716,6 +743,59 @@ mod tests {
         assert!(beside.is_empty(), "{beside:?}");
         assert!(dest.join("archive/a.txt").is_file());
         assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 3);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn tar_special_entries_are_not_created() {
+        let dir = tmp("tar_special");
+        let archive = dir.join("odd.tar");
+        let mut tar = tar::Builder::new(std::fs::File::create(&archive).unwrap());
+        for (name, kind) in [("pipe", tar::EntryType::Fifo), ("hard", tar::EntryType::Link)] {
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(kind);
+            header.set_size(0);
+            header.set_mode(0o644);
+            if kind == tar::EntryType::Link {
+                header.set_link_name("/etc/hosts").unwrap();
+            }
+            header.set_path(name).unwrap();
+            header.set_cksum();
+            tar.append(&header, std::io::empty()).unwrap();
+        }
+        let mut header = tar::Header::new_gnu();
+        header.set_size(2);
+        header.set_mode(0o644);
+        header.set_path("ok.txt").unwrap();
+        header.set_cksum();
+        tar.append(&header, &b"ok"[..]).unwrap();
+        tar.into_inner().unwrap();
+
+        let dest = dir.join("out");
+        std::fs::create_dir(&dest).unwrap();
+        extract_op(&mut test_ctx(), vec![archive], dest.clone()).unwrap();
+        let names: Vec<_> = std::fs::read_dir(dest.join("odd"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, ["ok.txt"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn compress_never_replaces_or_removes_what_holds_the_name() {
+        let dir = tmp("compress_excl");
+        std::fs::write(dir.join("a.txt"), "a").unwrap();
+        let victim = dir.join("victim");
+        let dest = dir.join("out.zip");
+        std::os::unix::fs::symlink(&victim, &dest).unwrap();
+        for format in [ArchiveFormat::Zip, ArchiveFormat::TarGz, ArchiveFormat::Gz] {
+            let err = compress_op(&mut test_ctx(), vec![dir.join("a.txt")], dest.clone(), format);
+            assert!(err.is_err());
+            assert!(dest.is_symlink(), "the link is still there");
+            assert!(!victim.exists(), "nothing was written through it");
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
