@@ -479,15 +479,35 @@ impl Quarantine {
         Self(xattr::get(archive, Self::ATTR).ok().flatten())
     }
 
+    /// Flag one file or folder. The system refuses an attribute on what
+    /// the owner cannot write, and an archive chooses its entries' modes:
+    /// a read-only app or script would otherwise come out unflagged. Such
+    /// an entry is made writable for the moment it takes.
     fn mark(&self, path: &Path) {
-        if let Some(value) = &self.0 {
+        use std::os::unix::fs::PermissionsExt;
+        let Some(value) = &self.0 else { return };
+        if xattr::set(path, Self::ATTR, value).is_ok() {
+            return;
+        }
+        let Ok(meta) = path.symlink_metadata() else {
+            return;
+        };
+        if meta.is_symlink() {
+            return;
+        }
+        let mode = meta.permissions().mode();
+        let writable = std::fs::Permissions::from_mode(mode | 0o200);
+        if std::fs::set_permissions(path, writable).is_ok() {
             let _ = xattr::set(path, Self::ATTR, value);
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
         }
     }
 
     /// Flag `path` and everything under it. Links are left alone: setting
-    /// the attribute would follow them.
+    /// the attribute would follow them. A folder the owner cannot list or
+    /// enter is opened up while its contents are flagged, then put back.
     pub fn mark_tree(&self, path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
         let Ok(meta) = path.symlink_metadata() else {
             return;
         };
@@ -496,8 +516,19 @@ impl Quarantine {
         }
         self.mark(path);
         if meta.is_dir() {
+            let mode = meta.permissions().mode();
+            let closed = mode & 0o700 != 0o700;
+            if closed {
+                let _ = std::fs::set_permissions(
+                    path,
+                    std::fs::Permissions::from_mode(mode | 0o700),
+                );
+            }
             for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
                 self.mark_tree(&entry.path());
+            }
+            if closed {
+                let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
             }
         }
     }
@@ -622,6 +653,33 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// A read-only entry, or one inside a folder the owner cannot open,
+    /// still gets the archive's quarantine flag, and keeps its mode.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn quarantine_reaches_read_only_entries() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tmp("quarantine_ro");
+        let closed = dir.join("closed");
+        std::fs::create_dir(&closed).unwrap();
+        let file = closed.join("run.sh");
+        std::fs::write(&file, "#!/bin/sh\n").unwrap();
+        let set = |p: &Path, m| std::fs::set_permissions(p, std::fs::Permissions::from_mode(m));
+        set(&file, 0o555).unwrap();
+        set(&closed, 0o111).unwrap();
+
+        let flag = b"0081;00000000;Safari;".to_vec();
+        Quarantine(Some(flag.clone())).mark_tree(&dir);
+
+        let mode = |p: &Path| p.metadata().unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&closed), 0o111);
+        set(&closed, 0o755).unwrap();
+        assert_eq!(mode(&file), 0o555);
+        assert_eq!(xattr::get(&file, Quarantine::ATTR).unwrap(), Some(flag.clone()));
+        assert_eq!(xattr::get(&closed, Quarantine::ATTR).unwrap(), Some(flag));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

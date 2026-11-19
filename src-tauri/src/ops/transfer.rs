@@ -241,15 +241,17 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<bool
         ctx.done_bytes += n as u64;
         ctx.report(&src.to_string_lossy());
     }
-    // Preserve permissions, mtime, and xattrs (Finder tags) when asked.
+    // Preserve permissions, mtime, and xattrs (Finder tags, the quarantine
+    // flag) when asked. Attributes go first: once the copy has a read-only
+    // source's permissions, the system refuses to set them.
     if ctx.options.keep_meta {
+        copy_xattrs(src, &dest);
         if let Ok(meta) = src.metadata() {
             let _ = std::fs::set_permissions(&dest, meta.permissions());
             if let Ok(mtime) = meta.modified() {
                 let _ = writer.set_modified(mtime);
             }
         }
-        copy_xattrs(src, &dest);
     }
     drop(writer);
     if ctx.options.verify {
