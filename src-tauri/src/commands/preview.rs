@@ -151,8 +151,10 @@ fn asset_dir(dir: &Path) -> Result<PathBuf, String> {
 /// `asset_dir` with the home folder given. A grant is recursive, so some
 /// folders are refused outright: the root and top-level folders (/Users,
 /// /Volumes: every account or every mounted disk), and the home folder or
-/// anything above it (~/.ssh, ~/Library and the rest would come along). A
-/// page there renders without its neighbouring files.
+/// anything above it (~/.ssh, ~/Library and the rest would come along),
+/// and inside the home folder its hidden top-level folders and ~/Library
+/// themselves (keys, credentials, app data, keychains). A page there
+/// renders without its neighbouring files.
 fn asset_dir_with_home(dir: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
     require_absolute(dir)?;
     let real = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -164,6 +166,16 @@ fn asset_dir_with_home(dir: &Path, home: Option<&Path>) -> Result<PathBuf, Strin
         return refuse();
     }
     if home.is_some_and(|h| h.starts_with(&real)) {
+        return refuse();
+    }
+    let private = home
+        .and_then(|h| real.strip_prefix(h).ok())
+        .and_then(|rel| rel.components().next())
+        .is_some_and(|first| {
+            let name = first.as_os_str().to_string_lossy();
+            name.starts_with('.') || name == "Library"
+        });
+    if private {
         return refuse();
     }
     Ok(real)
@@ -198,6 +210,19 @@ mod tests {
         let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
         assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
         assert!(read(&fifo).is_err());
+    }
+
+    #[test]
+    fn asset_dir_refuses_private_folders_of_the_home() {
+        let home = work("home");
+        for dir in [".ssh", ".config/app", "Library/Keychains", "Documents/site"] {
+            std::fs::create_dir_all(home.join(dir)).unwrap();
+        }
+        let allowed = |dir: &str| asset_dir_with_home(&home.join(dir), Some(&home)).is_ok();
+        assert!(!allowed(".ssh"));
+        assert!(!allowed(".config/app"));
+        assert!(!allowed("Library/Keychains"));
+        assert!(allowed("Documents/site"));
     }
 
     #[test]
