@@ -45,7 +45,11 @@ fn collect_local(base: &Path, rel: &str, out: &mut BTreeMap<String, SideInfo>) -
         }
         if kind.is_dir() {
             collect_local(base, &child_rel, out)?;
-        } else if let Ok(meta) = entry.metadata() {
+        } else if kind.is_file()
+            && let Ok(meta) = entry.metadata()
+        {
+            // Regular files only. A FIFO, socket or device has no content
+            // to compare, and opening a FIFO would block for good.
             out.insert(
                 child_rel,
                 SideInfo {
@@ -304,6 +308,27 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// Pipes, sockets and devices are no rows: comparing by content would
+    /// open them, and a FIFO's open never returns.
+    #[test]
+    fn compare_leaves_special_files_out() {
+        let left = tmp("fifo_l");
+        let right = tmp("fifo_r");
+        for side in [&left, &right] {
+            std::fs::create_dir(side.join("sub")).unwrap();
+            std::fs::write(side.join("sub/a.txt"), b"same").unwrap();
+            crate::ops::safe_path::mkfifo(&side.join("pipe"));
+            crate::ops::safe_path::mkfifo(&side.join("sub/pipe"));
+        }
+        let rows = compare(None, &left, None, &right, true).unwrap();
+        let rels: Vec<&str> = rows.iter().map(|r| r.rel.as_str()).collect();
+        assert_eq!(rels, ["sub/a.txt"]);
+        assert!(rows[0].equal);
+        for d in [&left, &right] {
+            let _ = std::fs::remove_dir_all(d);
+        }
     }
 
     #[test]

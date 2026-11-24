@@ -67,9 +67,11 @@ fn collect_tree(sources: &[PathBuf]) -> Result<Vec<(String, PathBuf, bool)>, Str
         out: &mut Vec<(String, PathBuf, bool)>,
         rel: &str,
         path: &Path,
+        top: bool,
     ) -> Result<(), String> {
         // lstat: a link to a folder is stored as a link, not walked.
-        if path.symlink_metadata().is_ok_and(|m| m.is_dir()) {
+        let kind = path.symlink_metadata().map(|m| m.file_type());
+        if kind.as_ref().is_ok_and(|k| k.is_dir()) {
             out.push((rel.to_string(), path.to_path_buf(), true));
             let entries =
                 std::fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -78,7 +80,14 @@ fn collect_tree(sources: &[PathBuf]) -> Result<Vec<(String, PathBuf, bool)>, Str
                 if excluded(&name) {
                     continue;
                 }
-                walk(out, &format!("{rel}/{name}"), &entry.path())?;
+                walk(out, &format!("{rel}/{name}"), &entry.path(), false)?;
+            }
+        } else if kind.is_ok_and(|k| !k.is_file() && !k.is_symlink()) {
+            // A FIFO, socket or device: reading a FIFO would block for
+            // good. Inside a folder it is left out, as extraction leaves
+            // such entries out; picked by itself it is an error.
+            if top {
+                return Err(format!("{}: not a regular file", path.display()));
             }
         } else {
             out.push((rel.to_string(), path.to_path_buf(), false));
@@ -92,7 +101,7 @@ fn collect_tree(sources: &[PathBuf]) -> Result<Vec<(String, PathBuf, bool)>, Str
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .ok_or_else(|| format!("bad path: {}", src.display()))?;
-        walk(&mut out, &name, src)?;
+        walk(&mut out, &name, src, true)?;
     }
     Ok(out)
 }
@@ -202,8 +211,8 @@ fn write_zip(
         }
         zip.start_file(rel.clone(), options)
             .map_err(|e| e.to_string())?;
-        let mut reader =
-            std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let (mut reader, _) = super::safe_path::open_regular(path)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         loop {
             if ctx.cancelled() {
                 return Err(cancelled_err());
@@ -251,7 +260,9 @@ fn write_tar<W: Write>(
 /// Gzip `src` into `file`. The caller removes the file on any error.
 fn gz_file(ctx: &mut OpCtx, src: &Path, file: std::fs::File) -> Result<(), String> {
     ctx.total_bytes = src.metadata().map(|m| m.len()).unwrap_or(0);
-    let mut reader = std::fs::File::open(src).map_err(|e| e.to_string())?;
+    // A regular file only: opening a FIFO would block for good.
+    let (mut reader, _) =
+        super::safe_path::open_regular(src).map_err(|e| format!("{}: {e}", src.display()))?;
     let mut enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
     let mut buf = vec![0u8; CHUNK];
     loop {
@@ -332,6 +343,10 @@ pub fn extract_op(
         let Some((kind, stem)) = classify(&name) else {
             return Err(format!("Unknown archive format: {name}"));
         };
+        // Every reader below opens the archive by its path, and a FIFO
+        // named like an archive would block that open for good.
+        super::safe_path::open_regular(archive)
+            .map_err(|e| format!("{}: {e}", archive.display()))?;
         // An archive named just ".zip", "..zip" or "...zip" leaves no
         // usable folder name ("", "." and ".." all name the destination or
         // its parent, not something in it).
@@ -722,6 +737,57 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// Nothing writes to these pipes: a plain open would never return.
+    #[test]
+    fn fifos_are_left_out_of_archives_and_refused_as_archives() {
+        use crate::ops::safe_path::mkfifo;
+        let dir = tmp("fifo");
+        let proj = dir.join("proj");
+        std::fs::create_dir(&proj).unwrap();
+        std::fs::write(proj.join("a.txt"), b"hello").unwrap();
+        mkfifo(&proj.join("pipe"));
+        mkfifo(&dir.join("alone"));
+
+        // Inside a folder: left out, the rest is archived.
+        for (name, format) in [
+            ("p.zip", ArchiveFormat::Zip),
+            ("p.tar", ArchiveFormat::Tar),
+            ("p.tar.gz", ArchiveFormat::TarGz),
+        ] {
+            let dest = dir.join(name);
+            compress_op(&mut test_ctx(), vec![proj.clone()], dest.clone(), format).unwrap();
+            let names: Vec<String> = crate::fs::archive_fs::list(&dest, "proj")
+                .unwrap()
+                .into_iter()
+                .map(|e| e.name)
+                .collect();
+            assert_eq!(names, ["a.txt"], "{name}");
+        }
+        // Picked by itself: an error, and no archive left behind.
+        for (name, format) in [
+            ("f.zip", ArchiveFormat::Zip),
+            ("f.tar", ArchiveFormat::Tar),
+            ("f.gz", ArchiveFormat::Gz),
+        ] {
+            let dest = dir.join(name);
+            let err = compress_op(&mut test_ctx(), vec![dir.join("alone")], dest.clone(), format)
+                .unwrap_err();
+            assert!(err.contains("not a regular file"), "{name}: {err}");
+            assert!(!dest.exists(), "{name}");
+        }
+        // A pipe named like an archive is not opened for extraction.
+        let out = dir.join("out");
+        std::fs::create_dir(&out).unwrap();
+        for name in ["x.zip", "x.7z", "x.tar", "x.tgz", "x.gz"] {
+            let fifo = dir.join(name);
+            mkfifo(&fifo);
+            let err = extract_op(&mut test_ctx(), vec![fifo], out.clone()).unwrap_err();
+            assert!(err.contains("not a regular file"), "{name}: {err}");
+        }
+        assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A read-only entry, or one inside a folder the owner cannot open,

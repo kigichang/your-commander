@@ -233,8 +233,10 @@ pub(crate) fn copy_file(ctx: &mut OpCtx, src: &Path, dest: &Path) -> Result<bool
         return Ok(true);
     }
 
-    let mut reader =
-        std::fs::File::open(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    // A regular file only: opening a FIFO would block for good, out of
+    // reach of the cancel polled in the loop below.
+    let (mut reader, _) =
+        super::safe_path::open_regular(src).map_err(|e| format!("{}: {e}", src.display()))?;
     // Creating the destination truncates it: were it the source itself
     // (reached by another path), the file would be emptied before a byte
     // of it was read.
@@ -309,8 +311,13 @@ pub(crate) fn same_contents(
     b: &Path,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<bool, String> {
-    let mut fa = std::fs::File::open(a).map_err(|e| format!("{}: {e}", a.display()))?;
-    let mut fb = std::fs::File::open(b).map_err(|e| format!("{}: {e}", b.display()))?;
+    let open = |p: &Path| {
+        super::safe_path::open_regular(p)
+            .map(|(file, _)| file)
+            .map_err(|e| format!("{}: {e}", p.display()))
+    };
+    let mut fa = open(a)?;
+    let mut fb = open(b)?;
     let mut ba = vec![0u8; CHUNK];
     let mut bb = vec![0u8; CHUNK];
     loop {
@@ -484,6 +491,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// Nothing writes to the pipe: a plain open of it would never return.
+    #[test]
+    fn copying_a_fifo_is_an_error_not_a_hang() {
+        let src_root = tmp("fifo_src");
+        let dest_root = tmp("fifo_dest");
+        let dir = src_root.join("proj");
+        std::fs::create_dir(&dir).unwrap();
+        let fifo = dir.join("pipe");
+        crate::ops::safe_path::mkfifo(&fifo);
+
+        let never = || false;
+        std::fs::write(src_root.join("file"), b"x").unwrap();
+        assert!(same_contents(&fifo, &src_root.join("file"), &never).is_err());
+        assert!(same_contents(&src_root.join("file"), &fifo, &never).is_err());
+
+        // Alone, inside a folder, and through a link with links followed.
+        let err = copy_op(&mut test_ctx(), vec![fifo.clone()], dest_root.clone(), false)
+            .unwrap_err();
+        assert!(err.contains("not a regular file"), "{err}");
+        let err = copy_op(&mut test_ctx(), vec![dir.clone()], dest_root.clone(), false)
+            .unwrap_err();
+        assert!(err.contains("not a regular file"), "{err}");
+        std::os::unix::fs::symlink(&fifo, src_root.join("link")).unwrap();
+        let mut ctx = test_ctx();
+        ctx.options.follow_symlinks = true;
+        let link = src_root.join("link");
+        assert!(copy_op(&mut ctx, vec![link], dest_root.clone(), false).is_ok());
+        assert!(dest_root.join("link").is_symlink(), "a link to a pipe stays a link");
+        assert!(!dest_root.join("pipe").exists() && !dest_root.join("proj/pipe").exists());
+
+        for d in [&src_root, &dest_root] {
+            let _ = std::fs::remove_dir_all(d);
+        }
     }
 
     #[test]

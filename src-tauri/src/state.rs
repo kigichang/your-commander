@@ -90,7 +90,12 @@ impl AppState {
         match location {
             Location::Local => Ok(Resolved::Local),
             Location::Sftp { conn_id } => self.sftp(*conn_id).map(Resolved::Sftp),
-            Location::Archive { archive } => Ok(Resolved::Archive(archive.clone())),
+            Location::Archive { archive } => {
+                // Like every local path a command takes: a relative one
+                // would resolve against the app's working directory.
+                crate::commands::require_absolute(archive)?;
+                Ok(Resolved::Archive(archive.clone()))
+            }
         }
     }
 
@@ -120,5 +125,19 @@ impl AppState {
 
     pub fn finish_find(&self, id: u64) {
         self.finds.lock().unwrap().remove(&id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_archive_location_needs_an_absolute_path() {
+        let state = AppState::default();
+        let at = |p: &str| state.resolve(&Location::Archive { archive: p.into() });
+        assert!(at("/tmp/a.zip").is_ok());
+        assert!(at("a.zip").is_err());
+        assert!(at("../a.zip").is_err());
     }
 }

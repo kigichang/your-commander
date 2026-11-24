@@ -90,12 +90,18 @@ impl<R: Read> Read for Capped<R> {
     }
 }
 
+/// The archive file itself, only when it is a regular file: a FIFO named
+/// like an archive would block the open for good.
+fn open_archive(archive: &Path) -> std::io::Result<std::fs::File> {
+    crate::ops::safe_path::open_regular(archive).map(|(file, _)| file)
+}
+
 type BrowseStream = (Box<dyn Read>, Rc<std::cell::Cell<bool>>);
 
 /// The tar stream of `archive` for browsing, and the flag raised when a
 /// .tar.gz turned out to be past `BROWSE_MAX_GZ_BYTES`.
 fn browse_tar(archive: &Path, kind: Kind) -> std::io::Result<BrowseStream> {
-    let file = std::fs::File::open(archive)?;
+    let file = open_archive(archive)?;
     let hit = Rc::new(std::cell::Cell::new(false));
     let reader: Box<dyn Read> = match kind {
         Kind::TarGz => Box::new(Capped {
@@ -122,7 +128,7 @@ fn for_each_entry(
     let kind = kind_of(archive)?;
     match kind {
         Kind::Zip => {
-            let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
+            let file = open_archive(archive).map_err(|e| err(&e))?;
             let zip = zip::ZipArchive::new(file).map_err(|e| err(&e))?;
             for i in 0..zip.len() {
                 // From the central directory already in memory; by_index_raw
@@ -304,7 +310,7 @@ pub fn read_entry(archive: &Path, inner: &str, max: u64) -> Result<Vec<u8>, Stri
     let kind = kind_of(archive)?;
     match kind {
         Kind::Zip => {
-            let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
+            let file = open_archive(archive).map_err(|e| err(&e))?;
             let mut zip = zip::ZipArchive::new(file).map_err(|e| err(&e))?;
             let mut entry = zip.by_name(inner).map_err(|e| err(&e))?;
             let mut out = Vec::new();
@@ -446,7 +452,7 @@ pub fn extract_entries(
         .map_err(|e| format!("{}: {e}", dest_dir.display()))?;
     match kind {
         Kind::Zip => {
-            let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
+            let file = open_archive(archive).map_err(|e| err(&e))?;
             let mut zip = zip::ZipArchive::new(file).map_err(|e| err(&e))?;
             // Pre-scan for a progress denominator (central directory only).
             let mut total = 0u64;
@@ -512,7 +518,7 @@ pub fn extract_entries(
         Kind::Tar | Kind::TarGz => {
             // A tar stream has no index: progress is the share of the
             // archive file read so far, and the reader handles cancel.
-            let file = std::fs::File::open(archive).map_err(|e| err(&e))?;
+            let file = open_archive(archive).map_err(|e| err(&e))?;
             let len = file.metadata().map(|m| m.len()).unwrap_or(0);
             ctx.total_bytes = len;
             let detail = Rc::new(RefCell::new(String::new()));
@@ -624,6 +630,24 @@ mod tests {
         let n = extract_entries(&mut ctx, &zip_path, vec!["sub".into()], &out).unwrap();
         assert_eq!(n, 1);
         assert_eq!(std::fs::read(out.join("sub/inner.txt")).unwrap(), b"inner");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Nothing writes to these pipes: a plain open would never return.
+    #[test]
+    fn a_fifo_named_like_an_archive_is_refused_not_opened() {
+        let dir = std::env::temp_dir().join(format!("yc_arfs_fifo_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["fifo.zip", "fifo.tar", "fifo.tar.gz"] {
+            let fifo = dir.join(name);
+            crate::ops::safe_path::mkfifo(&fifo);
+            assert!(list(&fifo, "").is_err(), "{name}");
+            assert!(read_entry(&fifo, "a.txt", 16).is_err(), "{name}");
+            let mut ctx = OpCtx::for_test(ConflictChoice::CancelOp);
+            let out = dir.join("out");
+            assert!(extract_entries(&mut ctx, &fifo, vec!["a".into()], &out).is_err(), "{name}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

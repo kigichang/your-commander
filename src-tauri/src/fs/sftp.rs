@@ -625,8 +625,9 @@ impl SftpConnection {
 
     /// Upload one local file, with progress and cancellation via `ctx`.
     pub fn upload_file(&self, ctx: &mut OpCtx, local: &Path, remote: &Path) -> Result<(), String> {
-        let mut reader =
-            std::fs::File::open(local).map_err(|e| format!("{}: {e}", local.display()))?;
+        // A regular file only: opening a FIFO would block for good.
+        let (mut reader, _) = crate::ops::safe_path::open_regular(local)
+            .map_err(|e| format!("{}: {e}", local.display()))?;
         runtime().block_on(async {
             // SFTP's open has no O_NOFOLLOW: it would truncate whatever a link
             // here points at. The caller has settled any conflict, so the link
