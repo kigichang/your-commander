@@ -72,8 +72,12 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
   // Password prompt shown when connecting with a username but no password.
   const [askPw, setAskPw] = useState(false);
   const [pwInput, setPwInput] = useState("");
-  // Share picker shown when connecting with the share left empty.
-  const [shareList, setShareList] = useState<string[] | null>(null);
+  // Share picker shown when connecting with the share left empty. It holds
+  // the password of this one attempt (typed in the form or in the prompt),
+  // gone with the picker when it is cancelled.
+  const [shareList, setShareList] = useState<{ shares: string[]; password: string } | null>(
+    null,
+  );
   // First-seen SSH host key awaiting the user's fingerprint check; `retry`
   // is the action to repeat with the key trusted.
   const [hostKey, setHostKey] = useState<{
@@ -92,6 +96,18 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
     else if (askPw) setAskPw(false);
     else if (shareList) setShareList(null);
     else close();
+  };
+
+  // What was typed as a secret was meant for the login then in the form:
+  // editing where it would be sent (host, port, user) takes it away, so it
+  // is never offered to another server.
+  const setSshTarget = (patch: Partial<Pick<SshConnection, "host" | "port" | "username">>) => {
+    setSecret("");
+    setSsh((s) => ({ ...s, ...patch }));
+  };
+  const setSmbTarget = (patch: Partial<Pick<SmbConnection, "server" | "username">>) => {
+    setSecret("");
+    setSmb((s) => ({ ...s, ...patch }));
   };
 
   const authMode: SshAuthMode = ssh.use_agent ? "agent" : ssh.use_password ? "password" : "key";
@@ -269,7 +285,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
       if (shares.length === 0) {
         toast(t("connect.noShares"), "error");
       } else {
-        setShareList(shares);
+        setShareList({ shares, password });
       }
     } catch (e) {
       toast(String(e), "error");
@@ -340,7 +356,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
 
   const submitPw = () => {
     setAskPw(false);
-    setSecret(pwInput);
+    // Passed along for this attempt only, not kept in the form.
     void mountSmb(pwInput);
     setPwInput("");
   };
@@ -447,16 +463,14 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
                     value={ssh.host}
                     spellCheck={false}
                     placeholder="prod.example.com"
-                    onChange={(e) => setSsh((s) => ({ ...s, host: e.target.value }))}
+                    onChange={(e) => setSshTarget({ host: e.target.value })}
                   />
                 </div>
                 <div>
                   <label>{t("connect.port")}</label>
                   <input
                     value={ssh.port}
-                    onChange={(e) =>
-                      setSsh((s) => ({ ...s, port: Number(e.target.value) || 22 }))
-                    }
+                    onChange={(e) => setSshTarget({ port: Number(e.target.value) || 22 })}
                   />
                 </div>
               </div>
@@ -464,7 +478,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
               <input
                 value={ssh.username}
                 spellCheck={false}
-                onChange={(e) => setSsh((s) => ({ ...s, username: e.target.value }))}
+                onChange={(e) => setSshTarget({ username: e.target.value })}
               />
               <label>{t("connect.auth")}</label>
               <div className="seg">
@@ -534,7 +548,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
                     value={smb.server}
                     spellCheck={false}
                     placeholder="nas.local"
-                    onChange={(e) => setSmb((s) => ({ ...s, server: e.target.value }))}
+                    onChange={(e) => setSmbTarget({ server: e.target.value })}
                   />
                 </div>
                 <div>
@@ -553,7 +567,7 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
                   <input
                     value={smb.username}
                     spellCheck={false}
-                    onChange={(e) => setSmb((s) => ({ ...s, username: e.target.value }))}
+                    onChange={(e) => setSmbTarget({ username: e.target.value })}
                   />
                 </div>
                 <div>
@@ -625,14 +639,14 @@ export function ConnectDialog({ protocol: initial }: { protocol: "smb" | "sftp" 
             <h2>{t("connect.pickShare")}</h2>
             <div className="settings-note">{`//${smb.server}`}</div>
             <div className="share-list">
-              {shareList.map((share) => (
+              {shareList.shares.map((share) => (
                 <button
                   key={share}
                   className="pick"
                   onClick={() => {
                     setSmb((s) => ({ ...s, share }));
                     setShareList(null);
-                    doMount(secret, share);
+                    doMount(shareList.password, share);
                   }}
                 >
                   {share}
