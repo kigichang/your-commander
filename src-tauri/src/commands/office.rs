@@ -240,6 +240,64 @@ fn read_sheet<RS: std::io::Read + std::io::Seek>(
 /// How an OLE2 compound file starts: the legacy binary formats.
 const OLE2_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 
+/// How a zip starts: its first entry, or the end record of an empty one.
+const ZIP_MAGICS: [&[u8]; 2] = [b"PK\x03\x04", b"PK\x05\x06"];
+
+/// Whether a file with the extension `ext` starts the way that format
+/// does. LibreOffice picks its importer by content, not by name: an HTML,
+/// SVG or XML file named `invoice.doc` would be laid out by the web
+/// importer, remote images and all. Only the containers the extension
+/// promises get through: OLE2 for the legacy formats (or RTF, which many
+/// a ".doc" is), zip for the modern ones.
+fn check_office_header(ext: &str, head: &[u8]) -> Result<(), String> {
+    let ok = match ext {
+        "doc" => head.starts_with(&OLE2_MAGIC) || head.starts_with(b"{\\rtf"),
+        "ppt" | "xls" => head.starts_with(&OLE2_MAGIC),
+        _ if CONVERTIBLE_EXTS.contains(&ext) => ZIP_MAGICS.iter().any(|m| head.starts_with(m)),
+        _ => false,
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("Not a .{ext} document: its content is something else"))
+    }
+}
+
+/// The file LibreOffice is given: the local file itself, or a copy of a
+/// remote or archived one in `scratch`. Only a regular file whose content
+/// starts like the `ext` it is named for.
+fn convert_input(
+    resolved: Resolved,
+    path: &Path,
+    ext: &str,
+    scratch: &Path,
+) -> Result<PathBuf, String> {
+    match resolved {
+        Resolved::Local => {
+            require_absolute(path)?;
+            // Never a FIFO or a device: soffice would sit on it, holding
+            // the gate, until the timeout.
+            let (file, _) = crate::ops::safe_path::open_regular(path)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            let mut head = Vec::new();
+            std::io::Read::read_to_end(&mut std::io::Read::take(file, 8), &mut head)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            check_office_header(ext, &head)?;
+            Ok(path.to_path_buf())
+        }
+        remote => {
+            // Copied out under a fixed name: only the extension matters
+            // to LibreOffice, and the remote name never reaches its
+            // command line. `ext` is one of CONVERTIBLE_EXTS.
+            let bytes = read_whole(remote, path, CONVERT_INPUT_MAX)?;
+            check_office_header(ext, &bytes)?;
+            let local = scratch.join(format!("document.{ext}"));
+            std::fs::write(&local, bytes).map_err(|e| e.to_string())?;
+            Ok(local)
+        }
+    }
+}
+
 fn read_workbook(bytes: Vec<u8>) -> Result<Workbook, String> {
     // calamine reads a whole .xls into dense grids while opening it, with
     // no way to cap them, and goes by content: the file's name is no guard.
@@ -370,13 +428,51 @@ fn profile_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "LibreOffice: no cache folder for its profile".to_string())
 }
 
+/// Settings the private profile starts from. A previewed document is
+/// never trusted: no macros, no linked content from outside the trusted
+/// locations (there are none), and a proxy nobody listens on for what
+/// LibreOffice would still fetch over HTTP(S).
+const PROFILE_SETTINGS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="BlockUntrustedRefererLinks" oor:op="fuse"><value>true</value></prop></item>
+<item oor:path="/org.openoffice.Inet/Settings"><prop oor:name="ooInetProxyType" oor:op="fuse"><value>1</value></prop></item>
+<item oor:path="/org.openoffice.Inet/Settings"><prop oor:name="ooInetHTTPProxyName" oor:op="fuse"><value>127.0.0.1</value></prop></item>
+<item oor:path="/org.openoffice.Inet/Settings"><prop oor:name="ooInetHTTPProxyPort" oor:op="fuse"><value>9</value></prop></item>
+<item oor:path="/org.openoffice.Inet/Settings"><prop oor:name="ooInetHTTPSProxyName" oor:op="fuse"><value>127.0.0.1</value></prop></item>
+<item oor:path="/org.openoffice.Inet/Settings"><prop oor:name="ooInetHTTPSProxyPort" oor:op="fuse"><value>9</value></prop></item>
+<item oor:path="/org.openoffice.Inet/Settings"><prop oor:name="ooInetNoProxy" oor:op="fuse"><value></value></prop></item>
+</oor:items>
+"#;
+
+/// Put `PROFILE_SETTINGS` into `profile` unless they are there already.
+/// LibreOffice rewrites the file as it runs and keeps what it was given,
+/// so a profile from before these settings gets them once.
+fn harden_profile(profile: &Path) -> Result<(), String> {
+    let user = profile.join("user");
+    let file = user.join("registrymodifications.xcu");
+    if std::fs::read_to_string(&file).is_ok_and(|s| s.contains("BlockUntrustedRefererLinks")) {
+        return Ok(());
+    }
+    let err = |e: std::io::Error| format!("{}: {e}", file.display());
+    std::fs::create_dir_all(&user).map_err(err)?;
+    // Not through a link someone left under the name.
+    crate::ops::safe_path::remove_if_link(&file)?;
+    std::fs::write(&file, PROFILE_SETTINGS).map_err(err)
+}
+
 /// Run soffice on `input` and return the PDF it writes.
 fn run_soffice(soffice: &Path, input: &Path, scratch: &Path) -> Result<Vec<u8>, String> {
     let outdir = scratch.join("out");
     std::fs::create_dir(&outdir).map_err(|e| format!("{}: {e}", outdir.display()))?;
+    let profile = profile_dir()?;
+    harden_profile(&profile)?;
     use std::os::unix::process::CommandExt;
-    let child = std::process::Command::new(soffice)
-        .args(convert_args(&profile_dir()?, &outdir, input))
+    // Without the network where the system can take it away: a document
+    // can link to pictures, and fetching one tells its server who opened
+    // the file (or reaches a service on this machine's own network).
+    let child = crate::platform::offline_command(soffice)
+        .args(convert_args(&profile, &outdir, input))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -432,6 +528,7 @@ pub async fn office_to_pdf(
 ) -> Result<Response, String> {
     // Office documents only: LibreOffice opens far more (HTML, SVG, text,
     // images), and those would be fetched or laid out by it for nothing.
+    // The name is half of it; `convert_input` checks the content.
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
@@ -458,26 +555,7 @@ pub async fn office_to_pdf(
             return Err("superseded".into());
         }
         let scratch = Scratch::new()?;
-        let input = match resolved {
-            Resolved::Local => {
-                require_absolute(&path)?;
-                path.clone()
-            }
-            remote => {
-                // Copied out under a fixed name: only the extension matters
-                // to LibreOffice, and the remote name never reaches its
-                // command line.
-                let bytes = read_whole(remote, &path, CONVERT_INPUT_MAX)?;
-                let ext = path
-                    .extension()
-                    .map(|e| e.to_string_lossy().to_ascii_lowercase())
-                    .filter(|e| e.chars().all(|c| c.is_ascii_alphanumeric()))
-                    .unwrap_or_default();
-                let local = scratch.0.join(format!("document.{ext}"));
-                std::fs::write(&local, bytes).map_err(|e| e.to_string())?;
-                local
-            }
-        };
+        let input = convert_input(resolved, &path, &ext, &scratch.0)?;
         run_soffice(&soffice, &input, &scratch.0)
     })
     .await?;
@@ -603,6 +681,82 @@ mod tests {
         let mut xls = OLE2_MAGIC.to_vec();
         xls.resize(4096, 0);
         assert!(read_workbook(xls).is_err_and(|e| e.contains("LibreOffice")));
+    }
+
+    #[test]
+    fn only_the_container_the_extension_promises_is_converted() {
+        let mut ole = OLE2_MAGIC.to_vec();
+        ole.resize(512, 0);
+        for ext in ["doc", "xls", "ppt"] {
+            assert!(check_office_header(ext, &ole).is_ok(), "{ext}");
+            assert!(check_office_header(ext, b"PK\x03\x04rest").is_err(), "{ext}");
+        }
+        for ext in CONVERTIBLE_EXTS.iter().filter(|e| !["doc", "xls", "ppt"].contains(e)) {
+            assert!(check_office_header(ext, b"PK\x03\x04rest").is_ok(), "{ext}");
+            assert!(check_office_header(ext, b"PK\x05\x06").is_ok(), "{ext}");
+            assert!(check_office_header(ext, &ole).is_err(), "{ext}");
+        }
+        assert!(check_office_header("doc", br"{\rtf1\ansi Hello}").is_ok());
+        assert!(check_office_header("xls", br"{\rtf1\ansi Hello}").is_err());
+        // What LibreOffice would hand to its web, SVG or flat-XML importer.
+        let disguised: [&[u8]; 8] = [
+            b"<!doctype html><img src=\"http://example.com/x.png\">",
+            b"   <html><body>",
+            b"\xEF\xBB\xBF<svg xmlns=\"http://www.w3.org/2000/svg\">",
+            b"<?xml version=\"1.0\"?><office:document",
+            b"\n<HTML>",
+            b"plain text",
+            b"PK",
+            b"",
+        ];
+        for ext in CONVERTIBLE_EXTS {
+            for head in disguised {
+                assert!(check_office_header(ext, head).is_err(), "{ext}: {head:?}");
+            }
+        }
+        // Not a type Quick View converts at all.
+        assert!(check_office_header("html", b"PK\x03\x04").is_err());
+        assert!(check_office_header("", &ole).is_err());
+    }
+
+    #[test]
+    fn local_input_is_a_regular_file_with_the_right_content() {
+        let scratch = Scratch::new().unwrap();
+        let dir = &scratch.0;
+        let input = |name: &str, ext: &str| {
+            convert_input(Resolved::Local, &dir.join(name), ext, dir)
+        };
+        let mut ole = OLE2_MAGIC.to_vec();
+        ole.resize(512, 0);
+        std::fs::write(dir.join("real.doc"), &ole).unwrap();
+        assert_eq!(input("real.doc", "doc").unwrap(), dir.join("real.doc"));
+        std::fs::write(dir.join("evil.doc"), b"<html><img src=http://example.com/>").unwrap();
+        assert!(input("evil.doc", "doc").is_err());
+        std::fs::write(dir.join("evil.docx"), b"<html>").unwrap();
+        assert!(input("evil.docx", "docx").is_err());
+        // Nothing writes to the pipe: opening it would never return.
+        crate::ops::safe_path::mkfifo(&dir.join("fifo.doc"));
+        assert!(input("fifo.doc", "doc").is_err_and(|e| e.contains("not a regular file")));
+        assert!(input("missing.doc", "doc").is_err());
+        assert!(convert_input(Resolved::Local, Path::new("real.doc"), "doc", dir).is_err());
+    }
+
+    #[test]
+    fn the_profile_is_hardened_once() {
+        let scratch = Scratch::new().unwrap();
+        let profile = scratch.0.join("lo-profile");
+        let file = profile.join("user/registrymodifications.xcu");
+        harden_profile(&profile).unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("MacroSecurityLevel") && text.contains("ooInetProxyType"));
+        // What LibreOffice added since stays.
+        std::fs::write(&file, format!("{text}<!-- theirs -->")).unwrap();
+        harden_profile(&profile).unwrap();
+        assert!(std::fs::read_to_string(&file).unwrap().ends_with("<!-- theirs -->"));
+        // A profile from before the settings gets them.
+        std::fs::write(&file, "<oor:items/>").unwrap();
+        harden_profile(&profile).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), PROFILE_SETTINGS);
     }
 
     #[test]

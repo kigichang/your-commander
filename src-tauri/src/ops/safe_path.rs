@@ -207,9 +207,31 @@ pub fn is_plain_name(name: &str) -> bool {
     is_listing_name(name) && !name.contains('\\')
 }
 
+/// A named pipe at `path`, for tests of what must never be opened.
+#[cfg(test)]
+pub fn mkfifo(path: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_regular_refuses_pipes_devices_and_links_to_them() {
+        let dir = tmp("regular");
+        std::fs::write(dir.join("file"), b"x").unwrap();
+        mkfifo(&dir.join("fifo"));
+        std::os::unix::fs::symlink("fifo", dir.join("link")).unwrap();
+        assert!(open_regular(&dir.join("file")).is_ok());
+        assert!(open_regular(&dir.join("fifo")).is_err());
+        assert!(open_regular(&dir.join("link")).is_err());
+        assert!(open_regular(Path::new("/dev/zero")).is_err());
+        assert!(open_regular(&dir).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn create_dir_inside_refuses_dotdot_below_a_missing_folder() {

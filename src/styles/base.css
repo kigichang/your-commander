@@ -1307,6 +1307,7 @@ svg.li {
   background: transparent;
   text-align: center;
 }
+.markdown-body pre.mermaid img,
 .markdown-body pre.plantuml img {
   max-width: 100%;
   display: inline-block;

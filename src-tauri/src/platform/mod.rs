@@ -129,4 +129,30 @@ mod tests {
             "file:///home/kigi/My%20Files/a%27b%23c.txt"
         );
     }
+
+    /// The same connection, with and without the sandbox around it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_offline_command_reaches_no_socket() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port().to_string();
+        let nc = std::path::Path::new("/usr/bin/nc");
+        let args = ["-z", "-w", "2", "127.0.0.1", port.as_str()];
+        let quiet = |cmd: &mut std::process::Command| {
+            cmd.args(args)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        };
+        assert!(quiet(&mut std::process::Command::new(nc)));
+        assert!(!quiet(&mut super::offline_command(nc)));
+        // It still runs: only the network is gone.
+        let out = super::offline_command(std::path::Path::new("/bin/echo"))
+            .arg("ok")
+            .output()
+            .unwrap();
+        assert_eq!(out.stdout, b"ok\n");
+    }
 }
