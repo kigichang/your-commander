@@ -432,6 +432,19 @@ pub fn download_cloud_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Everything allowed but the network: no IP traffic at all, and no name
+/// lookups (those go to mDNSResponder over its unix socket). Other unix
+/// sockets stay: LibreOffice finds a running instance of itself over one.
+const OFFLINE_PROFILE: &str = r#"(version 1)(allow default)(deny network*)(allow network* (local unix-socket))(allow network* (remote unix-socket))(deny network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))"#;
+
+/// A command that runs `program` cut off from the network, by the system's
+/// own sandbox. For a helper fed a file nobody vetted.
+pub fn offline_command(program: &Path) -> std::process::Command {
+    let mut cmd = std::process::Command::new("/usr/bin/sandbox-exec");
+    cmd.arg("-p").arg(OFFLINE_PROFILE).arg(program);
+    cmd
+}
+
 /// Keep the calling thread from downloading cloud placeholders: a content
 /// search over a cloud folder must not fetch the whole drive. Reads of a
 /// placeholder then fail and the file is skipped. Only for a thread the

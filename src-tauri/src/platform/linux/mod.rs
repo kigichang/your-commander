@@ -486,6 +486,14 @@ pub fn icon_png(key: &str) -> Option<Vec<u8>> {
     None
 }
 
+/// A command that runs `program`. macOS cuts it off from the network
+/// with its sandbox; here nothing every desktop has does that without
+/// privileges (user namespaces are often restricted), so the caller's own
+/// settings for the program are the guard.
+pub fn offline_command(program: &Path) -> std::process::Command {
+    std::process::Command::new(program)
+}
+
 /// No cloud placeholders to fetch on Linux (GVfs mounts read through).
 pub fn allow_cloud_downloads() {}
 
